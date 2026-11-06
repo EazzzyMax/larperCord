@@ -85,7 +85,7 @@ The official client is a whole browser dressed up as an app. On the same PC:
   and a memory limit, so they can't hold up the interface. Scam guard, CVE radar, GitHub cards, what did I miss, translate,
   reminders, highlights, clean links, and links and files come with the app. [Guide and API →](docs/plugins.md)
 - **Voice settings.** In Settings → Voice you pick the microphone and output (remembered by name, back to the default if they disappear, switchable mid-call), adjust volumes, see the mic level live and use "Test microphone" to hear yourself. Voice activity has an adjustable threshold on the meter or an automatic mode that learns your background noise. "Push to talk" takes a key or mouse button and works while the window is focused (SDL has no portable global shortcut). There's a high-pass against rumble, a noise gate and beeps for joining, leaving, muting and unmuting, all of which can be turned off. The voice panel shows ping, quality by color and when you're transmitting, and warns you if the mic doesn't open or if the server muted or deafened you. Other people's mute and deafen show in the call list.
-- **Runs on Linux and Windows.** Windows 10/11 builds come from the same code; tokens stay in Credential Manager.
+- **Runs on Linux and Windows.** Linux prefers native Wayland in a Wayland session, with X11 fallback. Windows 10/11 builds come from the same code; tokens stay in Credential Manager.
 - **Stays in the tray.** Closing keeps it connected in the system tray, with Open and Quit in the tray menu; "Close to tray" in Settings → Advanced turns it off. Without a tray, closing quits. Opening it a second time brings up the running window. On Linux the tray needs a StatusNotifier panel and libappindicator or ayatana.
 - **Updates itself.** Checks when opening or from Settings → Updates. One button downloads, installs and restarts. Updates are signed, and a version without the right signature isn't installed. There's a restart button and a What's new page with the changes in each version.
 - **Video volume.** The in-app player has a volume slider, remembered between runs.
@@ -161,6 +161,10 @@ All of them have **light and dark modes** and **their own options** in Settings 
 **Download:** [Linux](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-linux-x86_64) · [Windows](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-windows-x86_64.zip) · [all versions](https://github.com/RshaCuDeVidro/larperCord/releases). On Linux, `chmod +x` the file and run it. On Windows, unzip it and open `larpercord.exe`; it isn't code-signed yet, so Windows may warn you the first time.
 
 The Linux build runs on distros from about 2022 onward (glibc 2.34 or newer). SDL3, libcurl and OpenSSL come inside it. FreeType, fontconfig, libwebp, Opus and zlib come from the system, and a desktop distro usually has them already. Before each release it's opened in Ubuntu 22.04 and 24.04, Debian 12 and 13, Fedora, openSUSE and Arch containers, in demo mode with no GPU.
+
+On a Wayland desktop, the app connects natively through SDL3; XWayland is not required. For window decorations on GNOME, install your distro's `libdecor` package and its decoration plugin. To force a backend, run `SDL_VIDEO_DRIVER=wayland larpercord` or `SDL_VIDEO_DRIVER=x11 larpercord`. Add `--stats` to see the selected video driver and renderer. The installer provides `dev.larpercord.desktop` for the launcher icon.
+
+Developers can check native Wayland at 1× and 2× scale, backend overrides and X11 fallback with `python3 tools/qa_wayland.py zig-out/bin/larpercord` after building (requires Weston, Xvfb and Python 3). This runs a separate headless compositor with demo data and no GPU or Discord account.
 
 GitHub Actions builds that file from this repository's code. With the GitHub CLI you can check it: `gh attestation verify larpercord-linux-x86_64 --repo RshaCuDeVidro/larperCord`.
 

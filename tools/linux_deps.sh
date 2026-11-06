@@ -32,7 +32,16 @@ cmake -S "$t"/SDL3-* -B "$t/build" -G Ninja \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DSDL_SHARED=OFF -DSDL_STATIC=ON \
     -DSDL_DEPS_SHARED=ON \
+    -DSDL_X11=ON -DSDL_WAYLAND=ON -DSDL_WAYLAND_SHARED=ON \
+    -DSDL_WAYLAND_LIBDECOR=ON -DSDL_WAYLAND_LIBDECOR_SHARED=ON \
     -DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_EXAMPLES=OFF
+config="$t/build/include-config-release/build_config/SDL_build_config.h"
+for backend in X11 WAYLAND; do
+    if ! grep -Eq "^#define SDL_VIDEO_DRIVER_${backend} 1$" "$config"; then
+        echo "SDL3 sem $backend: instale os headers de desenvolvimento (veja .github/workflows/linux-portable.yml)." >&2
+        exit 1
+    fi
+done
 cmake --build "$t/build"
 cmake --install "$t/build"
 rm -rf "$t"

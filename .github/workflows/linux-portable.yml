@@ -20,6 +20,7 @@ jobs:
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev \
             libwayland-dev libwayland-bin libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev \
             libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev
+          apt-get install -y --no-install-recommends python3 weston xvfb fonts-dejavu-core
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
         with:
@@ -27,6 +28,8 @@ jobs:
       - run: tools/linux_deps.sh
       - name: Compilar
         run: PKG_CONFIG_PATH=$PWD/.deps/linux/lib/pkgconfig zig build -Dcpu=baseline -Dportable=true
+      - name: Wayland nativo no binário portátil
+        run: python3 tools/qa_wayland.py zig-out/bin/larpercord
       - name: O que o binário exige
         run: |
           bin=zig-out/bin/larpercord
