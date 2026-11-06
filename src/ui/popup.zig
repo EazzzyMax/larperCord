@@ -261,6 +261,7 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
             add(&items, &n, .{ .label = "Responder", .en = "Reply", .id = 1 });
             if (own) add(&items, &n, .{ .label = "Editar mensagem", .en = "Edit Message", .id = 2 });
             add(&items, &n, .{ .label = "Adicionar reação", .en = "Add Reaction", .id = 3 });
+            if (found.m.msg.id != 0 and found.m.msg.system == .none) add(&items, &n, .{ .label = "Encaminhar", .en = "Forward", .id = 14 });
             add(&items, &n, .{ .label = if (ctx.st.selection.empty()) "Copiar texto" else "Copiar seleção", .en = if (ctx.st.selection.empty()) "Copy Text" else "Copy Selection", .id = 4 });
             add(&items, &n, .{ .label = "Copiar link da mensagem", .en = "Copy Message Link", .id = 5 });
             // Salvas: só neste computador (ui/saved.zig).
@@ -525,6 +526,7 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
             copyFmt(ctx, "https://discord.com/channels/{s}/{d}/{d}", .{ guildPart(&gb, f.cs.info.guild), f.cs.info.id, id });
         },
         7 => ctx.act(.{ .mark_unread = id }),
+        14 => ctx.act(.{ .forward_pick = id }),
         13 => if (ctx.store.findAny(id)) |f| ctx.act(.{ .pin_message = .{ .channel = f.cs.info.id, .id = id, .add = !f.m.msg.pinned } }),
         8, 25, 44, 63 => copyFmt(ctx, "{d}", .{id}),
         10 => ctx.act(if (st.saved.find(id) != null) .{ .unsave_message = id } else .{ .save_message = id }),

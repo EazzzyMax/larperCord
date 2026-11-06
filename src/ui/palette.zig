@@ -206,6 +206,19 @@ fn rebuild(ctx: *d.Ctx) void {
         add(p, gpa, q, .{ .label = label, .hint = if (on) i18n.tr3("ligado agora", "on now", "オン") else i18n.tr3("desligado agora", "off now", "オフ"), .kind = .setting, .index = i });
     }
 
+    // Encaminhando: só onde dá para escrever.
+    if (p.forward != 0) {
+        var kept: usize = 0;
+        for (p.items.items) |it| {
+            if (it.kind != .channel) continue;
+            const cs = ctx.store.channel(it.id) orelse continue;
+            if (cs.info.kind != .text or !ctx.store.canSend(&cs.info)) continue;
+            p.items.items[kept] = it;
+            kept += 1;
+        }
+        p.items.shrinkRetainingCapacity(kept);
+    }
+
     @import("../core/sort.zig").stable(state.PaletteItem, p.items.items, {}, struct {
         fn lt(_: void, x: state.PaletteItem, y: state.PaletteItem) bool {
             return x.score > y.score;
@@ -215,6 +228,10 @@ fn rebuild(ctx: *d.Ctx) void {
 }
 
 fn choose(ctx: *d.Ctx, item: state.PaletteItem) void {
+    if (ctx.st.palette.forward != 0) {
+        if (item.kind == .channel) ctx.act(.{ .forward_to = .{ .id = ctx.st.palette.forward, .to = item.id } });
+        return ctx.act(.close_palette);
+    }
     switch (item.kind) {
         .channel => {
             const cs = ctx.store.channel(item.id) orelse return;
@@ -275,7 +292,7 @@ pub fn draw(ctx: *d.Ctx) void {
         rebuild(ctx);
     }
     c.ImGui_SetNextItemWidth(box.w - 60);
-    if (c.ImGui_InputTextWithHint("##q", i18n.trZ("Ir para canal, servidor, DM, tema, ação ou opção…", "Go to a channel, server, DM, theme, action or option…").ptr, &p.query, p.query.len, 0)) {
+    if (c.ImGui_InputTextWithHint("##q", if (p.forward != 0) i18n.trZ("Encaminhar para qual canal ou DM?", "Forward to which channel or DM?") else i18n.trZ("Ir para canal, servidor, DM, tema, ação ou opção…", "Go to a channel, server, DM, theme, action or option…").ptr, &p.query, p.query.len, 0)) {
         p.selected = 0;
         rebuild(ctx);
     }

@@ -229,6 +229,20 @@ pub const Gateway = struct {
                         .reply_to = m.reply_to,
                     } });
                 },
+                .forward_message => |f| {
+                    // Como a de verdade: o texto vira um cartão marcado.
+                    const cards = try alloc.alloc(types.Embed, 1);
+                    cards[0] = .{ .provider = try alloc.dupe(u8, i18n.tr("Encaminhada", "Forwarded")), .description = f.text };
+                    g.emit(.{ .message_create = .{
+                        .id = types.makeSnowflake(nowMs(), g.rng.random().int(u22)),
+                        .channel = f.to,
+                        .author = me_id,
+                        .timestamp = @divTrunc(nowMs(), 1000),
+                        .content = try alloc.dupe(u8, ""),
+                        .embeds = cards,
+                    } });
+                    g.emit(.{ .notice = try i18n.allocPrint(alloc, "mensagem encaminhada", "message forwarded", .{}) });
+                },
                 .edit_message => |m| {
                     const shown = try jsonx.simplifyContent(alloc, m.content);
                     var raw: ?[]const u8 = null;

@@ -661,6 +661,24 @@ fn viewerOpen(app: *App) bool {
 fn viewerClosed(app: *App) bool {
     return app.st.viewer == null;
 }
+fn wheelUp(app: *App) void {
+    c.ImGuiIO_AddMouseWheelEvent(app.io, 0, 3);
+}
+fn wheelDown(app: *App) void {
+    c.ImGuiIO_AddMouseWheelEvent(app.io, 0, -40);
+}
+fn viewerZoomed(app: *App) bool {
+    const v = app.st.viewer orelse return false;
+    return v.zoom > 1.5;
+}
+fn viewerMoved(app: *App) bool {
+    const v = app.st.viewer orelse return false;
+    return v.zoom > 1.5 and (v.pan_x != 0 or v.pan_y != 0);
+}
+fn viewerFits(app: *App) bool {
+    const v = app.st.viewer orelse return false;
+    return v.zoom == 1 and v.pan_x == 0 and v.pan_y == 0;
+}
 fn toastDemoFile(app: *App) bool {
     return std.mem.indexOf(u8, app.st.toast.text(), "arquivo") != null;
 }
@@ -1883,7 +1901,7 @@ const ops_plugin_section = [_]Op{
     .{ .expect = .{ .name = "/mock (zoeira.lua) reescreve o texto", .check = mockSent, .timeout_ms = 3000 } },
     ctrl(c.ImGuiKey_Comma),
     click("settings:Plugins"),
-} ++ @import("qa_plugins.zig").ops ++ [_]Op{
+} ++ @import("qa_plugins.zig").ops ++ @import("qa_plugins.zig").ops_forward ++ [_]Op{
     .{ .sweep = &.{ "toggle:", "button:", "plugin-open:", "host:", "pp-select:", "pp-toggle:" } },
     key(c.ImGuiKey_Escape),
     // O resto da bateria começa sem plugins e sem painel (o layout volta ao normal).
@@ -2272,6 +2290,21 @@ const ops = [_]Op{
     .{ .wait = 300 },
     .{ .expect = .{ .name = "tela cheia carrega a imagem grande", .check = noImageLoading, .timeout_ms = 4000 } },
     .{ .shot = "27-imagem-tela-cheia" },
+    .{ .hover = .{ .mark = "viewer" } },
+    .{ .run = wheelUp },
+    .{ .wait = 150 },
+    expect("a roda do mouse amplia a imagem", viewerZoomed),
+    .{ .wait = 200 },
+    .{ .shot = "27a-imagem-ampliada" },
+    .{ .drag = .{ .from = .{ .mark = "viewer" }, .to = .{ .mark = "viewer:fechar" } } },
+    expect("arrastar move a imagem ampliada, sem fechar", viewerMoved),
+    .{ .run = wheelDown },
+    .{ .wait = 150 },
+    expect("não encolhe além do tamanho que cabe, e volta ao centro", viewerFits),
+    .{ .dclick = .{ .mark = "viewer" } },
+    expect("dois cliques ampliam", viewerZoomed),
+    .{ .dclick = .{ .mark = "viewer" } },
+    expect("dois cliques voltam", viewerFits),
     key(c.ImGuiKey_Escape),
     expect("Esc fecha a tela cheia", viewerClosed),
     .{ .click = .{ .dyn = tDemoImage } },

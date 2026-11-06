@@ -2620,6 +2620,7 @@ pub const Gateway = struct {
                 if (m.files.len > 0) alloc.free(m.files);
             },
             .edit_message => |m| alloc.free(m.content),
+            .forward_message => |f| alloc.free(f.text),
             .ack_bulk => |list| if (list.len > 0) alloc.free(list),
             .create_thread => |m| alloc.free(m.name),
             .edit_place => |e| freeEdit(e),
@@ -2967,6 +2968,15 @@ pub const Gateway = struct {
                     .members = @intCast(std.math.clamp(j.int(j.get(v, "approximate_member_count")) orelse 0, 0, std.math.maxInt(u32))),
                     .online = @intCast(std.math.clamp(j.int(j.get(v, "approximate_presence_count")) orelse 0, 0, std.math.maxInt(u32))),
                 } } });
+            },
+            .forward_message => |f| {
+                var body_buf: [256]u8 = undefined;
+                const body = std.fmt.bufPrint(&body_buf, "{{\"content\":\"\",\"nonce\":\"{d}\",\"tts\":false,\"message_reference\":{{\"type\":1,\"message_id\":\"{d}\",\"channel_id\":\"{d}\"}}}}", .{ f.nonce, f.id, f.from }) catch return;
+                const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/messages", .{f.to}) catch return;
+                var resp = g.request("POST", path, body) orelse return g.notice("sem conexão: a mensagem não foi encaminhada", "no connection: the message wasn't forwarded", .{});
+                defer resp.body.deinit(alloc);
+                if (resp.status >= 300) return g.noticeHttp(i18n.tr("não deu para encaminhar a mensagem", "couldn't forward the message"), &resp);
+                g.notice("mensagem encaminhada", "message forwarded", .{});
             },
             .send_message => |m| {
                 var b: std.ArrayList(u8) = .empty;

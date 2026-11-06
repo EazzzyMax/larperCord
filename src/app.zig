@@ -1538,11 +1538,23 @@ pub const App = struct {
             .open_palette => {
                 st.palette.open = true;
                 st.palette.focus = false;
+                st.palette.forward = 0;
                 @memset(&st.palette.query, 0);
                 st.palette.selected = 0;
             },
+            .forward_pick => |id| {
+                app.handle(.open_palette);
+                st.palette.forward = id;
+            },
+            .forward_to => |f| {
+                const found = app.store.findAny(f.id) orelse return;
+                const copy = std.heap.c_allocator.dupe(u8, found.m.msg.content) catch return;
+                st.nonce += 1;
+                app.cmd(.{ .forward_message = .{ .from = found.cs.info.id, .id = f.id, .to = f.to, .nonce = st.nonce, .text = copy } });
+            },
             .close_palette => {
                 st.palette.open = false;
+                st.palette.forward = 0;
                 st.focus_input = true;
             },
             .open_settings => {

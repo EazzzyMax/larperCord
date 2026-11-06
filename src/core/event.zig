@@ -186,6 +186,8 @@ pub const Command = union(enum) {
     /// `files`: caminhos dos arquivos a enviar (alocados, terminados em 0).
     send_message: struct { channel: Id, content: []const u8, nonce: u64, reply_to: Id = 0, files: []const [:0]const u8 = &.{} },
     edit_message: struct { channel: Id, id: Id, content: []const u8 },
+    /// `text`: cópia do conteúdo, só para a demonstração (o Discord já tem a original).
+    forward_message: struct { from: Id, id: Id, to: Id, nonce: u64, text: []const u8 },
     delete_message: struct { channel: Id, id: Id },
     delete_thread: Id,
     /// Editar servidor ou grupo: só o que mudou (null/keep = deixa como está).
@@ -313,6 +315,9 @@ pub const Action = union(enum) {
     open_pins: Id,
     want_pins: Id,
     pin_message: struct { channel: Id, id: Id, add: bool },
+    /// Abre a paleta para escolher para onde encaminhar a mensagem.
+    forward_pick: Id,
+    forward_to: struct { id: Id, to: Id },
     /// Link de convite na tela: busca o cartão (uma vez por código).
     want_invite: InviteCode,
     /// Liga/desliga uma opção do tema atual (índice em `Theme.options`).

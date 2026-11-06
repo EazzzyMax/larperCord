@@ -26,8 +26,9 @@ pub fn current() Lang {
     return lang.load(.acquire);
 }
 
+/// Inglês, ou japonês sem tradução no ponto de uso: nunca cai no português.
 pub fn en() bool {
-    return lang.load(.acquire) == .en;
+    return lang.load(.acquire) != .pt;
 }
 
 pub fn ja() bool {
@@ -112,6 +113,7 @@ test "idioma padrão e troca" {
     const old = current();
     defer set(old);
     set(.ja);
+    try std.testing.expect(en());
     try std.testing.expectEqualStrings("Sign in", tr("Entrar", "Sign in"));
     try std.testing.expectEqualStrings("ログイン", tr3("Entrar", "Sign in", "ログイン"));
     set(.pt);

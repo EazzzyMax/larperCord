@@ -236,6 +236,9 @@ fn resolveCjk() ?Match {
     var result: c.FcResult = undefined;
     const m = c.FcFontMatch(null, pat, &result) orelse return null;
     defer c.FcPatternDestroy(m);
+    // Sem fonte japonesa instalada, o fontconfig responde com outra qualquer: essa não serve.
+    var chars: ?*c.FcCharSet = null;
+    if (c.FcPatternGetCharSet(m, c.FC_CHARSET, 0, &chars) != c.FcResultMatch or c.FcCharSetHasChar(chars, 0x3042) == 0) return null;
     var file: [*c]c.FcChar8 = null;
     if (c.FcPatternGetString(m, c.FC_FILE, 0, &file) != c.FcResultMatch) return null;
     var index: c_int = 0;
