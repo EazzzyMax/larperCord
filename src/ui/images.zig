@@ -20,14 +20,14 @@ const janela = @import("../core/janela.zig");
 
 const alloc = std.heap.c_allocator;
 
-/// Limite de memória das texturas e tempo até soltar uma imagem fora da tela.
-const budget_bytes: usize = 64 * 1024 * 1024;
+/// Tempo até soltar uma imagem fora da tela.
 const idle_ms: i64 = 60_000;
 /// Maior arquivo que a gente baixa (o Discord aceita até 10 MB sem Nitro).
 const max_download: usize = 32 * 1024 * 1024;
 /// Limite de uma animação (GIF, WebP, APNG) já reduzida: passando disso,
 /// pula quadros (o tempo total continua o mesmo, só fica menos fluido).
-const max_gif_bytes: usize = 32 * 1024 * 1024;
+/// As threads de mídia leem o limite, que vem das Configurações → Desempenho.
+pub var gif_limit_bytes: std.atomic.Value(usize) = .init(12 * 1024 * 1024);
 const max_gif_frames: usize = 300;
 /// Teto de quadros lidos e de tempo decodificando uma animação: um GIF feito
 /// para isso (centenas de milhares de quadros) para aqui, com o que já tem.
@@ -154,6 +154,8 @@ pub const Cache = struct {
     freed_bytes: usize = 0,
     /// O app olha isto depois de `pump` e pede a devolução.
     trim_due: bool = false,
+    /// Limite de memória das imagens (Configurações → Desempenho).
+    budget_bytes: usize = 32 * 1024 * 1024,
 
     pub fn init(renderer: *c.SDL_Renderer, wake_type: u32) !Cache {
         if (curl_mutex == null) curl_mutex = c.SDL_CreateMutex() orelse return error.SdlMutex;
@@ -382,7 +384,7 @@ pub const Cache = struct {
             while (it.next()) |e| {
                 if (e.value_ptr.state == .loading) continue;
                 const idle = cache.drawn_ms - e.value_ptr.used_ms;
-                if (idle > idle_ms or (cache.bytes > budget_bytes and idle > 1000)) {
+                if (idle > idle_ms or (cache.bytes > cache.budget_bytes and idle > 1000)) {
                     if (e.value_ptr.used_ms < oldest_ms) {
                         oldest_ms = e.value_ptr.used_ms;
                         oldest = e.key_ptr.*;
@@ -390,6 +392,8 @@ pub const Cache = struct {
                 }
             }
             cache.drop(oldest orelse return);
+            // O que saiu precisa voltar ao sistema, senão a RAM não desce.
+            cache.trim_due = true;
         }
     }
 
@@ -800,7 +804,7 @@ const FrameSink = struct {
             alloc.free(out);
             return false;
         };
-        if (g.bytes() > max_gif_bytes or g.frames.items.len > max_gif_frames) g.halve();
+        if (g.bytes() > gif_limit_bytes.load(.monotonic) or g.frames.items.len > max_gif_frames) g.halve();
         return true;
     }
 

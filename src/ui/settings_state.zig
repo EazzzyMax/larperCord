@@ -52,6 +52,10 @@ pub const Settings = struct {
 
     // Aparência / acessibilidade
     font_scale: f32 = 1.0,
+    /// Limites de memória, em Desempenho: imagens e cada GIF (MB), e mensagens somando os canais.
+    image_cache_mb: f32 = 32,
+    gif_limit_mb: f32 = 12,
+    message_budget: f32 = 2000,
     compact: bool = false,
     show_avatars: bool = true,
     reduce_motion: bool = false,

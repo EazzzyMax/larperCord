@@ -166,6 +166,10 @@ pub const Store = struct {
     /// Limite por canal das que chegam ao vivo; o que veio rolando para cima
     /// não é cortado (a pessoa está lendo).
     max_messages: usize = 1500,
+    /// Teto de mensagens na memória somando todos os canais (Configurações → Desempenho).
+    /// Passando dele, descarrega a conversa esquecida há mais tempo, que é buscada de novo
+    /// quando voltar para a tela.
+    message_budget: usize = 2000,
     latency_ms: u32 = 0,
     connection: @import("event.zig").Connection = .connecting,
     /// Dados de demonstração (sem conta conectada).
@@ -1931,10 +1935,6 @@ pub const Store = struct {
         s.rev +%= 1;
     }
 
-    /// Teto de mensagens na memória somando todos os canais. Passando dele,
-    /// descarrega a conversa esquecida há mais tempo (ela é buscada de novo
-    /// quando voltar para a tela).
-    pub const global_budget: usize = 3000;
     var guild_hint: usize = 0;
     var budget_tick: u32 = 0;
 
@@ -1949,7 +1949,7 @@ pub const Store = struct {
                 if (cs.*.messages.items.len == 0 or now_ms - cs.*.seen_ms < 30_000) continue;
                 if (victim == null or cs.*.seen_ms < victim.?.seen_ms) victim = cs.*;
             }
-            if (total <= global_budget) return;
+            if (total <= s.message_budget) return;
             s.unload(victim orelse return);
         }
     }
@@ -2079,6 +2079,32 @@ test "limite de mensagens por canal libera as antigas" {
     const cs = s.channel(10).?;
     try std.testing.expectEqual(@as(usize, 3), cs.messages.items.len);
     try std.testing.expectEqual(@as(Id, 102), cs.messages.items[0].msg.id);
+}
+
+test "passando do teto de mensagens, sai a conversa esquecida há mais tempo" {
+    const c_alloc = std.heap.c_allocator;
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    s.message_budget = 3;
+    const users = try c_alloc.alloc(types.User, 1);
+    users[0] = .{ .id = 1, .name = try c_alloc.dupe(u8, "eu") };
+    const guilds = try c_alloc.alloc(types.Guild, 0);
+    const chans = try c_alloc.alloc(types.Channel, 2);
+    chans[0] = .{ .id = 10, .guild = 5, .name = try c_alloc.dupe(u8, "velho"), .topic = try c_alloc.dupe(u8, "") };
+    chans[1] = .{ .id = 20, .guild = 5, .name = try c_alloc.dupe(u8, "aberto"), .topic = try c_alloc.dupe(u8, "") };
+    try s.apply(.{ .ready = .{ .me = 1, .users = users, .guilds = guilds, .channels = chans, .voice = try c_alloc.alloc([2]Id, 0) } }, 0);
+    for ([_]Id{ 10, 10, 20, 20 }, 0..) |ch, i| {
+        try s.apply(.{ .message_create = .{ .id = 100 + i, .channel = ch, .author = 2, .timestamp = 0, .content = try c_alloc.dupe(u8, "oi") } }, 0);
+    }
+    const velho = s.channel(10).?;
+    const aberto = s.channel(20).?;
+    velho.seen_ms = 0;
+    // O que apareceu há menos de 30 s não sai.
+    aberto.seen_ms = 50_000;
+    s.enforceBudget(60_000);
+    try std.testing.expectEqual(@as(usize, 0), velho.messages.items.len);
+    try std.testing.expectEqual(History.none, velho.history);
+    try std.testing.expectEqual(@as(usize, 2), aberto.messages.items.len);
 }
 
 test "READY repetido funde estado e CHANNEL/GUILD_DELETE limpam" {

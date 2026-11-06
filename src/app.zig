@@ -2317,6 +2317,9 @@ pub const App = struct {
                 if (app.themes.setMode(mode)) app.applyThemeStyle();
             }
             d.text_scale = std.math.clamp(set.font_scale, 0.5, 3);
+            app.images.budget_bytes = @as(usize, @intFromFloat(std.math.clamp(set.image_cache_mb, 16, 128))) * 1024 * 1024;
+            @import("ui/images.zig").gif_limit_bytes.store(@as(usize, @intFromFloat(std.math.clamp(set.gif_limit_mb, 4, 32))) * 1024 * 1024, .monotonic);
+            app.store.message_budget = @intFromFloat(std.math.clamp(set.message_budget, 500, 5000));
             // Idioma: o QA roda em português (as marcações usam os rótulos), salvo com --lang.
             if (set.language != lang_setting) {
                 lang_setting = set.language;

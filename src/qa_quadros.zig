@@ -117,6 +117,24 @@ fn memoryShown(app: *App) bool {
     return true;
 }
 
+fn setLimits(app: *App) void {
+    const set = &app.st.settings;
+    set.image_cache_mb = 20;
+    set.gif_limit_mb = 6;
+    set.message_budget = 800;
+}
+fn limitsApplied(app: *App) bool {
+    return app.images.budget_bytes == 20 * 1024 * 1024 and
+        @import("ui/images.zig").gif_limit_bytes.load(.monotonic) == 6 * 1024 * 1024 and
+        app.store.message_budget == 800;
+}
+fn resetLimits(app: *App) void {
+    const set = &app.st.settings;
+    set.image_cache_mb = 32;
+    set.gif_limit_mb = 12;
+    set.message_budget = 2000;
+}
+
 pub const ops = [_]Op{
     s("quadro igual não precisa ir para a tela"),
     .{ .key = .{ .key = c.ImGuiKey_Comma, .ctrl = true } },
@@ -135,6 +153,10 @@ pub const ops = [_]Op{
     click("settings:Desempenho"),
     .{ .expect = .{ .name = "imagens, conta, heap e driver aparecem", .check = memoryShown, .timeout_ms = 6000 } },
     .{ .shot = "74-desempenho-memoria" },
+    .{ .run = setLimits },
+    .{ .wait = 100 },
+    expect("os limites de memória valem na hora", limitsApplied),
+    .{ .run = resetLimits },
     .{ .key = .{ .key = c.ImGuiKey_Escape } },
     .{ .wait = 350 },
 

@@ -1011,6 +1011,13 @@ fn performance(p: *Page) void {
     };
     for (stats) |st| statRow(p, 56, st.label, st.value);
     memoryRows(p);
+    p.divider();
+    p.heading(i18n.tr("Limites de memória", "Memory limits"));
+    const s = &ctx.st.settings;
+    p.slider(i18n.tr("Imagens na memória", "Images in memory"), &s.image_cache_mb, 16, 128, "{d:.0} MB", 1);
+    p.slider(i18n.tr("Cada GIF", "Each GIF"), &s.gif_limit_mb, 4, 32, "{d:.0} MB", 1);
+    p.slider(i18n.tr("Mensagens na memória", "Messages in memory"), &s.message_budget, 500, 5000, "{d:.0}", 1);
+    p.note(i18n.tr("Menos memória custa um pouco de rede e CPU: o que saiu é buscado de novo ao voltar para a tela, e GIFs grandes pulam quadros.", "Less memory costs a little network and CPU: what left is fetched again when it comes back on screen, and big GIFs skip frames."));
 }
 
 fn about(p: *Page) void {
