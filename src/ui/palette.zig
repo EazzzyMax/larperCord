@@ -172,24 +172,24 @@ fn rebuild(ctx: *d.Ctx) void {
             }
         }
         const label = std.fmt.allocPrint(a, "{s}", .{g.name}) catch continue;
-        add(p, gpa, q, .{ .label = label, .hint = i18n.tr("servidor", "server"), .kind = .guild, .id = g.id });
+        add(p, gpa, q, .{ .label = label, .hint = i18n.tr3("servidor", "server", "サーバー"), .kind = .guild, .id = g.id });
     }
     // Mensagens diretas e grupos.
     for (ctx.store.channelsOf(0)) |id| {
         const cs = ctx.store.channel(id) orelse continue;
         if (cs.info.kind != .text) continue;
         const label = std.fmt.allocPrint(a, "@ {s}", .{cs.info.name}) catch continue;
-        add(p, gpa, q, .{ .label = label, .hint = if (cs.info.group) i18n.tr("grupo", "group") else i18n.tr("mensagem direta", "direct message"), .kind = .channel, .id = id });
+        add(p, gpa, q, .{ .label = label, .hint = if (cs.info.group) i18n.tr3("grupo", "group", "グループ") else i18n.tr3("mensagem direta", "direct message", "ダイレクトメッセージ"), .kind = .channel, .id = id });
     }
     for (ctx.theme_names, 0..) |name, i| {
         const label = i18n.allocPrint(a, "tema: {s}", "theme: {s}", .{name}) catch continue;
-        add(p, gpa, q, .{ .label = label, .hint = if (i == ctx.theme_index) i18n.tr("atual", "current") else i18n.tr("aparência", "appearance"), .kind = .theme, .index = i });
+        add(p, gpa, q, .{ .label = label, .hint = if (i == ctx.theme_index) i18n.tr3("atual", "current", "使用中") else i18n.tr3("aparência", "appearance", "外観"), .kind = .theme, .index = i });
     }
-    for (commands, 0..) |cmd, i| add(p, gpa, q, .{ .label = i18n.tr(cmd.pt, cmd.en), .hint = i18n.tr("ação", "action"), .kind = .action, .index = i });
+    for (commands, 0..) |cmd, i| add(p, gpa, q, .{ .label = i18n.tr(cmd.pt, cmd.en), .hint = i18n.tr3("ação", "action", "アクション"), .kind = .action, .index = i });
     // Páginas das configurações.
     for (settings.sections) |sec| for (sec.items) |it| {
         const label = i18n.allocPrint(a, "Configurações: {s}", "Settings: {s}", .{i18n.tr(it.label, it.label_en)}) catch continue;
-        add(p, gpa, q, .{ .label = label, .hint = i18n.tr("configurações", "settings"), .kind = .page, .index = @intFromEnum(it.page) });
+        add(p, gpa, q, .{ .label = label, .hint = i18n.tr3("configurações", "settings", "設定"), .kind = .page, .index = @intFromEnum(it.page) });
     };
     // Painéis dos plugins que estão rodando.
     if (@import("../plugins/engine.zig").current) |e| for (e.list.items, 0..) |pl, i| {
@@ -203,7 +203,7 @@ fn rebuild(ctx: *d.Ctx) void {
         const on = (S.getByte(&ctx.st.settings, i) orelse continue) != 0;
         const name = toggleName(f.name) orelse f.name;
         const label = (if (on) i18n.allocPrint(a, "Desligar: {s}", "Turn off: {s}", .{name}) else i18n.allocPrint(a, "Ligar: {s}", "Turn on: {s}", .{name})) catch continue;
-        add(p, gpa, q, .{ .label = label, .hint = if (on) i18n.tr("ligado agora", "on now") else i18n.tr("desligado agora", "off now"), .kind = .setting, .index = i });
+        add(p, gpa, q, .{ .label = label, .hint = if (on) i18n.tr3("ligado agora", "on now", "オン") else i18n.tr3("desligado agora", "off now", "オフ"), .kind = .setting, .index = i });
     }
 
     @import("../core/sort.zig").stable(state.PaletteItem, p.items.items, {}, struct {
@@ -310,5 +310,5 @@ pub fn draw(ctx: *d.Ctx) void {
         _ = d.textClipped(fg, font, 13, rr.right() - 14 - @min(hw, 150), d.centerY(rr, 13), ctx.col(.faint), item.hint, 150);
         y += row_h;
     }
-    if (n == 0) d.text(fg, font, 15, box.x + 24, box.y + 80, ctx.col(.faint), i18n.tr("Nada encontrado.", "Nothing found."));
+    if (n == 0) d.text(fg, font, 15, box.x + 24, box.y + 80, ctx.col(.faint), i18n.tr3("Nada encontrado.", "Nothing found.", "見つかりません。"));
 }

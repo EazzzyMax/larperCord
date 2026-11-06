@@ -38,6 +38,7 @@ test {
     _ = @import("theme/layout.zig");
     _ = @import("ui/anim.zig");
     _ = @import("ui/fuzzy.zig");
+    _ = @import("ui/i18n.zig");
     _ = @import("ui/syntax.zig");
     _ = @import("ui/settings_state.zig");
     _ = @import("ui/guild_color.zig");

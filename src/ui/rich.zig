@@ -185,7 +185,7 @@ pub fn stampText(buf: []u8, value: u64) []const u8 {
     if (st.style == 'R') return relativeText(buf, st.unix);
     var dt: c.SDL_DateTime = undefined;
     if (!c.SDL_TimeToDateTime(st.unix * 1_000_000_000, &dt, true)) return "?";
-    const en = i18n.en();
+    const en = i18n.current() != .pt;
     const mon = (if (en) months_en else months_pt)[@intCast(std.math.clamp(dt.month, 1, 12) - 1)];
     const wd = (if (en) days_en else days_pt)[@intCast(std.math.clamp(dt.day_of_week, 0, 6))];
     // Sem sinal: com largura, o formato poria um "+" na frente de um número com sinal.
@@ -212,14 +212,14 @@ fn relativeText(buf: []u8, unix: i64) []const u8 {
     _ = c.SDL_GetCurrentTime(&ns);
     const delta = unix - @divTrunc(ns, 1_000_000_000);
     const secs = @abs(delta);
-    const Unit = struct { size: u64, pt: []const u8, pts: []const u8, en: []const u8, ens: []const u8 };
+    const Unit = struct { size: u64, pt: []const u8, pts: []const u8, en: []const u8, ens: []const u8, ja: []const u8 };
     const units = [_]Unit{
-        .{ .size = 365 * 86400, .pt = "ano", .pts = "anos", .en = "year", .ens = "years" },
-        .{ .size = 30 * 86400, .pt = "mês", .pts = "meses", .en = "month", .ens = "months" },
-        .{ .size = 86400, .pt = "dia", .pts = "dias", .en = "day", .ens = "days" },
-        .{ .size = 3600, .pt = "hora", .pts = "horas", .en = "hour", .ens = "hours" },
-        .{ .size = 60, .pt = "minuto", .pts = "minutos", .en = "minute", .ens = "minutes" },
-        .{ .size = 1, .pt = "segundo", .pts = "segundos", .en = "second", .ens = "seconds" },
+        .{ .size = 365 * 86400, .pt = "ano", .pts = "anos", .en = "year", .ens = "years", .ja = "年" },
+        .{ .size = 30 * 86400, .pt = "mês", .pts = "meses", .en = "month", .ens = "months", .ja = "ヶ月" },
+        .{ .size = 86400, .pt = "dia", .pts = "dias", .en = "day", .ens = "days", .ja = "日" },
+        .{ .size = 3600, .pt = "hora", .pts = "horas", .en = "hour", .ens = "hours", .ja = "時間" },
+        .{ .size = 60, .pt = "minuto", .pts = "minutos", .en = "minute", .ens = "minutes", .ja = "分" },
+        .{ .size = 1, .pt = "segundo", .pts = "segundos", .en = "second", .ens = "seconds", .ja = "秒" },
     };
     const u = for (units) |x| {
         if (secs >= x.size) break x;
@@ -229,6 +229,10 @@ fn relativeText(buf: []u8, unix: i64) []const u8 {
     if (i18n.en()) {
         const name = if (n == 1) u.en else u.ens;
         return (if (delta < 0) f(buf, "{d} {s} ago", .{ n, name }) else f(buf, "in {d} {s}", .{ n, name })) catch "?";
+    }
+    if (i18n.current() == .ja) {
+        // Japonês não distingue singular/plural: "{d}前" / "{d}後".
+        return (if (delta < 0) f(buf, "{d}{s}前", .{ n, u.ja }) else f(buf, "{d}{s}後", .{ n, u.ja })) catch "?";
     }
     const name = if (n == 1) u.pt else u.pts;
     return (if (delta < 0) f(buf, "há {d} {s}", .{ n, name }) else f(buf, "em {d} {s}", .{ n, name })) catch "?";
