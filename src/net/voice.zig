@@ -1006,8 +1006,16 @@ const Worker = struct {
         if (cipher.len > plain.len) return;
         const aead = std.crypto.aead.chacha_poly.XChaCha20Poly1305;
         aead.decrypt(plain[0..cipher.len], cipher, tag, buf[0..aad_len], nonce, w.secret) catch return;
-        if (ext_words * 4 > cipher.len) return;
-        var frame: []const u8 = plain[ext_words * 4 .. cipher.len];
+        // With the padding bit set, the last byte counts the padding bytes that
+        // end the (encrypted) payload. Left on, they hide the DAVE 0xFAFA
+        // marker and the ciphertext goes to the Opus decoder.
+        var end = cipher.len;
+        if (buf[0] & 0x20 != 0) {
+            if (end == 0 or plain[end - 1] == 0 or plain[end - 1] > end) return;
+            end -= plain[end - 1];
+        }
+        if (ext_words * 4 > end) return;
+        var frame: []const u8 = plain[ext_words * 4 .. end];
         if (frame.len == 0) return;
         const src = w.sourceFor(ssrc, 0) orelse return;
         const seq = std.mem.readInt(u16, buf[2..4], .big);
