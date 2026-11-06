@@ -2227,6 +2227,12 @@ pub const App = struct {
                         e.type == c.SDL_EVENT_RENDER_TARGETS_RESET or e.type == c.SDL_EVENT_RENDER_DEVICE_RESET) app.gate.redraw();
                     // Com a lista do autocompletar aberta, setas, Tab, Enter e Esc são dela.
                     const for_list = e.type == c.SDL_EVENT_KEY_DOWN and autocomplete.takeSdlKey(e.key.key, e.key.mod);
+                    // The mouse comes in window pixels; ImGui works in points (see NewFrame).
+                    if (e.type == c.SDL_EVENT_MOUSE_MOTION) {
+                        const s = platform.contentScale(app.win.window);
+                        e.motion.x /= s;
+                        e.motion.y /= s;
+                    }
                     // Aperte para falar (e "aperte uma tecla" nas Configurações).
                     if (!for_list and !voz_audio.onSdlEvent(&e)) _ = c.cImGui_ImplSDL3_ProcessEvent(&e);
                     // QUIT é sair sempre (sinal, fim da sessão); o fechar da janela, depende.
@@ -2317,6 +2323,14 @@ pub const App = struct {
 
             c.cImGui_ImplSDLRenderer3_NewFrame();
             c.cImGui_ImplSDL3_NewFrame();
+            // On Windows and X11 the backend reports the window in pixels. The UI is
+            // laid out in points, as on macOS and Wayland, and the display scale goes
+            // into DisplayFramebufferScale (fonts are rasterized at it).
+            const ui_scale = platform.contentScale(app.win.window);
+            app.io.*.DisplaySize.x /= ui_scale;
+            app.io.*.DisplaySize.y /= ui_scale;
+            app.io.*.DisplayFramebufferScale.x *= ui_scale;
+            app.io.*.DisplayFramebufferScale.y *= ui_scale;
             if (app.opts.qa) runner.holdMouse(app);
             // Janela em foco? (Confirmar leitura depende disso; o QA e os prints
             // rodam fora da tela, sem foco de verdade.)

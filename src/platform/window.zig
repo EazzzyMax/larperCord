@@ -35,6 +35,9 @@ pub const Window = struct {
         // LARPER_HIDDEN=1: janela escondida (medir desempenho com a GPU de verdade).
         if (c.SDL_getenv("LARPER_HIDDEN") != null) flags |= c.SDL_WINDOW_HIDDEN;
         const window = c.SDL_CreateWindow(title, w, h, flags) orelse return error.SdlWindow;
+        // On Windows the requested size is in pixels: at 150% the window would open at 2/3 size.
+        const s = contentScale(window);
+        if (s != 1) _ = c.SDL_SetWindowSize(window, @intFromFloat(@as(f32, @floatFromInt(w)) * s), @intFromFloat(@as(f32, @floatFromInt(h)) * s));
         if (decodeIcon(icon_64)) |icon| {
             _ = c.SDL_SetWindowIcon(window, icon);
             c.SDL_DestroySurface(icon);
@@ -67,6 +70,16 @@ pub const Window = struct {
         return c.SDL_SavePNG(surface, path);
     }
 };
+
+/// How much the display scale asks for beyond what SDL already applies. On macOS
+/// and Wayland the window is already in points (1); on Windows and X11 it is in
+/// pixels, and the scale (125%, 150%…) is up to the app.
+pub fn contentScale(window: *c.SDL_Window) f32 {
+    const display = c.SDL_GetWindowDisplayScale(window);
+    const density = c.SDL_GetWindowPixelDensity(window);
+    if (display <= 0 or density <= 0) return 1;
+    return display / density;
+}
 
 /// Ícones embutidos (tools/gen_icons.py).
 pub const icon_64 = @embedFile("icon_64");
