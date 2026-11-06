@@ -3617,7 +3617,9 @@ pub const Runner = struct {
                 r.next();
             },
             .resize => |sz| {
-                _ = c.SDL_SetWindowSize(app.win.window, sz[0], sz[1]);
+                // The script's sizes are in points; on Windows SDL wants pixels.
+                const k = @import("platform/window.zig").contentScale(app.win.window);
+                _ = c.SDL_SetWindowSize(app.win.window, @intFromFloat(@as(f32, @floatFromInt(sz[0])) * k), @intFromFloat(@as(f32, @floatFromInt(sz[1])) * k));
                 r.next();
             },
             .run => |f| {
