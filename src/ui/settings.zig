@@ -731,10 +731,19 @@ fn page(p: *Page, previews: []const Preview) void {
             }
         },
         .idioma => {
-            p.title(i18n.tr("Idioma", "Language"));
+            p.title(i18n.tr3("Idioma", "Language", "言語"));
             // Os nomes dos idiomas ficam sempre na própria língua.
-            p.radio(&.{ i18n.tr("Seguir o sistema", "Follow system"), "Português (Brasil)", "English (US)" }, &.{}, &s.language);
-            p.note(i18n.tr("Por padrão o app segue o idioma do sistema. A troca vale na hora.", "By default the app follows your system language. Changes apply right away."));
+            p.radio(&.{
+                i18n.tr3("Seguir o sistema", "Follow system", "システムに従う"),
+                "Português (Brasil)",
+                "English (US)",
+                "日本語 (Japanese)",
+            }, &.{}, &s.language);
+            p.note(i18n.tr3(
+                "Por padrão o app segue o idioma do sistema. A troca vale na hora.",
+                "By default the app follows your system language. Changes apply right away.",
+                "デフォルトではシステムの言語に従います。変更はすぐに反映されます。",
+            ));
         },
         .avancado => {
             p.title(i18n.tr("Avançado", "Advanced"));

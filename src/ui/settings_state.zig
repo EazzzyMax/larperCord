@@ -168,7 +168,7 @@ pub const Settings = struct {
     hot_reload: bool = true,
     /// Fechar a janela deixa o app na bandeja (sem bandeja, fechar sai igual).
     close_to_tray: bool = true,
-    /// 0 = seguir o sistema, 1 = português, 2 = inglês.
+    /// 0 = seguir o sistema, 1 = português, 2 = inglês, 3 = japonês.
     language: u8 = 0,
     /// 0 = escuro, 1 = claro, 2 = seguir o sistema.
     color_mode: u8 = 0,

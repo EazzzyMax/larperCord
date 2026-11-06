@@ -68,8 +68,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
             opts.live = false;
             if (@import("c").SDL_getenv("SDL_VIDEO_DRIVER") == null) _ = @import("c").SDL_setenv_unsafe("SDL_VIDEO_DRIVER", "offscreen", 1);
         } else if (std.mem.eql(u8, arg, "--lang")) {
-            const l = it.next() orelse return fail("--lang precisa de pt ou en");
-            opts.lang = if (std.mem.startsWith(u8, l, "pt")) .pt else .en;
+            const l = it.next() orelse return fail("--lang precisa de pt, en ou ja");
+            opts.lang = if (std.mem.startsWith(u8, l, "pt"))
+                .pt
+            else if (std.mem.startsWith(u8, l, "ja"))
+                .ja
+            else
+                .en;
         } else if (std.mem.eql(u8, arg, "--login")) {
             opts.login = true;
         } else if (std.mem.eql(u8, arg, "--restarted")) {

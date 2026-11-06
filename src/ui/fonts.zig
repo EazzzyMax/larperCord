@@ -30,6 +30,9 @@ pub const Fonts = struct {
     emoji: ?[]u8 = null,
     /// Fonte reserva para símbolos que a fonte principal não tem (⌁ ▣ ◐ ♪ …).
     symbols: ?struct { data: []u8, index: c_int } = null,
+    /// Fonte reserva para CJK (chinês, japonês, coreano), que as famílias
+    /// ocidentais do tema não têm. Carregada no init e mesclada em todas.
+    cjk: ?struct { data: []u8, index: c_int } = null,
 
     pub fn init(gpa: std.mem.Allocator, atlas: *c.ImFontAtlas) Fonts {
         var f: Fonts = .{ .gpa = gpa, .atlas = atlas };
@@ -41,6 +44,14 @@ pub const Fonts = struct {
             defer std.heap.c_allocator.free(m.path);
             if (f.mapPath(m.path)) |data| {
                 f.symbols = .{ .data = data, .index = m.index };
+            } else |_| {}
+        }
+        // Uma família com os ideogramas, pedida pela língua (funciona com ou
+        // sem fontconfig: no Windows cai na segunda da lista).
+        if (resolveCjk()) |m| {
+            defer std.heap.c_allocator.free(m.path);
+            if (f.mapPath(m.path)) |data| {
+                f.cjk = .{ .data = data, .index = m.index };
             } else |_| {}
         }
         return f;
@@ -111,6 +122,16 @@ pub const Fonts = struct {
             scfg.FontDataOwnedByAtlas = false;
             _ = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, sym.data.ptr, @intCast(sym.data.len), 16, &scfg, null);
         }
+        // CJK: só os intervalos dos ideogramas (Hiragana, Katakana, CJK
+        // unificado, meia-largura e sinais), o resto vem da fonte do tema.
+        if (f.cjk) |j| {
+            var jcfg = defaultConfig();
+            jcfg.MergeMode = true;
+            jcfg.FontNo = @intCast(j.index);
+            jcfg.FontDataOwnedByAtlas = false;
+            jcfg.GlyphRanges = &cjk_ranges;
+            _ = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, j.data.ptr, @intCast(j.data.len), 16, &jcfg, null);
+        }
         return font;
     }
 
@@ -126,6 +147,18 @@ pub const Fonts = struct {
 /// Faixas que o emoji colorido deve fornecer mesmo que a fonte do texto tenha
 /// uma versão em preto e branco (❤ ☀ ✨ …).
 const emoji_ranges = [_]c.ImWchar{ 0x2600, 0x27BF, 0x2B00, 0x2BFF, 0x1F000, 0x1FAFF, 0 };
+
+/// Hiragana, Katakana, meia-largura, CJK unificado e os sinais que vêm junto
+/// (「」・ー etc.). O resto da fonte reserva não entra: o tema manda.
+const cjk_ranges = [_]c.ImWchar{
+    0x3000, 0x30FF, // sinais CJK, hiragana, katakana
+    0x3130, 0x318F, // hangul compatibilidade (jamo)
+    0x4E00, 0x9FFF, // ideogramas unificados
+    0xAC00, 0xD7A3, // hangul
+    0xFF00, 0xFF60, // forma de meia-largura e completa
+    0xFFE0, 0xFFE6,
+    0,
+};
 
 fn defaultConfig() c.ImFontConfig {
     var cfg = std.mem.zeroes(c.ImFontConfig);
@@ -174,6 +207,41 @@ fn resolveWindows(name: []const u8, weight: c_int, slant: c_int) ?Match {
         if (sys.exists(p.ptr)) return .{ .path = std.heap.c_allocator.dupeSentinel(u8, p, 0) catch return null, .index = 0 };
     }
     return null;
+}
+
+/// Uma família com ideogramas, pela ordem: a que o fontconfig achar para a
+/// língua japonesa; no Windows, a primeira que existir na pasta de fontes.
+fn resolveCjk() ?Match {
+    if (sys.windows) {
+        const windir = if (c.SDL_getenv("WINDIR")) |w| std.mem.span(w) else "C:/Windows";
+        const candidates = [_][]const u8{ "YuGothM", "YuGothR", "meiryo", "msgothic", "msyh", "simhei" };
+        var pb: [300]u8 = undefined;
+        for (candidates) |file| {
+            const p2 = std.fmt.bufPrintSentinel(&pb, "{s}/Fonts/{s}.ttc", .{ windir, file }, 0) catch continue;
+            if (sys.exists(p2.ptr)) return .{ .path = std.heap.c_allocator.dupeSentinel(u8, p2, 0) catch return null, .index = 0 };
+        }
+        for (candidates) |file| {
+            const p2 = std.fmt.bufPrintSentinel(&pb, "{s}/Fonts/{s}.ttf", .{ windir, file }, 0) catch continue;
+            if (sys.exists(p2.ptr)) return .{ .path = std.heap.c_allocator.dupeSentinel(u8, p2, 0) catch return null, .index = 0 };
+        }
+        return null;
+    }
+    // fontconfig: qualquer família que cubra o japonês.
+    const pat = c.FcPatternCreate() orelse return null;
+    defer c.FcPatternDestroy(pat);
+    _ = c.FcPatternAddString(pat, c.FC_LANG, "ja");
+    _ = c.FcPatternAddString(pat, c.FC_FAMILY, "sans-serif");
+    _ = c.FcConfigSubstitute(null, pat, c.FcMatchPattern);
+    c.FcDefaultSubstitute(pat);
+    var result: c.FcResult = undefined;
+    const m = c.FcFontMatch(null, pat, &result) orelse return null;
+    defer c.FcPatternDestroy(m);
+    var file: [*c]c.FcChar8 = null;
+    if (c.FcPatternGetString(m, c.FC_FILE, 0, &file) != c.FcResultMatch) return null;
+    var index: c_int = 0;
+    _ = c.FcPatternGetInteger(m, c.FC_INDEX, 0, &index);
+    const path = std.heap.c_allocator.dupeSentinel(u8, std.mem.span(@as([*:0]const u8, @ptrCast(file))), 0) catch return null;
+    return .{ .path = path, .index = index };
 }
 
 /// Pergunta ao fontconfig qual arquivo atende família + peso + inclinação.
