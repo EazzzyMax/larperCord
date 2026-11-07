@@ -18,6 +18,7 @@ const types = @import("../core/types.zig");
 const threads = @import("comp_threads.zig");
 const ev = @import("../core/event.zig");
 const voz = @import("../core/voz.zig");
+const dm_requests = @import("dm_requests.zig");
 const Id = types.Id;
 
 const Variant = enum { discord, tree, pills };
@@ -761,7 +762,10 @@ fn dmList(ctx: *d.Ctx, n: *const kdl.Node, fam: *d.Family, variant: Variant, r_i
         const rr: d.Rect = .{ .x = r.x + 8, .y = y, .w = r.w - 16, .h = row_h - 2 };
         const hb = d.hit(ctx, 299, rr);
         qa.mark(rr, "friends", .{});
-        if (hb.clicked) ctx.act(.open_friends);
+        if (hb.clicked) {
+            dm_requests.view = .none;
+            ctx.act(.open_friends);
+        }
         const sel = ctx.st.friends;
         const k = anim.to(anim.id("dm-friends", 0), if (sel) 1 else if (hb.hovered) 0.5 else 0, 24);
         var pending: u16 = 0;
@@ -782,13 +786,21 @@ fn dmList(ctx: *d.Ctx, n: *const kdl.Node, fam: *d.Family, variant: Variant, r_i
         if (pending > 0) badgeAt(ctx, dl, fam, rr.right() - 10, rr.y + rr.h / 2, pending);
         y += row_h + (if (tree) @as(f32, 2) else 6);
     }
+    // Pedidos de mensagem e spam: a linha deles e, aberta, as abas no lugar das conversas.
+    const dms = ctx.store.channelsOf(0);
+    const reqs = dm_requests.counts(ctx.store, dms);
+    y = dm_requests.entry(ctx, dl, fam, tree, variant == .pills, r, y, reqs);
+    if (dm_requests.view != .none) {
+        y = dm_requests.list(ctx, dl, fam, tree, variant == .pills, r, y, dms, reqs);
+        return d.endRegion(ctx, y + 12, r.x);
+    }
     if (!tree) {
         d.text(dl, fam.get(.semibold), 12, r.x + 18, y + 4, ctx.col(.faint).mix(ctx.col(.muted), 0.4), i18n.tr("MENSAGENS DIRETAS", "DIRECT MESSAGES"));
         y += 28;
     }
-    const dms = ctx.store.channelsOf(0);
     for (dms, 0..) |id, idx| {
         const cs = ctx.store.channel(id) orelse continue;
+        if (cs.info.request != .none) continue;
         const group = cs.info.group;
         const u = ctx.store.user(cs.info.recipient);
         if (!group and u == null) continue;
@@ -814,7 +826,7 @@ fn dmList(ctx: *d.Ctx, n: *const kdl.Node, fam: *d.Family, variant: Variant, r_i
         if (tree) {
             if (selected) d.rect(dl, rr, ctx.col(.accent), 0) else if (hb.hovered) d.rect(dl, rr, ctx.col(.hover), 0);
             var buf: [96]u8 = undefined;
-            const branch = if (idx + 1 == dms.len) "└" else "├";
+            const branch = if (idx >= reqs.last_normal) "└" else "├";
             const t = if (group)
                 std.fmt.bufPrint(&buf, "{s} ⁂ {s}", .{ branch, name }) catch name
             else

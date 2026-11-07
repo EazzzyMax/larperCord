@@ -103,6 +103,7 @@ fn popupKey(p: state.Popup) u64 {
         .compose_options => 17,
         .upload_alt => |t| 18 +% @as(u64, t.index) *% 31,
         .custom_status => 19,
+        .group_members => |t| 20 +% t.channel *% 31,
     };
 }
 
@@ -177,6 +178,7 @@ pub fn draw(ctx: *d.Ctx) void {
         .compose_options => |t| @import("compose_opts.zig").drawMenu(ctx, t.x, t.y),
         .upload_alt => |t| @import("upload_opts.zig").drawAlt(ctx, t.index, t.x, t.y),
         .custom_status => |t| @import("custom_status.zig").draw(ctx, t.x, t.y),
+        .group_members => |t| @import("group_dm.zig").draw(ctx, t.channel),
         .none => {},
     }
     animateOpen(ctx);
@@ -347,6 +349,7 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
             if (ctx.store.channel(id)) |ics| if (@import("invites.zig").canInvite(ctx, &ics.info)) add(&items, &n, .{ .label = "Convidar pessoas…", .en = "Invite People…", .id = 56, .sep = true });
             if (ctx.store.channel(id)) |gcs| if (gcs.info.group) {
                 add(&items, &n, .{ .label = "Editar grupo…", .en = "Edit Group…", .id = 53, .sep = true });
+                add(&items, &n, .{ .label = "Pessoas do grupo…", .en = "Group Members…", .id = 57 });
                 if (gcs.info.icon != null) add(&items, &n, .{ .label = "Ver ícone", .en = "View Icon", .id = 54 });
             };
             add(&items, &n, .{ .label = "Copiar link", .en = "Copy Link", .id = 43, .sep = true });
@@ -355,6 +358,7 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
             if (ctx.store.channel(id)) |vcs| if (vcs.info.kind == .voice and ((ctx.st.voice != null and ctx.st.voice.? == id) or ctx.store.voiceChannelOf(ctx.store.me, vcs.info.guild) == id))
                 add(&items, &n, .{ .label = "Sair da call", .en = "Leave Call", .id = 46, .danger = true, .sep = true });
             if (dev) add(&items, &n, .{ .label = "Copiar ID do canal", .en = "Copy Channel ID", .id = 44 });
+            if (ctx.store.channel(id)) |gcs| if (gcs.info.group) add(&items, &n, .{ .label = "Sair do grupo", .en = "Leave Group", .id = 58, .danger = true, .sep = true });
         },
         .thread_delete => {
             const name = if (ctx.store.channel(id)) |tcs| tcs.info.name else "?";
@@ -366,6 +370,12 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
             const name = if (ctx.store.guild(id)) |g| g.name else "?";
             delete_label = i18n.fmt(&delete_buf, "Sair de «{s}»", "Leave “{s}”", .{d.utf8Prefix(name, 40)});
             add(&items, &n, .{ .label = delete_label, .en = delete_label, .id = 68, .danger = true });
+            add(&items, &n, .{ .label = "Cancelar", .en = "Cancel", .id = 52 });
+        },
+        .group_leave => {
+            const name = if (ctx.store.channel(id)) |gcs| gcs.info.name else "?";
+            delete_label = i18n.fmt(&delete_buf, "Sair de «{s}»", "Leave “{s}”", .{d.utf8Prefix(name, 40)});
+            add(&items, &n, .{ .label = delete_label, .en = delete_label, .id = 59, .danger = true });
             add(&items, &n, .{ .label = "Cancelar", .en = "Cancel", .id = 52 });
         },
         .status => {
@@ -584,6 +594,10 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
         68 => ctx.act(.{ .leave_guild = id }),
         52 => {},
         53 => @import("edit_place.zig").open(ctx, id, true),
+        57 => @import("group_dm.zig").open(ctx, id),
+        // Sair do grupo pede confirmação: voltar precisa de alguém que adicione.
+        58 => st.popup = .{ .menu = .{ .kind = .group_leave, .id = id, .x = r.x, .y = r.y } },
+        59 => ctx.act(.{ .social = .{ .leave_group = id } }),
         64 => @import("edit_place.zig").open(ctx, id, false),
         56 => @import("invites.zig").openCreate(ctx, id),
         69 => if (@import("invites.zig").channelFor(ctx, id)) |ch| @import("invites.zig").openCreate(ctx, ch),

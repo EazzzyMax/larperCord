@@ -14,6 +14,7 @@ const jsonx = @import("jsonx.zig");
 const envio_json = @import("envio_json.zig");
 const envio = @import("../core/envio.zig");
 const polls = @import("../core/polls.zig");
+const social = @import("social.zig");
 const Id = types.Id;
 
 const alloc = std.heap.c_allocator;
@@ -92,6 +93,10 @@ pub const sent = struct {
     pub var op4_len: A = .init(0);
     pub var stop_body: [64]u8 = undefined;
     pub var stop_body_len: A = .init(0);
+    /// Pedidos de mensagem e grupos: quantos e o último ("PUT /channels/…").
+    pub var socials: A = .init(0);
+    pub var social_len: A = .init(0);
+    pub var social_req: [128]u8 = undefined;
 };
 
 /// O canal das enquetes da demonstração (#geral de "os larpers"): uma de uma
@@ -163,6 +168,13 @@ pub const Gateway = struct {
     party_msg: Id = 0,
     /// Modo lento do lado do "servidor": quando mandamos por último em cada canal.
     slow_sent: std.AutoHashMapUnmanaged(Id, i64) = .empty,
+    /// Quem está no grupo agora (entra e sai gente pelo menu do grupo).
+    group_now: [social.group_max]Id = blk: {
+        var a: [social.group_max]Id = @splat(0);
+        @memcpy(a[0..group_members.len], &group_members);
+        break :blk a;
+    },
+    group_n: usize = group_members.len,
 
     pub fn start(g: *Gateway) !void {
         g.thread = c.SDL_CreateThread(threadMain, "gateway", g) orelse return error.SdlThread;
@@ -195,6 +207,35 @@ pub const Gateway = struct {
         if (g.thread) |t| c.SDL_WaitThread(t, null);
     }
 
+    /// Pedidos de mensagem e grupo: anota o pedido que iria para o Discord e
+    /// responde com os eventos que o gateway de verdade manda.
+    fn socialCmd(g: *Gateway, sc: ev.Social) !void {
+        var pb: [96]u8 = undefined;
+        if (social.build(&pb, sc)) |rq| {
+            const t = std.fmt.bufPrint(&sent.social_req, "{s} {s}", .{ rq.method, rq.path }) catch "";
+            sent.social_len.store(t.len, .monotonic);
+        }
+        _ = sent.socials.fetchAdd(1, .monotonic);
+        switch (sc) {
+            .accept_request => |ch| g.emit(.{ .channel_upsert = try requestDm(ch, .none) orelse return }),
+            .reject_request, .leave_group => |ch| g.emit(.{ .channel_delete = ch }),
+            .add_member => |m| {
+                if (m.channel != group_id or g.group_n == g.group_now.len) return;
+                if (std.mem.indexOfScalar(Id, g.group_now[0..g.group_n], m.user) != null) return;
+                g.group_now[g.group_n] = m.user;
+                g.group_n += 1;
+                g.emit(.{ .recipient = .{ .channel = m.channel, .user = m.user, .add = true } });
+            },
+            .remove_member => |m| {
+                if (m.channel != group_id) return;
+                const at = std.mem.indexOfScalar(Id, g.group_now[0..g.group_n], m.user) orelse return;
+                std.mem.copyForwards(Id, g.group_now[at .. g.group_n - 1], g.group_now[at + 1 .. g.group_n]);
+                g.group_n -= 1;
+                g.emit(.{ .recipient = .{ .channel = m.channel, .user = m.user, .add = false } });
+            },
+        }
+    }
+
     /// Editar servidor ou grupo: volta como o gateway de verdade, com o
     /// servidor ou canal inteiro. O que não mudou vem da semente.
     fn editPlace(g: *Gateway, e: ev.EditPlace) !void {
@@ -212,15 +253,17 @@ pub const Gateway = struct {
             }
         }.f;
         if (e.group) {
+            const now = g.group_now[0..g.group_n];
             g.emit(.{ .channel_upsert = .{
                 .id = e.id,
                 .guild = 0,
                 .name = try alloc.dupe(u8, e.name orelse pick("rolê de sexta", "friday hangout")),
                 .topic = try alloc.dupe(u8, ""),
                 .position = 2,
-                .recipient = group_members[0],
-                .recipients = try alloc.dupe(Id, &group_members),
+                .recipient = if (now.len > 0) now[0] else 0,
+                .recipients = if (now.len > 0) try alloc.dupe(Id, now) else &.{},
                 .group = true,
+                .owner = me_id,
                 .icon = try new_image(e.icon, "demo:icon:3"),
             } });
             return;
@@ -390,6 +433,7 @@ pub const Gateway = struct {
                 .delete_thread => |id| g.emit(.{ .channel_delete = id }),
                 .leave_guild => |id| g.emit(.{ .guild_delete = id }),
                 .edit_place => |e| try g.editPlace(e),
+                .social => |sc| try g.socialCmd(sc),
                 .react => |r| g.emit(.{ .reaction = .{ .channel = r.channel, .id = r.id, .emoji = r.emoji, .user = me_id, .add = r.add } }),
                 .search_messages => |s| {
                     defer alloc.free(s.params);
@@ -1268,6 +1312,18 @@ const relations = [_]struct { user: Id, kind: types.Relationship }{
 /// Grupo da demonstração (canal 900_006): DM com três pessoas.
 const group_members = [_]Id{ 1001, 1003, 1005 };
 const group_id: Id = 900_006;
+/// Pedido de mensagem (de quem mandou pedido de amizade) e um bot no spam.
+pub const request_dm: Id = 900_012;
+pub const spam_dm: Id = 900_013;
+
+/// A DM de um pedido, como chega no READY (ou depois de aceita, `.none`).
+fn requestDm(ch: Id, req: types.DmRequest) !?types.Channel {
+    const u: Id = dmRecipient(ch) orelse return null;
+    const seed = for (users) |x| {
+        if (x.id == u) break x;
+    } else return null;
+    return .{ .id = ch, .guild = 0, .name = try alloc.dupe(u8, seed.name), .topic = try alloc.dupe(u8, ""), .position = 8, .recipient = u, .request = req };
+}
 
 const guilds = [_]GuildSeed{
     .{ .name = "larperCord dev", .acronym = "LC", .color = 0 },
@@ -1386,6 +1442,8 @@ pub fn dmId(i: usize) Id {
 }
 
 pub fn dmRecipient(ch: Id) ?Id {
+    if (ch == request_dm) return 1009;
+    if (ch == spam_dm) return plain_bot_user;
     if (ch < 900_000 or ch >= 900_000 + 6) return null;
     return users[@intCast(ch - 900_000 + 1)].id;
 }
@@ -1486,7 +1544,7 @@ fn buildReady() !ev.Ready {
         // O primeiro servidor é nosso (dá para mexer em cargos e mensagens).
         .owner = if (i == 0) me_id else 1001,
     };
-    const chs = try alloc.alloc(types.Channel, guilds.len * channel_tree.len + 8 + 3);
+    const chs = try alloc.alloc(types.Channel, guilds.len * channel_tree.len + 8 + 3 + 2);
     var n: usize = 0;
     for (0..guilds.len) |gi| {
         var parent: ?Id = null;
@@ -1548,10 +1606,14 @@ fn buildReady() !ev.Ready {
                 .recipient = group_members[0],
                 .recipients = try alloc.dupe(Id, &group_members),
                 .group = true,
+                .owner = me_id,
             };
             n += 1;
         }
     }
+    chs[n] = (try requestDm(request_dm, .pending)).?;
+    chs[n + 1] = (try requestDm(spam_dm, .spam)).?;
+    n += 2;
     chs[n] = .{
         .id = bot_dm,
         .guild = 0,

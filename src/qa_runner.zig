@@ -3215,6 +3215,7 @@ const ops_convites = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @imp
 const ops_envio = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_envio.zig").ops;
 const ops_limites = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_limites.zig").ops;
 const ops_conta = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_conta.zig").ops;
+const ops_social = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_social.zig").ops;
 const ops_plugins_real = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_real;
 const ops_vitrine = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_vitrine;
 const ops_plugins_a = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_persist_a;
@@ -3247,6 +3248,7 @@ fn script() []const Op {
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "envio")) return &ops_envio;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "limites")) return &ops_limites;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "conta")) return &ops_conta;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "social")) return &ops_social;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-real")) return &ops_plugins_real;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "vitrine")) return &ops_vitrine;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-a")) return &ops_plugins_a;

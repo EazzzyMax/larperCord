@@ -1318,6 +1318,7 @@ pub const App = struct {
                 pl.more = false;
                 app.cmd(.{ .fetch_people = .{ .req = pl.req, .q = wp.q, .after = after } });
             },
+            .social => |x| app.cmd(.{ .social = x }),
             .pin_message => |p| {
                 if (app.store.channel(p.channel)) |cs| if (app.store.find(cs, p.id)) |m| {
                     m.msg.pinned = p.add;
@@ -1975,6 +1976,8 @@ pub const App = struct {
         const f = &app.st.filtros;
         if (m.author == app.store.me) return null;
         const cs = app.store.channel(m.channel) orelse return null;
+        // Pedido de mensagem e spam não notificam nem contam como DM.
+        if (cs.info.request != .none) return null;
         const verdict = f.judge(m.author, m.content, cs.info.guild == 0, app.mentionsMe(m, cs.info.guild));
         if (verdict == .important) f.bump(app.gpa, &app.store, m.channel);
         // Silêncio e nível de notificação vêm da conta (app_conta.zig).
