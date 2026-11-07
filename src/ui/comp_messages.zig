@@ -340,6 +340,9 @@ pub fn messages(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
 
 /// A faixa da direita onde fica a barra de rolagem, por cima da lista.
 const scrollbar_zone: f32 = 14;
+/// A conversa cuja barra de rolagem está sendo arrastada.
+var bar_drag: types.Id = 0;
+extern fn larper_scrollbar_held() bool;
 
 /// O histórico de um canal, com rolagem própria. `region` é o nome da
 /// região do ImGui (um por painel: os IDs dos botões ficam separados).
@@ -431,8 +434,11 @@ pub fn history(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect, ch_id: Id, region: [*
     const max_scroll = @max(0, total - r.h);
     // A pessoa está lendo lá em cima: nada dali é cortado (ver Store.trim).
     cs.reading = !sc.stick_bottom or cs.detached;
+    // Soltou a barra de rolagem: acabou o arraste (ver abaixo).
+    if (!c.ImGui_IsMouseDown(0)) bar_drag = 0;
+    const dragging_bar = bar_drag == ch_id;
     // Mudou algo acima do que está na tela: mantém no lugar o que estava.
-    if (sc.anchor_id != 0 and !sc.stick_bottom and sc.pos >= 0) {
+    if (sc.anchor_id != 0 and !sc.stick_bottom and sc.pos >= 0 and !dragging_bar) {
         if (ctx.store.find(cs, sc.anchor_id)) |am| {
             const k = (@intFromPtr(am) - @intFromPtr(msgs.ptr)) / @sizeOf(StoredMessage);
             const delta = st.offsets.items[k] + sc.anchor_off - sc.pos;
@@ -443,7 +449,8 @@ pub fn history(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect, ch_id: Id, region: [*
         }
     }
     // Perto do topo: pede as anteriores (depois de uma falha, com calma).
-    if (cs.older == .idle and ctx.now_ms >= cs.older_retry_ms and msgs.len > 0 and sc.pos >= 0 and sc.pos < r.h * 0.6 + 200) ctx.act(.{ .load_older = ch_id });
+    // Só depois de soltar a barra: a lista crescendo no meio do arraste muda a proporção dela.
+    if (!dragging_bar and cs.older == .idle and ctx.now_ms >= cs.older_retry_ms and msgs.len > 0 and sc.pos >= 0 and sc.pos < r.h * 0.6 + 200) ctx.act(.{ .load_older = ch_id });
     // Lendo o passado, perto do fim do que está carregado: pede as seguintes.
     if (cs.detached and cs.newer == .idle and ctx.now_ms >= cs.newer_retry_ms and msgs.len > 0 and sc.pos >= max_scroll - r.h * 0.6 - 200) ctx.act(.{ .load_newer = ch_id });
     // Pulo para uma mensagem (clique numa resposta): só no painel focado.
@@ -524,12 +531,16 @@ pub fn history(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect, ch_id: Id, region: [*
     const dl = d.beginRegion(ctx, region, r, c.ImGuiWindowFlags_NoScrollWithMouse);
     const fade_start = dl.*.VtxBuffer.Size;
     var s = c.ImGui_GetScrollY();
-    // Arrastando a barra de rolagem (só a desta conversa: um clique nas
-    // configurações ou num popup por cima não conta).
-    if (@abs(s - sc.pos) > 1 and c.ImGui_IsMouseDown(0) and ctx.mouse.x >= r.right() - scrollbar_zone and c.ImGui_IsWindowHovered(0) and !st.settings.open) {
-        sc.pos = s;
-        sc.target = s;
-        sc.stick_bottom = s >= max_scroll - 1 and !cs.detached;
+    // Arrastando a barra de rolagem desta conversa. Quem diz é o ImGui, não a posição do mouse: o
+    // arraste vale até soltar, com o mouse em qualquer lugar, e um clique perto da borda não conta.
+    // A alça de redimensionar painéis fica colada na barra: puxar ela não rola a conversa.
+    if (larper_scrollbar_held() and (bar_drag == ch_id or !@import("resize.zig").over(ctx))) {
+        bar_drag = ch_id;
+        if (@abs(s - sc.pos) > 1) {
+            sc.pos = s;
+            sc.target = s;
+            sc.stick_bottom = s >= max_scroll - 1 and !cs.detached;
+        }
     }
     c.ImGui_Dummy(d.v(r.w - 12, total));
     // Primeiro quadro da conversa: o ImGui ainda não sabe a altura e prende a

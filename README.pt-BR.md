@@ -289,7 +289,8 @@ gateway falso pelo real não toca na interface.
 **A seguir**
 
 - [ ] Abrir pelos servidores, canais e mensagens salvos, e sincronizar quando o Discord responder
-- [ ] Configurações de memória: mensagens guardadas nos canais que você saiu, limite de imagens e de GIFs
+- [ ] Rich Presence: mostrar o jogo que você está jogando, desligado por padrão
+- [ ] Moderação: expulsar, banir, castigo, e silenciar e ensurdecer no servidor
 - [ ] Atlas de texturas para avatares e emojis
 - [ ] Configurar servidor e cargos
 - [ ] Um editor de temas melhor

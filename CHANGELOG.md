@@ -1,5 +1,51 @@
 # What changed in each version
 
+## 0.6.1
+
+**More languages and screens**
+- The interface is available in Japanese, from nakayama900. Text with no translation yet appears in English.
+- Japanese, Korean and Chinese text now shows up. The fonts only load the first time a letter needs them, and the interface language picks the letter forms.
+- The interface follows the display scale on Windows and X11, from Davyd Khanin. It no longer comes out tiny at 125% or 150%.
+- Settings → Appearance has an interface size from 75 to 200%, and Ctrl + , Ctrl - and Ctrl 0 change it from anywhere.
+- F11 and Alt+Enter turn fullscreen on and off.
+- Channel and user names in stylized letters (𝗠𝗲𝗺𝗲𝘀, ʀᴇɢʀᴀs) show as normal letters when no font has them, instead of `??????`. Settings → Advanced lists any writing systems that still have no font.
+
+**Sharper**
+- Small text is sharp. Sizes like 13.5 were generated at 14 and then shrunk like an image, which blurred almost all gray text.
+- Text also lines up with screen pixels at sizes like 125%.
+- Secondary text has a minimum contrast in every theme, including community themes.
+- Settings → Advanced → Text changes the weight of the text and how letters fit the pixel grid, live.
+- Avatars, icons and images are stored at the size they appear and reduced with a better filter. Before, a 128 px photo was shrunk by the graphics card without filtering, which made it jagged. It also uses less memory.
+- Images no longer come out stretched or cropped in messages, embeds and the full-screen viewer, including after resizing the window.
+
+**Calls**
+- Fixed the bursts of loud noise, from Davyd Khanin. Some voice packets carry padding, and the app sent those to the decoder still encrypted.
+- The start of a sentence after a pause no longer comes out louder than it should. Silence frames now go through the decoder, and it starts fresh after a pause or a large gap.
+- Settings → Advanced has a debug log: turn it on, make the problem happen and send the file, with no terminal. It also records volume jumps and how many packets had padding.
+
+**New**
+- Search has a side panel with filters, sort order and pages. It searches this computer as you type, and Discord when you press Enter.
+- Forward a message to another channel.
+- Join a server from a link or code, and create and edit invites from the server and channel menus.
+- GIF picker next to the emoji button: trending, search and your favorites from Discord. A GIF plays when you hover it.
+- Copy an image from the full-screen viewer, and zoom in it with the mouse wheel. Ctrl+V pastes PNG, BMP, JPEG, GIF and WebP.
+- Leave a server from its menu, with a confirmation.
+- The pinned messages panel shows images, videos and link previews.
+- Settings → Chat can download FFmpeg on Windows so videos play inside the app, with a warning first and a checked SHA-256.
+- Settings → Performance has limits for images, each GIF and messages in memory.
+
+**Fixes**
+- While invisible you no longer appear online for a moment when the app opens. Your status now goes out with the first connection.
+- Reconnecting is calmer: a connection only counts as good after a minute. A server that accepts and then drops the connection no longer means a new login attempt every few seconds.
+- Holding Shift+J or Shift+K in Vim mode no longer sweeps through channels.
+- Dragging the message scrollbar no longer gets stuck when the mouse drifts off it or older messages load.
+- A GIF that declares a huge size is refused before decoding, from svindler, so a small file can't use up your memory.
+- Themes with no user panel, like Zen, have a settings button in the header.
+- Installed through a package manager, the app tells you to update through it.
+
+**Project**
+- larperCord is now licensed under GPL-3.0.
+
 ## 0.6.0
 
 **Plugins**

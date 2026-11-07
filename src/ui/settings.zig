@@ -745,6 +745,8 @@ fn page(p: *Page, previews: []const Preview) void {
         },
         .atalhos => {
             p.title(i18n.tr("Atalhos de teclado", "Keybinds"));
+            p.toggle(i18n.tr("Navegação estilo vim", "Vim-style navigation"), i18n.tr("Com a caixa de texto sem foco (Esc sai dela), as teclas abaixo navegam.", "With the text box unfocused (Esc leaves it), the keys below navigate."), &s.vim_keys);
+            p.divider();
             p.keyRow(i18n.tr("Paleta de comandos", "Command palette"), "Ctrl+K");
             p.keyRow(i18n.tr("Paleta com as ações primeiro", "Palette, actions first"), "Ctrl+Shift+P");
             p.keyRow(i18n.tr("Buscar mensagens", "Search messages"), "Ctrl+F");
@@ -762,8 +764,6 @@ fn page(p: *Page, previews: []const Preview) void {
             p.keyRow(i18n.tr("Mensagens salvas", "Saved messages"), "Ctrl+Shift+S");
             p.keyRow(i18n.tr("Abrir canal em nova aba", "Open channel in a new tab"), i18n.tr("Ctrl+Clique", "Ctrl+Click"));
             p.keyRow(i18n.tr("Fechar aba com o mouse", "Close tab with the mouse"), i18n.tr("Botão do meio", "Middle click"));
-            p.divider();
-            p.toggle(i18n.tr("Navegação estilo vim", "Vim-style navigation"), i18n.tr("Com a caixa de texto sem foco (Esc sai dela), as teclas abaixo navegam.", "With the text box unfocused (Esc leaves it), the keys below navigate."), &s.vim_keys);
             if (s.vim_keys) {
                 p.keyRow(i18n.tr("Rolar para baixo / para cima", "Scroll down / up"), "j / k");
                 p.keyRow(i18n.tr("Topo / fim da conversa", "Top / bottom of the conversation"), "gg / G");

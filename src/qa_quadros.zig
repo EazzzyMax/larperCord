@@ -105,6 +105,10 @@ fn clearSelection(app: *App) void {
     app.st.selection = .{};
 }
 
+fn backToEnd(app: *App) void {
+    const ch = app.st.activeChannel() orelse return;
+    app.st.scrollOf(ch).stick_bottom = true;
+}
 fn scrollbarSelectsNothing(app: *App) bool {
     return app.st.selection.empty() and !app.st.selection.dragging;
 }
@@ -167,6 +171,9 @@ pub const ops = [_]Op{
     .{ .run = clearSelection },
     .{ .drag = .{ .from = .{ .mark = "msg-scrollbar" }, .to = .{ .mark = "msg-scrollbar-top" } } },
     expect("subir a barra deixa as mensagens sem seleção", scrollbarSelectsNothing),
+    // A barra funciona de verdade: volta ao fim, onde os próximos passos esperam a conversa.
+    .{ .run = backToEnd },
+    .{ .wait = 300 },
 
     s("janela escondida solta as imagens"),
     click("guild:500000"),

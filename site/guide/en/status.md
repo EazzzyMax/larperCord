@@ -44,7 +44,8 @@ larperCord is a young project: version 0.6.0, with its first commit on November 
 **Next**
 
 - [ ] Open from the saved servers, channels and messages, then sync when Discord answers
-- [ ] Memory settings: messages kept in channels you left, the image limit and GIF limits
+- [ ] Rich Presence: show the game you're playing, off by default
+- [ ] Moderation: kick, ban, timeout, and server mute and deafen
 - [ ] A texture atlas for avatars and emoji
 - [ ] Server and role settings
 - [ ] A better theme editor

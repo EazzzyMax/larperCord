@@ -1,5 +1,51 @@
 # O que mudou em cada versão
 
+## 0.6.1
+
+**Mais idiomas e telas**
+- A interface tem versão em japonês, de nakayama900. Texto ainda sem tradução aparece em inglês.
+- Texto em japonês, coreano e chinês agora aparece. As fontes só carregam quando uma letra precisa delas, e o idioma da interface escolhe a forma das letras.
+- A interface segue a escala da tela no Windows e no X11, de Davyd Khanin. Ela não fica mais minúscula em 125% ou 150%.
+- Configurações → Aparência tem o tamanho da interface, de 75 a 200%, e Ctrl + , Ctrl - e Ctrl 0 mudam de qualquer lugar.
+- F11 e Alt+Enter ligam e desligam a tela cheia.
+- Nomes de canais e pessoas em letras estilizadas (𝗠𝗲𝗺𝗲𝘀, ʀᴇɢʀᴀs) aparecem em letras comuns quando nenhuma fonte tem o desenho, em vez de `??????`. Configurações → Avançado lista as escritas que continuam sem fonte.
+
+**Mais nítido**
+- O texto pequeno ficou nítido. Tamanhos como 13,5 eram gerados em 14 e encolhidos como imagem, o que borrava quase todo texto cinza.
+- O texto também encaixa nos pixels da tela em tamanhos como 125%.
+- O texto secundário tem contraste mínimo em todos os temas, inclusive os da comunidade.
+- Configurações → Avançado → Texto muda o peso do texto e como as letras encaixam nos pixels, na hora.
+- Avatares, ícones e imagens ficam guardados no tamanho em que aparecem e são reduzidos com um filtro melhor. Antes, uma foto de 128 px era encolhida pela placa de vídeo sem filtro, o que serrilhava. Isso também gasta menos memória.
+- As imagens não saem mais esticadas nem cortadas nas mensagens, nos embeds e na tela cheia, inclusive depois de redimensionar a janela.
+
+**Chamadas**
+- Corrigidas as rajadas de ruído alto, de Davyd Khanin. Alguns pacotes de voz vêm com padding, e o app mandava esses pacotes ainda cifrados para o decodificador.
+- O começo de uma frase depois de uma pausa não sai mais alto do que deveria. Os quadros de silêncio agora passam pelo decodificador, e ele recomeça depois de uma pausa ou de um buraco grande.
+- Configurações → Avançado tem um registro de depuração: ligue, faça o problema acontecer e mande o arquivo, sem terminal. Ele também anota saltos de volume e quantos pacotes vieram com padding.
+
+**Novidades**
+- A busca tem um painel lateral com filtros, ordem e páginas. Digitando, ela procura neste computador, e com Enter, no Discord.
+- Encaminhar uma mensagem para outro canal.
+- Entrar em um servidor por link ou código, e criar e editar convites nos menus do servidor e do canal.
+- Seletor de GIFs ao lado do botão de emoji: em alta, busca e seus favoritos do Discord. O GIF anima com o mouse em cima.
+- Copiar a imagem na tela cheia, e ampliar com a roda do mouse. Ctrl+V cola PNG, BMP, JPEG, GIF e WebP.
+- Sair de um servidor pelo menu dele, com confirmação.
+- O painel de mensagens fixadas mostra imagens, vídeos e prévias de link.
+- Configurações → Chat pode baixar o FFmpeg no Windows para os vídeos tocarem no app, com aviso antes e SHA-256 conferido.
+- Configurações → Desempenho tem limites para imagens, cada GIF e mensagens na memória.
+
+**Correções**
+- Quem está invisível não aparece mais online por um instante ao abrir o app. O status agora vai já na primeira conexão.
+- Reconectar ficou mais calmo: uma conexão só conta como boa depois de um minuto. Um servidor que aceita e derruba não vira mais uma nova tentativa de login a cada poucos segundos.
+- Segurar Shift+J ou Shift+K no modo Vim não varre mais os canais.
+- Arrastar a barra de rolagem das mensagens não trava mais quando o mouse escapa dela ou quando mensagens antigas carregam.
+- Um GIF que declara um tamanho enorme é recusado antes de decodificar, de svindler, para um arquivo pequeno não acabar com a sua memória.
+- Temas sem o painel do usuário, como o Zen, têm um botão de configurações no cabeçalho.
+- Instalado por um gerenciador de pacotes, o app avisa para atualizar por ele.
+
+**Projeto**
+- O larperCord agora usa a licença GPL-3.0.
+
 ## 0.6.0
 
 **Plugins**

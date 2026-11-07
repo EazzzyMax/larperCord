@@ -5199,6 +5199,13 @@ void ImFontAtlasFontRebuildOutput(ImFontAtlas* atlas, ImFont* font)
     ImFontAtlasFontInitOutput(atlas, font);
 }
 
+// [larperCord] A barra de rolagem vertical da janela atual está sendo arrastada?
+extern "C" bool larper_scrollbar_held(void)
+{
+    ImGuiContext& g = *GImGui;
+    return g.ActiveId != 0 && g.ActiveId == ImGui::GetWindowScrollbarID(g.CurrentWindow, ImGuiAxis_Y);
+}
+
 // [larperCord] Peso e encaixe do texto, ao vivo (Configurações → Avançado). O emoji colorido fica
 // de fora. As letras voltam a ser geradas conforme aparecem na tela.
 extern "C" void larper_font_style(ImFont* font, float multiply, unsigned int hint_flags)

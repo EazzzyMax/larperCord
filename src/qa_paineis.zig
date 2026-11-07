@@ -495,6 +495,36 @@ fn textStyleDefault(app: *App) bool {
     const src = app.fonts.faces.items[0].font.Sources.Data[0];
     return app.st.settings.text_weight == 1 and src.*.RasterizerMultiply == 1 and src.*.FontLoaderFlags & 31 == 8 and textWidth(app) == text_width_before;
 }
+const bar_grip: @import("qa_runner.zig").Target = .{ .at = .{ .key = "msg-scrollbar", .fx = 0.5, .fy = 1.4 } };
+
+fn scrollAtEnd(app: *App) bool {
+    const ch = app.st.activeChannel() orelse return false;
+    return app.st.scrollOf(ch).stick_bottom;
+}
+/// A posição em si não prova nada: ao soltar, as mensagens antigas carregam e ela sobe. O que
+/// importa é que saiu do fim: sem o arraste valer fora da faixa, a rolagem voltaria para lá.
+/// Chegou perto do início: o que importa é quantas mensagens ficaram abaixo, porque ao soltar
+/// as antigas carregam e a posição em si sobe.
+fn scrollMoved(app: *App) bool {
+    if (scrollAtEnd(app)) return false;
+    const ch = app.st.activeChannel() orelse return false;
+    const cs = app.store.channel(ch) orelse return false;
+    const anchor = app.st.scrollOf(ch).anchor_id;
+    for (cs.messages.items, 0..) |m, i| {
+        if (m.msg.id == anchor) return cs.messages.items.len - i >= msgs_before * 7 / 10;
+    }
+    return false;
+}
+var msgs_before: usize = 0;
+fn rememberMessages(app: *App) void {
+    const ch = app.st.activeChannel() orelse return;
+    const cs = app.store.channel(ch) orelse return;
+    msgs_before = cs.messages.items.len;
+}
+fn scrollBottom(app: *App) void {
+    const ch = app.st.activeChannel() orelse return;
+    app.st.scrollOf(ch).stick_bottom = true;
+}
 fn windowFullscreen(app: *App) bool {
     _ = c.SDL_SyncWindow(app.win.window);
     return c.SDL_GetWindowFlags(app.win.window) & c.SDL_WINDOW_FULLSCREEN != 0;
@@ -594,6 +624,26 @@ pub const ops_extras = [_]Op{
     expect("nada se sobrepõe com o texto mudado", noOverlap),
     click("button:Voltar ao padrão"),
     .{ .expect = .{ .name = "e voltar ao padrão restaura tudo", .check = textStyleDefault, .timeout_ms = 2000 } },
+    s("barra de rolagem das mensagens"),
+    key(c.ImGuiKey_Escape),
+    .{ .wait = 150 },
+    expect("a conversa está no fim antes de arrastar", scrollAtEnd),
+    .{ .run = rememberMessages },
+    // Pega a alça, no fim da barra: um clique no trilho, acima dela, só sobe uma página.
+    // Primeiro dentro da faixa: sem isto, uma falha abaixo não diria se foi a faixa.
+    .{ .drag = .{ .from = bar_grip, .to = .{ .mark = "msg-scrollbar-top" } } },
+    .{ .wait = 100 },
+    expect("arrastar a barra sobe", scrollMoved),
+    .{ .run = scrollBottom },
+    .{ .wait = 300 },
+    expect("e volta ao fim", scrollAtEnd),
+    // Sobe saindo bem para fora da faixa da barra, como a mão faz.
+    .{ .run = rememberMessages },
+    .{ .drag = .{ .from = bar_grip, .to = .{ .at = .{ .key = "msg-scrollbar-top", .fx = -60, .fy = 0.5 } } } },
+    .{ .wait = 100 },
+    expect("arrastar a barra sobe mesmo com o mouse fora dela", scrollMoved),
+    .{ .run = scrollBottom },
+    .{ .wait = 150 },
     s("tela cheia"),
     key(c.ImGuiKey_Escape),
     click("composer"),
@@ -837,7 +887,7 @@ fn newestItem() bool {
 }
 fn changelogReal(_: *App) bool {
     // O conteúdo de verdade do CHANGELOG, no idioma da interface, sem o título do arquivo.
-    return qa.find("changelog-section:Plugins") != null and qa.find("changelog-section:Mensagens") != null and newestItem();
+    return qa.find("changelog-section:Chamadas") != null and qa.find("changelog-section:Correções") != null and newestItem();
 }
 fn currentMarked(_: *App) bool {
     var b: [64]u8 = undefined;
