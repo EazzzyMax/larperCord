@@ -1,0 +1,26 @@
+GNU FriBidi 1.0.16 (https://github.com/fribidi/fribidi, LGPL 2.1 ou posterior: ver COPYING)
+Pacote oficial da versão: https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz
+sha256 1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c
+
+O projeto não publica hash desse pacote (a página da versão não traz o campo):
+o sha256 acima é o do arquivo baixado por HTTPS em 2026-11-07, não uma
+conferência contra um valor publicado.
+
+Para que serve: o ImGui desenha letra por letra, da esquerda para a direita.
+O src/ui/bidi.zig passa cada linha com árabe ou hebraico pelo FriBidi antes:
+as letras árabes viram as formas de apresentação ligadas (inicial, medial,
+final e o lam-alef) e a linha fica na ordem visual do algoritmo bidirecional
+do Unicode (UAX #9). Linha sem letra da direita para a esquerda não passa
+por aqui.
+
+Só os arquivos de lib/ que o executável compila, sem alterações (iguais aos do
+pacote, byte a byte). As tabelas *.tab.i já vêm geradas no pacote (Unicode 16).
+Ficaram de fora o autotools, o meson, gen.tab, bin/, os testes, a documentação
+e, de lib/, fribidi.c (log2vis e a depuração), as conversões de charset e as
+funções obsoletas.
+
+config/ é nosso: o config.h e o fribidi-config.h que o meson do pacote
+geraria. O config.h também troca o malloc do FriBidi por uma arena fixa
+(ver lá). Tudo estático, em todos os alvos: nenhuma DLL nova no Windows.
+
+README.upstream é o README.md do pacote.
