@@ -31,6 +31,7 @@ pub const Sink = struct {
 };
 const links = @import("../core/links.zig");
 const rpc_proto = @import("rpc_proto.zig");
+const conta_net = @import("conta_net.zig");
 
 /// O que a demonstração "mandou para o Discord" (o QA confere; não há servidor
 /// para perguntar). Lido da thread da interface.
@@ -194,6 +195,9 @@ pub const Gateway = struct {
     /// nosso status, que vai junto no op 3.
     presence: rpc_proto.Presence = .{},
     my_status: types.Status = .online,
+    /// O status personalizado de agora (net/fake_conta.zig guarda), que também
+    /// vai no op 3, como no gateway de verdade.
+    conta: conta_net.NetState = .{},
 
     pub fn start(g: *Gateway) !void {
         g.thread = c.SDL_CreateThread(threadMain, "gateway", g) orelse return error.SdlThread;
@@ -225,6 +229,7 @@ pub const Gateway = struct {
         g.commands.push(.shutdown);
         if (g.thread) |t| c.SDL_WaitThread(t, null);
         g.presence.deinit(alloc);
+        g.conta.deinit();
     }
 
     /// Rich Presence: o mesmo op 3 que o gateway de verdade mandaria (o QA
@@ -235,7 +240,7 @@ pub const Gateway = struct {
         g.presence.set(alloc, app, act);
         var out: std.ArrayList(u8) = .empty;
         defer out.deinit(alloc);
-        g.presence.writeOp3(&out, alloc, if (g.my_status == .offline) "invisible" else @tagName(g.my_status)) catch return;
+        conta_net.writeOp3(&out, if (g.my_status == .offline) "invisible" else @tagName(g.my_status), g.conta.custom, g.presence.current) catch return;
         const n = @min(out.items.len, sent.presence.len);
         @memcpy(sent.presence[0..n], out.items[0..n]);
         sent.presence_len.store(n, .release);

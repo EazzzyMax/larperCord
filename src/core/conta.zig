@@ -335,19 +335,31 @@ pub fn expiryFor(choice: u8, now_ms: i64, utc_offset_s: i64) i64 {
 /// A atividade "Custom Status" (tipo 4) para o op 3, ou nada se não vale.
 /// `out` recebe `[...]` inteiro.
 pub fn writeActivities(out: *std.ArrayList(u8), gpa: std.mem.Allocator, s: CustomStatus, now_ms: i64) !void {
-    if (!s.active(now_ms)) return out.appendSlice(gpa, "[]");
-    try out.appendSlice(gpa, "[{\"type\":4,\"name\":\"Custom Status\"");
-    if (s.text.len > 0) {
-        try out.appendSlice(gpa, ",\"state\":");
-        try writeString(out, gpa, s.text);
-    }
-    if (s.emoji_name.len > 0 or s.emoji_id != 0) {
-        try out.appendSlice(gpa, ",\"emoji\":{\"name\":");
-        try writeString(out, gpa, s.emoji_name);
-        if (s.emoji_id != 0) try out.print(gpa, ",\"id\":\"{d}\"", .{s.emoji_id});
+    return writeActivitiesWith(out, gpa, s, now_ms, null);
+}
+
+/// Igual a `writeActivities`, mais `extra` depois do status personalizado: outra
+/// atividade já em JSON (a do Rich Presence, net/rpc_proto.zig), que vai mesmo
+/// sem status personalizado.
+pub fn writeActivitiesWith(out: *std.ArrayList(u8), gpa: std.mem.Allocator, s: CustomStatus, now_ms: i64, extra: ?[]const u8) !void {
+    try out.append(gpa, '[');
+    if (s.active(now_ms)) {
+        try out.appendSlice(gpa, "{\"type\":4,\"name\":\"Custom Status\"");
+        if (s.text.len > 0) {
+            try out.appendSlice(gpa, ",\"state\":");
+            try writeString(out, gpa, s.text);
+        }
+        if (s.emoji_name.len > 0 or s.emoji_id != 0) {
+            try out.appendSlice(gpa, ",\"emoji\":{\"name\":");
+            try writeString(out, gpa, s.emoji_name);
+            if (s.emoji_id != 0) try out.print(gpa, ",\"id\":\"{d}\"", .{s.emoji_id});
+            try out.append(gpa, '}');
+        }
         try out.append(gpa, '}');
+        if (extra != null) try out.append(gpa, ',');
     }
-    try out.appendSlice(gpa, "}]");
+    if (extra) |e| try out.appendSlice(gpa, e);
+    try out.append(gpa, ']');
 }
 
 // --- Comandos, eventos e ações ---------------------------------------------------------
@@ -656,5 +668,17 @@ test "prazo do status e a atividade do op 3" {
     out.clearRetainingCapacity();
     // Vencido: nada vai para os outros.
     try writeActivities(&out, gpa, .{ .text = "x", .expires_ms = 10 }, 20);
+    try std.testing.expectEqualStrings("[]", out.items);
+    // Com o Rich Presence: o status personalizado primeiro, a atividade do jogo depois;
+    // sem status personalizado (ou vencido), só a do jogo.
+    const game = "{\"type\":0,\"name\":\"Jogo\"}";
+    out.clearRetainingCapacity();
+    try writeActivitiesWith(&out, gpa, .{ .text = "ar" }, 0, game);
+    try std.testing.expectEqualStrings("[{\"type\":4,\"name\":\"Custom Status\",\"state\":\"ar\"}," ++ game ++ "]", out.items);
+    out.clearRetainingCapacity();
+    try writeActivitiesWith(&out, gpa, .{ .text = "x", .expires_ms = 10 }, 20, game);
+    try std.testing.expectEqualStrings("[" ++ game ++ "]", out.items);
+    out.clearRetainingCapacity();
+    try writeActivitiesWith(&out, gpa, .{}, 0, null);
     try std.testing.expectEqualStrings("[]", out.items);
 }

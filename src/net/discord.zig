@@ -704,8 +704,9 @@ pub const Gateway = struct {
         j.writeString(&out, alloc, g.token) catch return;
         out.print(alloc, ",\"capabilities\":4605,\"properties\":", .{}) catch return;
         out.appendSlice(alloc, identity_props) catch return;
+        // A mesma lista do op 3: status personalizado e Rich Presence (net/conta_net.zig).
         out.appendSlice(alloc, ",\"presence\":{") catch return;
-        g.presence.writeActivities(&out, alloc) catch return;
+        conta_net.writeActivities(g, &out) catch return;
         out.print(alloc, ",\"status\":\"{s}\",\"afk\":false,\"since\":0}},\"compress\":false,\"client_state\":", .{statusName(g.status)}) catch return;
         out.appendSlice(alloc, client_state_json) catch return;
         out.appendSlice(alloc, "}}") catch return;
@@ -717,14 +718,6 @@ pub const Gateway = struct {
         while (i < g.held.items.len) {
             if (g.held.items[i] == .set_activity) freeCommand(g.held.orderedRemove(i)) else i += 1;
         }
-    }
-
-    /// op 3: o status de agora com a atividade do Rich Presence (se houver).
-    fn sendPresence(g: *Gateway) void {
-        var out: std.ArrayList(u8) = .empty;
-        defer out.deinit(alloc);
-        g.presence.writeOp3(&out, alloc, statusName(g.status)) catch return;
-        g.send(out.items);
     }
 
     /// Nome e imagens de uma aplicação do Rich Presence (sem o nome, a atividade
@@ -3763,7 +3756,9 @@ pub const Gateway = struct {
                 // Rich Presence: nome e imagens da aplicação, uma vez por aplicação.
                 if (sa.activity != null and !g.presence.known(sa.app)) g.learnApp(sa.app);
                 g.presence.set(alloc, sa.app, sa.activity);
-                g.sendPresence();
+                // O op 3 sai pela fila do teto, montado na hora com o status
+                // personalizado e esta atividade (net/conta_net.zig).
+                conta_net.sendPresence(g);
                 // O Discord não manda a nossa presença de volta: a nossa linha muda aqui.
                 g.emit(g.presence.meEvent(alloc, g.me, g.status));
             },

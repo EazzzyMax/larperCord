@@ -45,20 +45,34 @@ fn emitCustom(g: anytype) void {
 
 /// Pede o op 3: entra na fila do teto de envio do gateway (net/gw_budget.zig;
 /// pedidos seguidos viram um só) e sai montado por `writePresence` quando
-/// tiver vez, com o status e o status personalizado daquele momento.
+/// tiver vez, com o status, o status personalizado e a atividade do Rich
+/// Presence daquele momento.
 pub fn sendPresence(g: anytype) void {
     g.queueOp(.presence);
 }
 
-/// O op 3 inteiro: o status escolhido mais o status personalizado (tipo 4),
-/// se vale agora. Único lugar que monta a lista de atividades da presença.
+/// O op 3 inteiro do gateway de verdade (`g.presence`: net/rpc_proto.zig).
 pub fn writePresence(g: anytype, status_name: []const u8) void {
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(alloc);
-    out.print(alloc, "{{\"op\":3,\"d\":{{\"status\":\"{s}\",\"since\":0,\"activities\":", .{status_name}) catch return;
-    conta.writeActivities(&out, alloc, g.conta.custom, nowMs()) catch return;
-    out.appendSlice(alloc, ",\"afk\":false}}") catch return;
+    writeOp3(&out, status_name, g.conta.custom, g.presence.current) catch return;
     g.writeWs(out.items);
+}
+
+/// O op 3: o status escolhido mais o status personalizado (tipo 4), se vale
+/// agora, e a atividade do Rich Presence (`rich`, já em JSON), se houver.
+/// Único lugar que monta a lista de atividades da presença (a demonstração
+/// usa o mesmo).
+pub fn writeOp3(out: *std.ArrayList(u8), status_name: []const u8, custom: conta.CustomStatus, rich: ?[]const u8) !void {
+    try out.print(alloc, "{{\"op\":3,\"d\":{{\"status\":\"{s}\",\"since\":0,\"activities\":", .{status_name});
+    try conta.writeActivitiesWith(out, alloc, custom, nowMs(), rich);
+    try out.appendSlice(alloc, ",\"afk\":false}}");
+}
+
+/// `"activities":[…]` do IDENTIFY: a mesma lista do op 3.
+pub fn writeActivities(g: anytype, out: *std.ArrayList(u8)) !void {
+    try out.appendSlice(alloc, "\"activities\":");
+    try conta.writeActivitiesWith(out, alloc, g.conta.custom, nowMs(), g.presence.current);
 }
 
 /// O status personalizado venceu: some da presença (chamado no heartbeat,

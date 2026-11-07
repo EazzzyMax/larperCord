@@ -66,6 +66,8 @@ pub fn execute(g: anytype, cmd: conta.Cmd) void {
         },
         .custom_status => |cs| {
             _ = sent.statuses.fetchAdd(1, .release);
+            // Vai junto no próximo op 3 da demonstração (Rich Presence).
+            g.conta.setCustom(cs);
             const copy = cs.dupe(alloc) catch return;
             g.emit(.{ .conta = .{ .custom_status = copy } });
         },
