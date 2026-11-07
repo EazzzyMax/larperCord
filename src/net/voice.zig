@@ -31,6 +31,7 @@ const ev = @import("../core/event.zig");
 const Sink = @import("fake_gateway.zig").Sink;
 const i18n = @import("../ui/i18n.zig");
 const j = @import("jsonx.zig");
+const call_json = @import("call_json.zig");
 const web = @import("web_client.zig");
 const voz = @import("../core/voz.zig");
 const voz_audio = @import("voz_audio.zig");
@@ -531,11 +532,8 @@ const Worker = struct {
             std.crypto.secureZero(u8, out.items);
             out.deinit(alloc);
         }
-        out.print(alloc, "{{\"op\":0,\"d\":{{\"server_id\":\"{d}\",\"user_id\":\"{d}\",\"session_id\":", .{ w.v.guild, w.v.user }) catch return;
-        j.writeString(&out, alloc, w.v.session[0..w.v.session_len]) catch return;
-        out.appendSlice(alloc, ",\"token\":") catch return;
-        j.writeString(&out, alloc, w.v.token[0..w.v.token_len]) catch return;
-        out.print(alloc, ",\"video\":false,\"max_dave_protocol_version\":{d}}}}}", .{c.daveMaxSupportedProtocolVersion()}) catch return;
+        // Numa DM ou grupo o `server_id` é o canal (call_json.serverId).
+        call_json.writeIdentify(&out, alloc, w.v.guild, w.v.channel.load(.acquire), w.v.user, w.v.session[0..w.v.session_len], w.v.token[0..w.v.token_len], @intCast(c.daveMaxSupportedProtocolVersion())) catch return;
         dbg("identify (DAVE até v{d})", .{c.daveMaxSupportedProtocolVersion()});
         _ = w.sendText(out.items);
     }
@@ -547,11 +545,7 @@ const Worker = struct {
             std.crypto.secureZero(u8, out.items);
             out.deinit(alloc);
         }
-        out.print(alloc, "{{\"op\":7,\"d\":{{\"server_id\":\"{d}\",\"session_id\":", .{w.v.guild}) catch return;
-        j.writeString(&out, alloc, w.v.session[0..w.v.session_len]) catch return;
-        out.appendSlice(alloc, ",\"token\":") catch return;
-        j.writeString(&out, alloc, w.v.token[0..w.v.token_len]) catch return;
-        out.print(alloc, ",\"seq_ack\":{d}}}}}", .{w.last_seq}) catch return;
+        call_json.writeResume(&out, alloc, w.v.guild, w.v.channel.load(.acquire), w.v.session[0..w.v.session_len], w.v.token[0..w.v.token_len], w.last_seq) catch return;
         dbg("resume", .{});
         _ = w.sendText(out.items);
     }

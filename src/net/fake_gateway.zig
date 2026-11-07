@@ -16,6 +16,7 @@ const Id = types.Id;
 const alloc = std.heap.c_allocator;
 
 const voice_mod = @import("voice.zig");
+const call_json = @import("call_json.zig");
 
 pub const Sink = struct {
     ctx: *anyopaque,
@@ -48,6 +49,15 @@ pub const sent = struct {
     pub var search_len: A = .init(0);
     /// A consulta da última busca (o QA confere o que iria para o Discord).
     pub var search_params: [1100]u8 = undefined;
+    /// Calls de DM: pedidos de tocar e de parar de tocar, e o último op 4 e
+    /// corpo do stop-ringing, montados como no gateway de verdade.
+    pub var rings: A = .init(0);
+    pub var ring_channel: A = .init(0);
+    pub var stop_rings: A = .init(0);
+    pub var op4: [256]u8 = undefined;
+    pub var op4_len: A = .init(0);
+    pub var stop_body: [64]u8 = undefined;
+    pub var stop_body_len: A = .init(0);
 };
 
 const demo_gifs = [_][]const u8{ "dancing cat", "thumbs up", "good morning", "laughing", "confused", "applause", "typing fast", "shrug" };
@@ -78,6 +88,11 @@ pub const Gateway = struct {
     search_indexed: bool = false,
     voice: ?*voice_mod.Voice = null,
     voice_channel: ?Id = null,
+    /// Calls de DM da demonstração: quem vai atender a que fizemos (e
+    /// quando), quem está do outro lado e a conversa que toca para nós.
+    call_answer: ?struct { channel: Id, user: Id, at_ms: i64 } = null,
+    call_peer: ?struct { channel: Id, user: Id } = null,
+    ringing_me: Id = 0,
     nonce_replies: std.ArrayList(struct { at_ms: i64, msg: types.Message }) = .empty,
     history_replies: std.ArrayList(struct { at_ms: i64, channel: Id }) = .empty,
     /// Servidores cujos cargos já foram mandados.
@@ -405,7 +420,14 @@ pub const Gateway = struct {
                     } });
                 },
                 .join_voice => |v| {
+                    if (call_json.voiceState(&sent.op4, v.guild, v.channel, v.mute, v.deaf)) |p| sent.op4_len.store(p.len, .release);
+                    if (g.voice_channel) |old| if (v.channel != old) g.leaveDemoCall(old);
                     g.emit(.{ .voice_state = .{ .channel = v.channel, .user = me_id, .flags = .{ .self_mute = v.mute, .self_deaf = v.deaf } } });
+                    // Atendemos a que tocava: o Discord tira a gente do `ringing`.
+                    if (v.channel) |ch| if (ch == g.ringing_me) {
+                        g.ringing_me = 0;
+                        g.emit(.{ .call = .{ .channel = ch } });
+                    };
                     g.emit(.{ .voice_status = .{ .status = if (v.channel != null) .connected else .disconnected, .channel = v.channel orelse 0 } });
                     if (v.channel) |ch| {
                         g.startVoice(v.guild, ch, v.mute, v.deaf);
@@ -421,6 +443,35 @@ pub const Gateway = struct {
                     g.emit(.{ .voice_state = .{ .channel = g.voice_channel, .user = me_id, .flags = .{ .self_mute = f.mute, .self_deaf = f.deaf } } });
                 },
                 .voice_volume => {},
+                .call_ring => |ch| {
+                    _ = sent.rings.fetchAdd(1, .monotonic);
+                    sent.ring_channel.store(ch, .release);
+                    const who = dmRecipient(ch) orelse if (ch == group_id) group_members[0] else continue;
+                    g.emit(.{ .call = .{ .channel = ch, .ringing = if (ch == group_id) group_members.len else 1 } });
+                    // Do outro lado atendem logo depois.
+                    g.call_answer = .{ .channel = ch, .user = who, .at_ms = nowMs() + 1500 };
+                },
+                .call_stop_ringing => |ch| {
+                    if (call_json.stopRingingBody(&sent.stop_body, me_id)) |b| sent.stop_body_len.store(b.len, .release);
+                    _ = sent.stop_rings.fetchAdd(1, .monotonic);
+                    if (ch == g.ringing_me) g.ringing_me = 0;
+                    g.emit(.{ .call = .{ .channel = ch } });
+                },
+                .demo_call => |dc| {
+                    const caller = dmRecipient(dc.channel) orelse if (dc.channel == group_id) group_members[0] else continue;
+                    if (dc.ring) {
+                        g.ringing_me = dc.channel;
+                        g.call_peer = .{ .channel = dc.channel, .user = caller };
+                        g.emit(.{ .voice_state = .{ .channel = dc.channel, .user = caller } });
+                        g.emit(.{ .call = .{ .channel = dc.channel, .ringing_me = true } });
+                    } else {
+                        // Quem ligou desistiu: sem mais ninguém, a call acaba (CALL_DELETE).
+                        if (g.ringing_me == dc.channel) g.ringing_me = 0;
+                        g.call_peer = null;
+                        g.emit(.{ .voice_state = .{ .channel = null, .user = caller } });
+                        if (g.voice_channel != dc.channel) g.emit(.{ .call = .{ .channel = dc.channel, .ended = true } });
+                    }
+                },
                 .fetch_mentions => {
                     const t = nowMs();
                     if (g.mention_log.len > 0) freeMessages(g.mention_log);
@@ -742,8 +793,24 @@ pub const Gateway = struct {
         return info;
     }
 
+    /// Saímos da call de uma DM da demonstração: o outro lado sai junto e a
+    /// call acaba (como o Discord, quando não sobra ninguém).
+    fn leaveDemoCall(g: *Gateway, ch: Id) void {
+        const dm = dmRecipient(ch) != null or ch == group_id;
+        if (!dm) return;
+        if (g.call_answer) |a| if (a.channel == ch) {
+            g.call_answer = null;
+        };
+        if (g.call_peer) |p| if (p.channel == ch) {
+            g.emit(.{ .voice_state = .{ .channel = null, .user = p.user } });
+            g.call_peer = null;
+        };
+        g.emit(.{ .call = .{ .channel = ch, .ended = true } });
+    }
+
     fn nextDeadline(g: *Gateway) i64 {
         var d = @min(@min(g.next_live_ms, g.next_latency_ms), g.next_flood_ms);
+        if (g.call_answer) |a| d = @min(d, a.at_ms);
         if (g.pending_typing) |t| d = @min(d, t.at_ms);
         for (g.nonce_replies.items) |r| d = @min(d, r.at_ms);
         for (g.history_replies.items) |r| d = @min(d, r.at_ms);
@@ -817,6 +884,12 @@ pub const Gateway = struct {
 
     fn tick(g: *Gateway, now: i64) !void {
         g.flushAcks(now);
+        if (g.call_answer) |a| if (now >= a.at_ms) {
+            g.call_answer = null;
+            g.call_peer = .{ .channel = a.channel, .user = a.user };
+            g.emit(.{ .voice_state = .{ .channel = a.channel, .user = a.user } });
+            g.emit(.{ .call = .{ .channel = a.channel, .ringing = if (a.channel == group_id) group_members.len - 1 else 0 } });
+        };
         var i: usize = 0;
         while (i < g.nonce_replies.items.len) {
             const r = g.nonce_replies.items[i];

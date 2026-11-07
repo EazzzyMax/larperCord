@@ -2631,7 +2631,7 @@ const ops = [_]Op{
     expect("Apagar cache apaga os arquivos", cacheEmpty),
     key(c.ImGuiKey_Escape),
 
-} ++ ops_plugin_section ++ @import("qa_alertas.zig").ops ++ @import("qa_leitura.zig").ops ++ @import("qa_threads.zig").ops ++ @import("qa_voz.zig").ops ++ @import("qa_bandeja.zig").ops ++ lsp_ops ++ @import("qa_paineis.zig").all ++ @import("qa_quadros.zig").ops ++ [_]Op{
+} ++ ops_plugin_section ++ @import("qa_alertas.zig").ops ++ @import("qa_leitura.zig").ops ++ @import("qa_threads.zig").ops ++ @import("qa_voz.zig").ops ++ @import("qa_chamada.zig").ops ++ @import("qa_bandeja.zig").ops ++ lsp_ops ++ @import("qa_paineis.zig").all ++ @import("qa_quadros.zig").ops ++ [_]Op{
     s("caixa de entrada"),
     click("guild:500000"),
     click("channel:500005"),
@@ -2890,6 +2890,7 @@ const ops_leitura = [_]Op{
     expect("app conecta e carrega o histórico", ready),
 } ++ @import("qa_leitura.zig").startup ++ @import("qa_leitura.zig").ops;
 const ops_voz = [_]Op{ expect("pronto", ready), click("guild:500000") } ++ @import("qa_voz.zig").ops;
+const ops_chamada = [_]Op{expect("pronto", ready)} ++ @import("qa_chamada.zig").ops;
 const ops_lsp = [_]Op{expect("pronto", ready)} ++ lsp_ops;
 const ops_lsp_quit = [_]Op{expect("pronto", ready)} ++ lsp_ops_quit;
 const qa_bandeja = @import("qa_bandeja.zig");
@@ -3070,6 +3071,7 @@ const ops_theme = [_]Op{
     .{ .run = openFirstDm },
     expect("chegar nas mensagens diretas", onDms),
     .{ .shot = "tema-dms" },
+} ++ @import("qa_chamada.zig").ops_theme ++ [_]Op{
     click("guild:500000"),
     click("composer"),
     .{ .text = "**prévia** do `tema`" },
@@ -3221,6 +3223,7 @@ fn script() []const Op {
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "voice")) return &ops_voice;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "leitura")) return &ops_leitura;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "voz")) return &ops_voz;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "chamada")) return &ops_chamada;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "lsp")) return &ops_lsp;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "lsp-quit")) return &ops_lsp_quit;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja")) return &ops_bandeja;

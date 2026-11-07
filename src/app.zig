@@ -46,6 +46,7 @@ const jsonx = @import("net/jsonx.zig");
 const fsutil = @import("platform/fsutil.zig");
 const accounts_store = @import("net/accounts_store.zig");
 const app_accounts = @import("app_accounts.zig");
+const app_chamada = @import("app_chamada.zig");
 const voz_audio = @import("net/voz_audio.zig");
 const lsp_net = @import("net/lsp.zig");
 const updater = @import("net/updater.zig");
@@ -355,7 +356,7 @@ pub const App = struct {
         app.gpa.destroy(app);
     }
 
-    fn cmd(app: *App, command: ev.Command) void {
+    pub fn cmd(app: *App, command: ev.Command) void {
         switch (app.net) {
             .none => {},
             .fake => |*g| g.commands.push(command),
@@ -540,6 +541,7 @@ pub const App = struct {
         st.voice_status = .disconnected;
         st.voice_mixer = false;
         app.resetCallState();
+        app_chamada.reset();
         st.popup = .none;
         st.palette.open = false;
         st.settings.open = false;
@@ -713,7 +715,7 @@ pub const App = struct {
     }
 
     /// O que só vale durante uma call (entrou, saiu, trocou de conta).
-    fn resetCallState(app: *App) void {
+    pub fn resetCallState(app: *App) void {
         app.st.voice_ping_ms = 0;
         app.st.voice_mic_failed = false;
         app.st.voice_out_failed = false;
@@ -1509,6 +1511,9 @@ pub const App = struct {
                 if (st.voice != null) app.cmd(.{ .voice_flags = .{ .mute = st.muted, .deaf = st.deafened } });
             },
             .toggle_voice_mixer => st.voice_mixer = !st.voice_mixer,
+            .start_call => |ch| app_chamada.start(app, ch),
+            .accept_call => app_chamada.accept(app),
+            .decline_call => app_chamada.decline(app),
             .set_voice_volume => |vv| {
                 const val = std.math.clamp(vv.volume, 0, 2);
                 st.voice_volumes.put(app.gpa, vv.user, val) catch {};
@@ -1734,6 +1739,7 @@ pub const App = struct {
             if (edited != 0) plugin_host.onEdit(app, edited);
             if (quiet) |ch| app.st.filtros.quiet(app.gpa, &app.store, ch);
             app.afterEvent(e);
+            app_chamada.onEvent(app, e);
             if (e == .thread_open) app.openChannel(e.thread_open, false);
         }
         if (!was_ready and app.store.ready) {

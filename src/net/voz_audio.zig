@@ -87,6 +87,8 @@ pub const Shared = struct {
     loop_db: Atomic(f32) = .init(voz.db_silence),
     qa_fail_mic: Atomic(bool) = .init(false),
     sounds_played: Atomic(u32) = .init(0),
+    /// Pedaços do toque de chamada já postos na saída.
+    ring_chunks: Atomic(u32) = .init(0),
     loop_frames: Atomic(u32) = .init(0),
     mic_opens: Atomic(u32) = .init(0),
     out_opens: Atomic(u32) = .init(0),
@@ -542,6 +544,28 @@ pub fn play(sound: voz.Sound) void {
     ensureThread();
 }
 
+/// Toque de chamada: liga (repete até desligar) ou desliga. Não bloqueia.
+/// Sozinho, para depois de `ring_max_ms` (um CALL_UPDATE perdido não deixa
+/// o toque para sempre).
+pub fn setRinging(on: bool) void {
+    if (ring_on.load(.acquire) == on) return;
+    // Sob a trava, como a fila dos bipes: a thread que está saindo vê o
+    // pedido, ou `ensureThread` vê que ela saiu.
+    c.SDL_LockSpinlock(&state_lock);
+    ring_on.store(on, .release);
+    c.SDL_UnlockSpinlock(&state_lock);
+    if (on) ensureThread();
+}
+
+pub fn ringing() bool {
+    return ring_on.load(.acquire);
+}
+
+var ring_on: Atomic(bool) = .init(false);
+const ring_max_ms = 60_000;
+/// 50 ms por pedaço (intercalado).
+const ring_chunk = 50 * voz.rate / 1000 * voz.channels;
+
 /// Ao fechar o app, antes do SDL_Quit.
 pub fn shutdown() void {
     stop_req.store(true, .release);
@@ -555,6 +579,10 @@ const Helper = struct {
     cap: voz.Capture = .{},
     loop: ?*c.SDL_AudioStream = null,
     sfx: ?*c.SDL_AudioStream = null,
+    /// O toque de chamada, e em que ponto do ciclo ele está.
+    ring: ?*c.SDL_AudioStream = null,
+    ring_pos: usize = 0,
+    ring_since_ms: i64 = 0,
     /// Até quando os bipes já postos ainda estão tocando.
     sfx_until_ms: i64 = 0,
     next_scan_ms: i64 = 0,
@@ -570,6 +598,8 @@ const Helper = struct {
         h.loop = null;
         if (h.sfx) |s| c.SDL_DestroyAudioStream(s);
         h.sfx = null;
+        if (h.ring) |s| c.SDL_DestroyAudioStream(s);
+        h.ring = null;
         h.out.close();
     }
 
@@ -663,9 +693,37 @@ const Helper = struct {
         }
     }
 
+    /// Mantém uns 200 ms do toque na fila: desligar para logo, e um atraso
+    /// da thread não deixa buraco.
+    fn stepRing(h: *Helper, now: i64) void {
+        if (!ring_on.load(.acquire)) {
+            if (h.ring) |s| c.SDL_DestroyAudioStream(s);
+            h.ring = null;
+            h.ring_since_ms = 0;
+            return;
+        }
+        if (h.ring_since_ms == 0) {
+            h.ring_since_ms = now;
+            h.ring_pos = 0;
+        }
+        if (now - h.ring_since_ms > ring_max_ms) {
+            ring_on.store(false, .release);
+            return;
+        }
+        if (h.ring == null) h.ring = h.newStream(now);
+        const s = h.ring orelse return;
+        while (c.SDL_GetAudioStreamQueued(s) < 200 * bytes_per_ms) {
+            var pcm: [ring_chunk]i16 = undefined;
+            voz.ringSynth(h.ring_pos, &pcm);
+            h.ring_pos = (h.ring_pos + ring_chunk / voz.channels) % voz.ring_cycle_len;
+            if (!c.SDL_PutAudioStreamData(s, &pcm, @intCast(pcm.len * @sizeOf(i16)))) break;
+            _ = sh.ring_chunks.fetchAdd(1, .monotonic);
+        }
+    }
+
     fn stepOutput(h: *Helper, now: i64) void {
         if (h.out.dev == 0) return;
-        if (h.loop == null and h.sfx == null) {
+        if (h.loop == null and h.sfx == null and h.ring == null) {
             h.out.close();
             return;
         }
@@ -673,12 +731,13 @@ const Helper = struct {
         if (h.out.check(now)) |dev| {
             if (h.loop) |s| Output.rebind(dev, s);
             if (h.sfx) |s| Output.rebind(dev, s);
+            if (h.ring) |s| Output.rebind(dev, s);
             h.out.adopt(dev);
         }
     }
 
     fn hasWork(h: *const Helper) bool {
-        return sh.page_open.load(.acquire) or h.sfx != null or n_pending > 0;
+        return sh.page_open.load(.acquire) or h.sfx != null or n_pending > 0 or ring_on.load(.acquire) or h.ring != null;
     }
 };
 
@@ -693,6 +752,7 @@ fn helperMain(_: ?*anyopaque) callconv(.c) c_int {
             if (h.audio_ok) {
                 h.stepPage(now);
                 h.stepSounds(now);
+                h.stepRing(now);
                 h.stepOutput(now);
             }
             c.SDL_LockSpinlock(&state_lock);
