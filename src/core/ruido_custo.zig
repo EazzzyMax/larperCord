@@ -1,5 +1,6 @@
 //! Mede o custo do supressor por quadro de 10 ms: `zig build ruido-custo`
-//! (sempre em ReleaseFast). Só para quem desenvolve; não entra no app.
+//! (otimizado como o app; -Doptimize=small mede o outro modo). Só para quem
+//! desenvolve; não entra no app.
 const std = @import("std");
 const voz = @import("voz.zig");
 const ruido = @import("ruido.zig");
@@ -24,17 +25,25 @@ fn fill(pcm: []i16, seed: *u32, amp: f32) void {
     }
 }
 
+/// Só o supressor, ou a captura inteira (volume, passa-altas, supressor, nível e
+/// porta), que é o que a thread de áudio roda a cada quadro.
+fn step(cap: *voz.Capture, pcm: []i16, mode: ruido.Mode, captura: bool) void {
+    if (captura) {
+        _ = cap.process(pcm, .{ .gain = 1.2, .gate = true, .denoise = mode });
+    } else _ = cap.ns.process(pcm, mode);
+}
+
 /// Pior e melhor de 5 rodadas de 10 s de áudio (a máquina pode estar ocupada:
 /// a melhor é o custo do código; a pior, o que se viu com ela carregada).
-fn measure(name: []const u8, mode: ruido.Mode, amp: f32) void {
-    var s: ruido.Supressor = .{};
-    defer s.release();
+fn measure(name: []const u8, mode: ruido.Mode, amp: f32, captura: bool) void {
+    var cap: voz.Capture = .{};
+    defer cap.release();
     var pcm: [voz.frame_len]i16 = undefined;
     var seed: u32 = 12345;
     // Assenta antes de medir (no silêncio é aqui que a cauda decairia).
     for (0..500) |_| {
         fill(&pcm, &seed, amp);
-        _ = s.process(&pcm, mode);
+        step(&cap, &pcm, mode, captura);
     }
     const frames = 500;
     var best: f64 = 1e9;
@@ -44,7 +53,7 @@ fn measure(name: []const u8, mode: ruido.Mode, amp: f32) void {
         for (0..frames) |_| {
             fill(&pcm, &seed, amp);
             const t0 = seconds();
-            _ = s.process(&pcm, mode);
+            step(&cap, &pcm, mode, captura);
             spent += seconds() - t0;
         }
         const per10 = spent / (frames * voz.frame_ms / 10);
@@ -55,9 +64,11 @@ fn measure(name: []const u8, mode: ruido.Mode, amp: f32) void {
 }
 
 pub fn main() void {
-    measure("RNNoise, ruído alto", .rnnoise, 3000);
-    measure("RNNoise, ruído baixo", .rnnoise, 30);
-    measure("RNNoise, quase nada (1 LSB)", .rnnoise, 2);
-    measure("RNNoise, silêncio digital", .rnnoise, 0);
-    measure("desligado", .off, 3000);
+    measure("RNNoise, ruído alto", .rnnoise, 3000, false);
+    measure("RNNoise, ruído baixo", .rnnoise, 30, false);
+    measure("RNNoise, quase nada (1 LSB)", .rnnoise, 2, false);
+    measure("RNNoise, silêncio digital", .rnnoise, 0, false);
+    measure("desligado", .off, 3000, false);
+    measure("captura inteira, com RNNoise", .rnnoise, 3000, true);
+    measure("captura inteira, sem supressor", .off, 3000, true);
 }

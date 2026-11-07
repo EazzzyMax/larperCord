@@ -300,11 +300,13 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{ .root_module = test_mod });
     b.step("test", "Roda os testes").dependOn(&b.addRunArtifact(tests).step);
 
-    // Custo do supressor de ruído por quadro (sempre otimizado: é o que se mede).
+    // Custo do supressor de ruído por quadro, otimizado como o app (no debug, como
+    // o padrão: medir o debug não diz nada). -Doptimize=small mede o outro modo.
+    const medir: std.builtin.OptimizeMode = if (optimize == .debug) .fast else optimize;
     const custo_mod = b.createModule(.{
         .root_source_file = b.path("src/core/ruido_custo.zig"),
         .target = target,
-        .optimize = .ReleaseFast,
+        .optimize = medir,
         .link_libc = true,
     });
     addRnnoise(b, custo_mod);
@@ -315,7 +317,7 @@ pub fn build(b: *std.Build) void {
     const rede_mod = b.createModule(.{
         .root_source_file = b.path("src/core/voz_rede.zig"),
         .target = target,
-        .optimize = .ReleaseFast,
+        .optimize = medir,
         .link_libc = true,
     });
     addRnnoise(b, rede_mod);
