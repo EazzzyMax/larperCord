@@ -317,7 +317,10 @@ fn searchFound(_: *App) bool {
     return false;
 }
 fn searchOpened(app: *App) bool {
-    return activeIs(app, t_free) and !search.open;
+    return activeIs(app, t_free);
+}
+fn closeSearch(_: *App) void {
+    search.close();
 }
 fn paletteHasThread(app: *App) bool {
     if (!app.st.palette.open) return false;
@@ -684,8 +687,9 @@ pub const ops = [_]Op{
     .{ .key = .{ .key = c.ImGuiKey_F, .ctrl = true } },
     .{ .text = "zebrafina" },
     .{ .expect = .{ .name = "a busca acha mensagem de thread", .check = searchFound, .timeout_ms = 2000 } },
-    key(c.ImGuiKey_Enter),
+    .{ .click = .{ .mark = "search-result:0" } },
     .{ .expect = .{ .name = "o resultado abre a thread", .check = searchOpened, .timeout_ms = 2000 } },
+    .{ .run = closeSearch },
     .{ .key = .{ .key = c.ImGuiKey_K, .ctrl = true } },
     .{ .text = "benchmarks" },
     .{ .expect = .{ .name = "a paleta acha a thread", .check = paletteHasThread, .timeout_ms = 2000 } },

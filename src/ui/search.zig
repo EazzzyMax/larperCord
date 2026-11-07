@@ -1,10 +1,13 @@
-//! Busca local (Ctrl+F ou a lupa do cabeçalho): procura nas mensagens que
-//! estão na memória e no cache em disco (net/msg_cache.zig), a cada tecla e
-//! sem falar com o Discord, então funciona offline. O texto já vai dobrado
-//! (minúsculas, sem acento) uma vez por abertura (memória) ou por versão do
-//! arquivo (disco, lido aos poucos, ~2 ms por quadro). Filtros:
-//! from:nome, in:canal, has:link, has:imagem, has:arquivo.
-//! Clicar num resultado abre a conversa e pula até a mensagem.
+//! Busca de mensagens (Ctrl+F ou a caixa do cabeçalho), num painel ao lado da conversa
+//! (o desenho fica em search_view.zig).
+//!
+//! A cada tecla, procura nas mensagens que estão na memória e no cache em disco
+//! (net/msg_cache.zig), sem falar com o Discord, então funciona offline. O texto já vai
+//! dobrado (minúsculas, sem acento) uma vez por abertura (memória) ou por versão do arquivo
+//! (disco, lido aos poucos, ~2 ms por quadro). O Enter pergunta ao Discord, que tem o
+//! histórico inteiro; só o Enter, a troca de página e a de ordem saem para a rede.
+//! Filtros: ver core/search_query.zig.
+//! Clicar num resultado abre a conversa e pula até a mensagem, com o painel aberto.
 const std = @import("std");
 const c = @import("c");
 const d = @import("draw.zig");
@@ -17,6 +20,9 @@ const types = @import("../core/types.zig");
 const sq = @import("../core/search_query.zig");
 const msg_cache = @import("../net/msg_cache.zig");
 const store_mod = @import("../core/store.zig");
+const ev = @import("../core/event.zig");
+const view = @import("search_view.zig");
+const sugg = @import("search_sugg.zig");
 const Id = types.Id;
 
 const alloc = std.heap.c_allocator;
@@ -24,16 +30,50 @@ const alloc = std.heap.c_allocator;
 pub var open = false;
 var appearing = false;
 var focus = false;
-var query: [128]u8 = @splat(0);
-var selected: usize = 0;
-var first: usize = 0;
+var query: [256]u8 = @splat(0);
+pub var selected: usize = 0;
+/// A caixa de texto está ativa (e estava no quadro anterior: o Esc a solta no próprio quadro).
+pub var input_active = false;
+var was_active = false;
+/// As setas escolheram um resultado: o Enter abre ele em vez de buscar.
+var arrow_moved = false;
+pub var scroll_to_selected = false;
+var text_sync = false;
+var cursor_end = false;
+var tab_pressed = false;
+/// Onde o painel fica neste quadro (ver `reserve`).
+pub var panel: d.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 };
+
+/// De onde vem a lista: deste computador ou da busca do Discord.
+pub const Source = enum { local, server };
+pub const ServerState = enum { idle, loading, done, indexing, forbidden, failed };
+pub var source: Source = .local;
+pub var server: ServerState = .idle;
+/// Quantas o Discord achou, e a página que está na tela.
+pub var total: u32 = 0;
+pub var offset: u32 = 0;
+pub var sort: sq.Sort = .newest;
+/// Quantas mensagens o Discord já indexou, enquanto prepara a busca.
+pub var indexed: u32 = 0;
+/// A consulta da lista que está na tela (os termos marcados no texto).
+pub var view_query: sq.Query = .{};
+var req_id: u32 = 0;
+var retry_at_ms: i64 = 0;
+var retries: u8 = 0;
+var delivered: ?ev.SearchResults = null;
+var problem_buf: [240]u8 = undefined;
+var problem_len: usize = 0;
+/// As últimas buscas no Discord, só enquanto o app está aberto.
+var recent_buf: [5][256]u8 = undefined;
+var recent_len: [5]u16 = @splat(0);
+var recent_n: usize = 0;
 /// Muda a cada abertura: o campo do ImGui esquece o texto da vez anterior.
 var gen: c_int = 0;
 
 /// Mensagem que só está no disco (canal fora da memória).
 /// `hay` e `who` já vêm "dobrados" (minúsculas, sem acento): cada tecla vira
 /// só um `indexOf`, rápido mesmo com muitos MB de cache.
-const Doc = struct { channel: Id, id: Id, author_name: []const u8, content: []const u8, files: []const u8, hay: []const u8, who: []const u8, image: bool, file: bool };
+const Doc = struct { channel: Id, id: Id, author: Id, author_name: []const u8, content: []const u8, files: []const u8, hay: []const u8, who: []const u8, image: bool, file: bool };
 /// Um arquivo do cache já lido. Fica de uma abertura para a outra e só é
 /// lido de novo quando o arquivo muda (data ou tamanho).
 const DiskFile = struct {
@@ -69,12 +109,14 @@ pub const Result = struct {
     channel: Id,
     id: Id,
     ts: i64,
+    author_id: Id = 0,
     author: []const u8,
     where: []const u8,
     snippet: []const u8,
-    /// Trecho que casou com o primeiro termo (bytes dentro de `snippet`).
-    hl: [2]u16 = .{ 0, 0 },
     disk: bool = false,
+    /// Linhas do trecho nessa largura (ver search_view.zig).
+    lines: u8 = 1,
+    wrap_w: f32 = 0,
 };
 var res_arena: std.heap.ArenaAllocator = .init(alloc);
 pub var results: std.ArrayList(Result) = .empty;
@@ -83,8 +125,20 @@ pub var found: usize = 0;
 pub var found_disk: usize = 0;
 const max_results = 200;
 
+/// Ctrl+F: abre; com o painel aberto, volta para a caixa de texto; com ela ativa, fecha.
 pub fn toggle() void {
-    if (open) close() else start();
+    if (!open) return start();
+    if (input_active) close() else refocus();
+}
+
+/// A caixa do cabeçalho: abre, ou volta para a caixa de texto.
+pub fn focusOrStart() void {
+    if (open) refocus() else start();
+}
+
+fn refocus() void {
+    appearing = true;
+    focus = false;
 }
 
 pub fn start() void {
@@ -94,15 +148,30 @@ pub fn start() void {
     focus = false;
     @memset(&query, 0);
     selected = 0;
-    first = 0;
     built = false;
     scanning = false;
+    source = .local;
+    server = .idle;
+    total = 0;
+    offset = 0;
+    problem_len = 0;
+    input_active = false;
+    was_active = false;
+    arrow_moved = false;
+    view_query = .{};
+    view.scroll_y = 0;
+    sugg.count = 0;
+    sugg.selected = null;
+    req_id +%= 1;
 }
 
 /// Fecha. O que veio do disco fica para a próxima vez; o resto sai.
 pub fn close() void {
     open = false;
     scanning = false;
+    input_active = false;
+    if (delivered) |r| freeHits(r.hits);
+    delivered = null;
     results.clearAndFree(alloc);
     _ = res_arena.reset(.free_all);
     var it = mem_folds.valueIterator();
@@ -221,6 +290,7 @@ fn readFile(ctx: *d.Ctx, ch: Id, st: msg_cache.Stamp) bool {
         docs[n] = .{
             .channel = ch,
             .id = m.id,
+            .author = m.author,
             .author_name = da.dupe(u8, name) catch continue,
             .content = da.dupe(u8, m.content) catch continue,
             .files = files.items,
@@ -331,18 +401,24 @@ fn channelOk(cs: *const store_mod.ChannelState, q: *const sq.Query) bool {
     return q.in_len == 0 or sq.containsFold(cs.info.name, q.in());
 }
 
-/// `keep`: o índice do disco cresceu; a seleção fica onde estava.
-fn rebuild(ctx: *d.Ctx, keep: bool) void {
+fn clearResults() void {
     results.clearRetainingCapacity();
     _ = res_arena.reset(.retain_capacity);
     found = 0;
     found_disk = 0;
+}
+
+/// `keep`: o índice do disco cresceu; a seleção fica onde estava.
+fn rebuild(ctx: *d.Ctx, keep: bool) void {
+    clearResults();
     if (!keep) {
         selected = 0;
-        first = 0;
+        view.scroll_y = 0;
     }
-    const q = sq.Query.parse(std.mem.sliceTo(&query, 0));
-    if (q.empty()) return;
+    const q = sq.Query.parse(text());
+    view_query = q;
+    // Menção, "fixada", vídeo...: só o Discord tem como saber.
+    if (q.empty() or q.serverOnly()) return;
     var hits: std.ArrayList(Hit) = .empty;
     defer hits.deinit(alloc);
     var it = ctx.store.channels.valueIterator();
@@ -351,8 +427,8 @@ fn rebuild(ctx: *d.Ctx, keep: bool) void {
         if (!channelOk(cs, &q)) continue;
         const f = memFold(ctx, cs) orelse continue;
         for (f.docs.items) |*doc| {
-            if (!matches(&q, doc.hay, doc.who, doc.image, doc.file)) continue;
             const m = &cs.messages.items[doc.idx];
+            if (!q.idOk(m.msg.id) or !matches(&q, doc.hay, doc.who, doc.image, doc.file)) continue;
             hits.append(alloc, .{ .id = m.msg.id, .channel = cs.info.id, .src = .{ .mem = m } }) catch return;
         }
     }
@@ -362,7 +438,7 @@ fn rebuild(ctx: *d.Ctx, keep: bool) void {
         // Carregou depois de lido: a memória já respondeu.
         if (cs.history == .loaded or !channelOk(cs, &q)) continue;
         for (e.value_ptr.*.docs) |*doc| {
-            if (!matches(&q, doc.hay, doc.who, doc.image, doc.file)) continue;
+            if (!q.idOk(doc.id) or !matches(&q, doc.hay, doc.who, doc.image, doc.file)) continue;
             hits.append(alloc, .{ .id = doc.id, .channel = doc.channel, .src = .{ .disk = doc } }) catch return;
             found_disk += 1;
         }
@@ -380,11 +456,13 @@ fn rebuild(ctx: *d.Ctx, keep: bool) void {
         const cs = ctx.store.channel(h.channel) orelse continue;
         var content: []const u8 = "";
         var author: []const u8 = "";
+        var author_id: Id = 0;
         var files: []const u8 = "";
         switch (h.src) {
             .mem => |m| {
                 content = m.msg.content;
                 author = authorName(ctx, m.msg.author);
+                author_id = m.msg.author;
                 for (m.msg.attachments) |att| if (files.len == 0) {
                     files = att.filename;
                 };
@@ -392,6 +470,7 @@ fn rebuild(ctx: *d.Ctx, keep: bool) void {
             .disk => |doc| {
                 content = doc.content;
                 author = doc.author_name;
+                author_id = doc.author;
                 files = doc.files;
             },
         }
@@ -399,6 +478,7 @@ fn rebuild(ctx: *d.Ctx, keep: bool) void {
             .channel = h.channel,
             .id = h.id,
             .ts = @divTrunc(types.snowflakeTime(h.id), 1000),
+            .author_id = author_id,
             .author = ra.dupe(u8, author) catch continue,
             .where = whereLabel(ctx, ra, cs) catch continue,
             .snippet = "",
@@ -420,6 +500,16 @@ fn clean(ctx: *d.Ctx, out: []u8, s: []const u8) []const u8 {
     var n: usize = 0;
     var i: usize = 0;
     while (i < s.len and n < out.len) {
+        // Emoji personalizado (<:nome:123> ou <a:nome:123>) vira :nome:.
+        if (s[i] == '<' and i + 2 < s.len and (s[i + 1] == ':' or (s[i + 1] == 'a' and s[i + 2] == ':'))) if (std.mem.indexOfScalarPos(u8, s, i, '>')) |end| {
+            const body = s[i + @as(usize, if (s[i + 1] == ':') 2 else 3) .. end];
+            if (std.mem.indexOfScalar(u8, body, ':')) |colon| {
+                const piece = std.fmt.bufPrint(out[n..], ":{s}:", .{body[0..colon]}) catch break;
+                n += piece.len;
+                i = end + 1;
+                continue;
+            }
+        };
         if (s[i] == '<' and i + 2 < s.len and (s[i + 1] == '@' or s[i + 1] == '#')) if (std.mem.indexOfScalarPos(u8, s, i, '>')) |end| {
             var body = s[i + 2 .. end];
             if (body.len > 0 and (body[0] == '!' or body[0] == '&')) body = body[1..];
@@ -447,205 +537,386 @@ fn clean(ctx: *d.Ctx, out: []u8, s: []const u8) []const u8 {
 
 fn snippet(ctx: *d.Ctx, a: std.mem.Allocator, r: *Result, content: []const u8, files: []const u8, term: []const u8) void {
     var buf: [800]u8 = undefined;
-    var text = clean(ctx, &buf, content);
-    if (text.len == 0) text = if (files.len > 0) std.fmt.bufPrint(&buf, "📎 {s}", .{files}) catch "" else "";
-    var hl: [2]usize = .{ 0, 0 };
-    if (term.len > 0) if (sq.findFold(text, term)) |m| {
-        hl = m;
-    };
+    var line_text = clean(ctx, &buf, content);
+    if (line_text.len == 0) line_text = if (files.len > 0) std.fmt.bufPrint(&buf, "📎 {s}", .{files}) catch "" else "";
+    const at: usize = if (term.len > 0) (if (sq.findFold(line_text, term)) |m| m[0] else 0) else 0;
     // Janela em volta do que casou.
-    var from: usize = if (hl[0] > 50) hl[0] - 50 else 0;
-    while (from > 0 and (text[from] & 0xC0) == 0x80) from -= 1;
-    var end = @min(text.len, from + 180);
-    while (end < text.len and end > from and (text[end] & 0xC0) == 0x80) end -= 1;
+    var from: usize = if (at > 50) at - 50 else 0;
+    while (from > 0 and (line_text[from] & 0xC0) == 0x80) from -= 1;
+    var end = @min(line_text.len, from + 360);
+    while (end < line_text.len and end > from and (line_text[end] & 0xC0) == 0x80) end -= 1;
     const lead: []const u8 = if (from > 0) "…" else "";
-    const out = std.fmt.allocPrint(a, "{s}{s}", .{ lead, text[from..end] }) catch return;
-    r.snippet = out;
-    if (hl[1] > hl[0] and hl[1] <= end) {
-        r.hl = .{ @intCast(hl[0] - from + lead.len), @intCast(hl[1] - from + lead.len) };
+    r.snippet = std.fmt.allocPrint(a, "{s}{s}", .{ lead, line_text[from..end] }) catch return;
+}
+
+// --- O painel ------------------------------------------------------------------------
+
+/// O desenho fica em search_view.zig.
+pub const draw = view.draw;
+
+/// O que sobra para o tema com o painel aberto. Janela estreita demais para os dois: o painel
+/// cobre tudo, até fechar.
+pub fn reserve(win: d.Rect) d.Rect {
+    if (!open) return win;
+    const pw = std.math.clamp(win.w * 0.36, 340, 480);
+    if (win.w - pw < 440) {
+        panel = win;
+        return win;
     }
+    panel = .{ .x = win.right() - pw, .y = win.y, .w = pw, .h = win.h };
+    var r = win;
+    r.w -= pw;
+    return r;
 }
 
-// --- Desenho ------------------------------------------------------------------------
-
-fn choose(ctx: *d.Ctx, r: Result) void {
-    ctx.act(.{ .open_message = .{ .channel = r.channel, .id = r.id } });
-    close();
-}
-
-fn beginWindow(id: [*:0]const u8, r: d.Rect) *c.ImDrawList {
-    c.ImGui_SetNextWindowPos(d.v(r.x, r.y), 0);
-    c.ImGui_SetNextWindowSize(d.v(r.w, r.h), 0);
-    if (appearing) c.ImGui_SetNextWindowFocus();
-    _ = c.ImGui_Begin(id, null, c.ImGuiWindowFlags_NoDecoration | c.ImGuiWindowFlags_NoBackground |
-        c.ImGuiWindowFlags_NoSavedSettings | c.ImGuiWindowFlags_NoMove | c.ImGuiWindowFlags_NoScrollWithMouse);
-    return c.ImGui_GetWindowDrawList();
-}
-
-pub fn draw(ctx: *d.Ctx) void {
-    if (!open) return;
-    const k = anim.to(anim.id("msg-search", 0), 1, 22);
-    // Outra camada por cima (paleta, configurações): a busca dá lugar.
-    if (ctx.st.palette.open or ctx.st.settings.open) return close();
+/// O que acontece a cada quadro, antes de desenhar.
+pub fn frame(ctx: *d.Ctx) void {
+    sq.now_s = @divTrunc(ctx.now_ms, 1000);
+    if (!built) sq.tz_offset_s = w.utcOffset(sq.now_s);
+    takeDelivered(ctx);
+    if (server == .indexing) {
+        if (ctx.now_ms >= retry_at_ms) sendRequest(ctx) else anim.at(retry_at_ms);
+    }
     if (!built) {
         beginDisk();
         rebuild(ctx, false);
     }
     if (scanning) {
-        if (stepDisk(ctx)) rebuild(ctx, true);
+        if (stepDisk(ctx) and source == .local) rebuild(ctx, true);
         // Continua no próximo quadro sem esperar evento.
         anim.at(ctx.now_ms);
     }
-    const win = ctx.win;
-    // Fundo que pega o clique fora da caixa (fecha a busca).
-    const bdl = beginWindow("##search-backdrop", win);
-    d.rect(bdl, win, d.Rgba.black.alpha(0.45 * k), 0);
-    c.ImGui_SetCursorScreenPos(d.v(win.x, win.y));
-    _ = c.ImGui_InvisibleButton("##sbd", d.v(win.w, win.h), c.ImGuiButtonFlags_MouseButtonLeft | c.ImGuiButtonFlags_MouseButtonRight);
-    const outside = c.ImGui_IsItemClickedEx(0) or c.ImGui_IsItemClickedEx(1);
-    c.ImGui_End();
-    if (outside) return close();
+}
 
-    const bw = @min(720, win.w - 40);
-    const bh = @min(560, win.h - 60);
-    const box: d.Rect = .{ .x = win.x + (win.w - bw) / 2, .y = win.y + @max(20, win.h * 0.1) - (1 - k) * 12, .w = bw, .h = bh };
-    const dl = beginWindow("##search", box);
-    defer c.ImGui_End();
-    appearing = false;
-    const saved_dl = ctx.dl;
-    ctx.dl = dl;
-    defer ctx.dl = saved_dl;
-    const radius = @max(ctx.th.radius + 6, 4);
-    d.shadow(dl, box, radius, 24, ctx.col(.shadow).alpha(k));
-    d.rect(dl, box, ctx.col(.overlay).mix(ctx.col(.elevated), 0.35), radius);
-    d.border(dl, box, ctx.col(.border), radius, 1);
+pub fn openingKey() usize {
+    return @as(u32, @bitCast(gen));
+}
 
-    // Campo de busca.
-    const font = ctx.ui.get(.regular);
-    const fs: f32 = 17;
-    icons.search(dl, box.x + 24, box.y + 28, ctx.col(.muted).u());
-    const ir: d.Rect = .{ .x = box.x + 42, .y = box.y + 14, .w = box.w - 60, .h = 30 };
-    qa.mark(ir, "search-input", .{});
-    c.ImGui_SetCursorScreenPos(d.v(ir.x, ir.y));
-    c.ImGui_PushFontFloat(font, fs);
+pub fn takeAppearing() bool {
+    defer appearing = false;
+    return appearing;
+}
+
+pub fn text() []const u8 {
+    return std.mem.sliceTo(&query, 0);
+}
+
+pub fn serverOnly() bool {
+    return view_query.serverOnly();
+}
+
+pub fn problem() []const u8 {
+    return problem_buf[0..problem_len];
+}
+
+pub fn recentCount() usize {
+    return recent_n;
+}
+
+pub fn recent(i: usize) []const u8 {
+    return recent_buf[i][0..recent_len[i]];
+}
+
+fn inputCallback(data: [*c]c.ImGuiInputTextCallbackData) callconv(.c) c_int {
+    if (data.*.EventFlag == c.ImGuiInputTextFlags_CallbackCompletion) tab_pressed = true;
+    if (text_sync) {
+        text_sync = false;
+        c.ImGuiInputTextCallbackData_DeleteChars(data, 0, data.*.BufTextLen);
+        c.ImGuiInputTextCallbackData_InsertChars(data, 0, &query, null);
+    }
+    if (cursor_end) {
+        cursor_end = false;
+        data.*.CursorPos = data.*.BufTextLen;
+        data.*.SelectionStart = data.*.BufTextLen;
+        data.*.SelectionEnd = data.*.BufTextLen;
+    }
+    return 0;
+}
+
+pub fn inputField(ctx: *d.Ctx, x: f32, y: f32, width: f32) void {
+    c.ImGui_SetCursorScreenPos(d.v(x, y));
+    c.ImGui_PushFontFloat(ctx.ui.get(.regular), 16);
+    defer c.ImGui_PopFont();
     if (!focus) {
         c.ImGui_SetKeyboardFocusHere();
         focus = true;
     }
-    c.ImGui_SetNextItemWidth(ir.w);
+    c.ImGui_SetNextItemWidth(width);
+    c.ImGui_PushStyleColor(c.ImGuiCol_FrameBg, 0);
+    defer c.ImGui_PopStyleColor();
+    // O campo do ImGui esquece o texto da vez anterior.
     c.ImGui_PushIDInt(gen);
     defer c.ImGui_PopID();
-    if (c.ImGui_InputTextWithHint("##sq", i18n.trZ("Buscar mensagens…  from:nome  in:canal  has:link", "Search messages…  from:name  in:channel  has:link").ptr, &query, query.len, 0)) rebuild(ctx, false);
-    c.ImGui_PopFont();
-    d.line(dl, box.x, box.y + 58, box.right(), box.y + 58, ctx.col(.border), 1);
-
-    const n = results.items.len;
-    // O índice do disco cresceu e a lista encolheu por baixo da seleção.
-    if (selected >= n) selected = 0;
-    const row_h: f32 = 54;
-    const list_top = box.y + 64;
-    const foot_h: f32 = 40;
-    const visible: usize = @max(1, @as(usize, @intFromFloat((box.bottom() - foot_h - list_top) / row_h)));
-    if (c.ImGui_IsKeyPressed(c.ImGuiKey_DownArrow) and n > 0) selected = (selected + 1) % n;
-    if (c.ImGui_IsKeyPressed(c.ImGuiKey_UpArrow) and n > 0) selected = (selected + n - 1) % n;
-    if (c.ImGui_IsKeyPressed(c.ImGuiKey_Escape)) return close();
-    if ((c.ImGui_IsKeyPressed(c.ImGuiKey_Enter) or c.ImGui_IsKeyPressed(c.ImGuiKey_KeypadEnter)) and n > 0) return choose(ctx, results.items[selected]);
-    // Roda do mouse anda na lista; as setas trazem a seleção para a tela.
-    const list_r: d.Rect = .{ .x = box.x, .y = list_top, .w = box.w, .h = @as(f32, @floatFromInt(visible)) * row_h };
-    if (ctx.hovering(list_r) and ctx.io.*.MouseWheel != 0 and n > visible) {
-        const step: i32 = if (ctx.io.*.MouseWheel > 0) -3 else 3;
-        first = @intCast(std.math.clamp(@as(i32, @intCast(first)) + step, 0, @as(i32, @intCast(n - visible))));
-    }
-    if (selected < first) first = selected;
-    if (selected >= first + visible) first = selected + 1 - visible;
-    if (n > visible) first = @min(first, n - visible) else first = 0;
-
-    const bold = ctx.ui.get(.semibold);
-    const now_s = @divTrunc(ctx.now_ms, 1000);
-    var y = list_top;
-    for (results.items[first..@min(n, first + visible)], first..) |r, i| {
-        const rr: d.Rect = .{ .x = box.x + 8, .y = y, .w = box.w - 16, .h = row_h - 4 };
-        const hb = d.hit(ctx, 0x5e00 + i, rr);
-        qa.mark(rr, "search-result:{d}", .{i});
-        if (hb.hovered and (ctx.io.*.MouseDelta.x != 0 or ctx.io.*.MouseDelta.y != 0)) selected = i;
-        if (hb.clicked) return choose(ctx, r);
-        const sel = i == selected;
-        if (sel) d.rect(dl, rr, ctx.col(.accent).alpha(0.16), ctx.th.radius + 2);
-        if (sel) d.rect(dl, .{ .x = rr.x, .y = rr.y + 8, .w = 3, .h = rr.h - 16 }, ctx.col(.accent), 2);
-        // Linha 1: autor · onde                                  quando
-        var tb: [48]u8 = undefined;
-        const when = w.stamp(&tb, r.ts, now_s);
-        const ww = d.width(font, 12, when);
-        const aw = d.textClipped(dl, bold, 14, rr.x + 14, rr.y + 6, ctx.col(.text), r.author, 220);
-        var tag_w: f32 = 0;
-        if (r.disk) {
-            // Veio do disco (a conversa não está na memória agora).
-            const tag = i18n.tr("cache", "cache");
-            tag_w = d.width(font, 11, tag) + 12;
-            const tr: d.Rect = .{ .x = rr.right() - 14 - ww - 10 - tag_w, .y = rr.y + 6, .w = tag_w, .h = 17 };
-            d.rect(dl, tr, ctx.col(.faint).alpha(0.18), 4);
-            d.text(dl, font, 11, tr.x + 6, d.centerY(tr, 11), ctx.col(.muted), tag);
-            tag_w += 10;
-        }
-        _ = d.textClipped(dl, font, 13, rr.x + 14 + aw + 8, rr.y + 7, ctx.col(.faint), r.where, @max(0, rr.w - aw - ww - tag_w - 50));
-        d.text(dl, font, 12, rr.right() - 14 - ww, rr.y + 8, ctx.col(.faint), when);
-        // Linha 2: o trecho, com o que casou em destaque.
-        snippetLine(ctx, dl, font, rr.x + 14, rr.y + 28, rr.w - 28, r);
-        y += row_h;
-    }
-    if (n == 0) {
-        const empty = std.mem.sliceTo(&query, 0).len == 0;
-        var yy = list_top + 16;
-        if (empty) {
-            d.text(dl, bold, 15, box.x + 24, yy, ctx.col(.text), i18n.tr("Busca nas mensagens deste computador", "Search the messages on this computer"));
-            yy += 30;
-            const tips = [_][2][]const u8{
-                .{ "from:ana", i18n.tr("mensagens de quem tem \"ana\" no nome", "messages from someone with \"ana\" in their name") },
-                .{ "in:geral", i18n.tr("só nos canais com \"geral\" no nome", "only in channels with \"geral\" in the name") },
-                .{ "has:link", i18n.tr("com link", "with a link") },
-                .{ "has:imagem", i18n.tr("com imagem", "with an image") },
-                .{ "has:arquivo", i18n.tr("com arquivo anexado", "with an attached file") },
-            };
-            for (tips) |t| {
-                d.text(dl, ctx.mono.get(.regular), 13.5, box.x + 32, yy, ctx.col(.accent).mix(ctx.col(.text), 0.3), t[0]);
-                d.text(dl, font, 13.5, box.x + 160, yy, ctx.col(.muted), t[1]);
-                yy += 26;
-            }
-            yy += 8;
-            _ = d.textClipped(dl, font, 13, box.x + 24, yy, ctx.col(.faint), i18n.tr("Procura no que está aberto e no cache em disco, sem internet. Mensagens que nunca passaram pela tela não aparecem.", "Looks through what's open and the on-disk cache, no internet needed. Messages that never reached the screen won't show up."), box.w - 48);
-        } else d.text(dl, font, 15, box.x + 24, yy, ctx.col(.faint), i18n.tr("Nada encontrado.", "Nothing found."));
-    }
-    // Rodapé: quantas e de onde.
-    const fy = box.bottom() - foot_h;
-    d.line(dl, box.x, fy, box.right(), fy, ctx.col(.border), 1);
-    var cb: [160]u8 = undefined;
-    const count = if (found > n)
-        i18n.fmt(&cb, "{d} resultados (mostrando os {d} mais novos) · {d} do cache em disco", "{d} results (showing the newest {d}) · {d} from the disk cache", .{ found, n, found_disk })
-    else
-        i18n.fmt(&cb, "{d} resultados · {d} do cache em disco", "{d} results · {d} from the disk cache", .{ found, found_disk });
-    if (std.mem.sliceTo(&query, 0).len > 0) d.text(dl, font, 12.5, box.x + 18, d.centerY(.{ .x = 0, .y = fy, .w = 0, .h = foot_h }, 12.5), ctx.col(.faint), count);
-    const keys = i18n.tr("↑↓ escolher · Enter abrir · Esc fechar", "↑↓ pick · Enter open · Esc close");
-    const kw = d.width(font, 12.5, keys);
-    d.text(dl, font, 12.5, box.right() - 18 - kw, d.centerY(.{ .x = 0, .y = fy, .w = 0, .h = foot_h }, 12.5), ctx.col(.faint), keys);
+    const flags = c.ImGuiInputTextFlags_CallbackAlways | c.ImGuiInputTextFlags_CallbackCompletion;
+    const edited = c.ImGui_InputTextWithHintEx("##sq", i18n.trZ("Buscar mensagens…", "Search messages…").ptr, &query, query.len, flags, inputCallback, null);
+    was_active = input_active;
+    input_active = c.ImGui_IsItemActive();
+    if (edited) onEdited(ctx);
 }
 
-fn snippetLine(ctx: *d.Ctx, dl: *c.ImDrawList, font: *c.ImFont, x: f32, y: f32, max_w: f32, r: Result) void {
-    const fs: f32 = 13.5;
-    const s = r.snippet;
-    const col = ctx.col(.text).mix(ctx.col(.muted), 0.35);
-    if (r.hl[1] <= r.hl[0] or r.hl[1] > s.len) {
-        _ = d.textClipped(dl, font, fs, x, y, col, s, max_w);
+/// O texto mudou: volta para o que está neste computador, e o Discord fica para o Enter.
+fn onEdited(ctx: *d.Ctx) void {
+    source = .local;
+    server = .idle;
+    offset = 0;
+    total = 0;
+    problem_len = 0;
+    arrow_moved = false;
+    // Uma resposta que ainda vinha a caminho não vale mais.
+    req_id +%= 1;
+    view.scroll_y = 0;
+    sugg.rebuild(ctx);
+    rebuild(ctx, false);
+}
+
+pub fn setText(ctx: *d.Ctx, s: []const u8) void {
+    @memset(&query, 0);
+    const n = @min(s.len, query.len - 1);
+    @memcpy(query[0..n], s[0..n]);
+    text_sync = true;
+    cursor_end = true;
+    focus = false;
+    onEdited(ctx);
+}
+
+/// Um filtro no fim do que já está escrito.
+pub fn appendText(ctx: *d.Ctx, s: []const u8) void {
+    var buf: [query.len]u8 = undefined;
+    const now = text();
+    const sep: []const u8 = if (now.len > 0 and now[now.len - 1] != ' ') " " else "";
+    setText(ctx, std.fmt.bufPrint(&buf, "{s}{s}{s}", .{ now, sep, s }) catch return);
+}
+
+pub fn removeRange(ctx: *d.Ctx, from: usize, to: usize) void {
+    var buf: [query.len]u8 = undefined;
+    const now = text();
+    const before = std.mem.trimEnd(u8, now[0..from], " ");
+    const after = std.mem.trimStart(u8, now[to..], " ");
+    const sep: []const u8 = if (before.len > 0 and after.len > 0) " " else "";
+    setText(ctx, std.fmt.bufPrint(&buf, "{s}{s}{s}", .{ before, sep, after }) catch return);
+}
+
+/// As teclas da busca. Depois de desenhar: aqui a busca pode fechar.
+pub fn keys(ctx: *d.Ctx) void {
+    const st = ctx.st;
+    if (st.palette.open or st.popup != .none or st.viewer != null) return;
+    // O ImGui solta a caixa no próprio quadro do Esc: vale como estava antes.
+    if (c.ImGui_IsKeyPressed(c.ImGuiKey_Escape) and (was_active or !ctx.io.*.WantTextInput)) return close();
+    if (!was_active) return;
+    const n = results.items.len;
+    const with_sugg = sugg.count > 0;
+    if (c.ImGui_IsKeyPressed(c.ImGuiKey_DownArrow)) {
+        if (with_sugg) {
+            sugg.move(1);
+        } else if (n > 0) {
+            selected = (selected + 1) % n;
+            arrow_moved = true;
+            scroll_to_selected = true;
+        }
+    }
+    if (c.ImGui_IsKeyPressed(c.ImGuiKey_UpArrow)) {
+        if (with_sugg) {
+            sugg.move(-1);
+        } else if (n > 0) {
+            selected = (selected + n - 1) % n;
+            arrow_moved = true;
+            scroll_to_selected = true;
+        }
+    }
+    if (tab_pressed) {
+        tab_pressed = false;
+        if (with_sugg) sugg.accept(ctx, sugg.selected orelse 0);
         return;
     }
-    const a = s[0..r.hl[0]];
-    const m = s[r.hl[0]..r.hl[1]];
-    const b = s[r.hl[1]..];
-    const wa = d.textClipped(dl, font, fs, x, y, col, a, max_w);
-    if (wa >= max_w - 4) return;
-    const bold = ctx.ui.get(.semibold);
-    const wm = d.width(bold, fs, m);
-    d.rect(dl, .{ .x = x + wa - 1, .y = y - 1, .w = @min(wm, max_w - wa) + 2, .h = fs * 1.3 }, ctx.col(.accent).alpha(0.22), 3);
-    const wm2 = d.textClipped(dl, bold, fs, x + wa, y, ctx.col(.text), m, max_w - wa);
-    if (wa + wm2 >= max_w - 4) return;
-    _ = d.textClipped(dl, font, fs, x + wa + wm2, y, col, b, max_w - wa - wm2);
+    if (c.ImGui_IsKeyPressed(c.ImGuiKey_Enter) or c.ImGui_IsKeyPressed(c.ImGuiKey_KeypadEnter)) {
+        if (with_sugg) if (sugg.selected) |i| return sugg.accept(ctx, i);
+        // Escolheu com as setas, ou já está vendo o que o Discord achou: abre a mensagem.
+        const same_answer = source == .server and server == .done and n > 0;
+        if (n > 0 and (arrow_moved or same_answer)) return choose(ctx, results.items[selected]);
+        askServer(ctx);
+    }
+}
+
+pub fn choose(ctx: *d.Ctx, r: Result) void {
+    arrow_moved = false;
+    ctx.act(.{ .open_message = .{ .channel = r.channel, .id = r.id } });
+}
+
+// --- A busca do Discord -----------------------------------------------------------------
+
+pub fn askServer(ctx: *d.Ctx) void {
+    offset = 0;
+    sendRequest(ctx);
+}
+
+pub fn changeSort(ctx: *d.Ctx, to: sq.Sort) void {
+    sort = to;
+    offset = 0;
+    sendRequest(ctx);
+}
+
+pub fn changePage(ctx: *d.Ctx, to: u32) void {
+    offset = to;
+    sendRequest(ctx);
+}
+
+fn setProblem(comptime pt: []const u8, comptime en: []const u8, args: anytype) void {
+    problem_len = i18n.fmt(&problem_buf, pt, en, args).len;
+}
+
+fn findUser(ctx: *d.Ctx, guild: Id, needle: []const u8) ?Id {
+    var best: ?Id = null;
+    var best_score: u8 = 0;
+    var it = ctx.store.users.valueIterator();
+    while (it.next()) |u| {
+        const score = sq.userScore(u.name, needle);
+        if (score == 0) continue;
+        const total_score = score + @as(u8, @intFromBool(ctx.store.members.contains(.{ guild, u.id })));
+        if (total_score > best_score) {
+            best = u.id;
+            best_score = total_score;
+        }
+    }
+    return best;
+}
+
+fn findChannel(ctx: *d.Ctx, guild: Id, needle: []const u8) ?Id {
+    var best: ?Id = null;
+    var best_score: u8 = 0;
+    for (ctx.store.channelsOf(guild)) |id| {
+        const cs = ctx.store.channel(id) orelse continue;
+        if (cs.info.kind != .text) continue;
+        var b: [64]u8 = undefined;
+        const name = sq.foldInto(&b, cs.info.name);
+        const score: u8 = if (std.mem.eql(u8, name, needle)) 3 else if (std.mem.startsWith(u8, name, needle)) 2 else if (std.mem.indexOf(u8, name, needle) != null) 1 else 0;
+        if (score > best_score) {
+            best = id;
+            best_score = score;
+        }
+    }
+    return best;
+}
+
+/// Pede a página atual. O Discord busca no servidor inteiro; em conversa direta, nela.
+fn sendRequest(ctx: *d.Ctx) void {
+    problem_len = 0;
+    const src = text();
+    const q = sq.Query.parse(src);
+    if (q.invalid_len > 0) return setProblem("Não entendi este filtro: {s}. Datas como 2026-11-06 ou 06/11/2026.", "I didn't understand this filter: {s}. Dates look like 2026-11-06 or 06/11/2026.", .{q.invalid()});
+    if (q.empty()) return;
+    const ch = ctx.st.activeChannel() orelse return setProblem("Abra um servidor ou uma conversa para buscar no Discord.", "Open a server or a conversation to search Discord.", .{});
+    const cs = ctx.store.channel(ch) orelse return setProblem("Abra um servidor ou uma conversa para buscar no Discord.", "Open a server or a conversation to search Discord.", .{});
+    const guild = cs.info.guild;
+    var ids: sq.ApiIds = .{};
+    if (q.from_len > 0) ids.author = findUser(ctx, guild, q.from()) orelse return setProblem("Não achei \"{s}\" entre as pessoas que o app já carregou.", "Couldn't find \"{s}\" among the people the app has loaded.", .{q.from()});
+    if (q.mentions_len > 0) ids.mentions = findUser(ctx, guild, q.mentions()) orelse return setProblem("Não achei \"{s}\" entre as pessoas que o app já carregou.", "Couldn't find \"{s}\" among the people the app has loaded.", .{q.mentions()});
+    if (q.in_len > 0) {
+        if (guild == 0) return setProblem("O filtro de canal só vale dentro de um servidor.", "The channel filter only works inside a server.", .{});
+        ids.channel = findChannel(ctx, guild, q.in()) orelse return setProblem("Não achei o canal \"{s}\" neste servidor.", "Couldn't find channel \"{s}\" in this server.", .{q.in()});
+    }
+    var buf: [1024]u8 = undefined;
+    const params = sq.apiParams(&buf, &q, ids, sort, offset) orelse return setProblem("Essa busca ficou longa demais.", "This search got too long.", .{});
+    const owned = alloc.dupe(u8, params) catch return;
+    req_id +%= 1;
+    ctx.act(.{ .search_messages = .{ .req = req_id, .guild = guild, .channel = ch, .params = owned } });
+    // Tentando de novo porque o Discord ainda indexava: a tela continua explicando isso.
+    if (server == .indexing) {
+        retry_at_ms = ctx.now_ms + 60_000;
+    } else {
+        retries = 0;
+        server = .loading;
+    }
+    source = .server;
+    view_query = q;
+    remember(src);
+    clearResults();
+    selected = 0;
+    arrow_moved = false;
+    scroll_to_selected = false;
+    view.scroll_y = 0;
+}
+
+fn remember(s: []const u8) void {
+    var at: usize = recent_n;
+    for (0..recent_n) |i| {
+        if (std.mem.eql(u8, recent(i), s)) at = i;
+    }
+    if (at == recent_n) {
+        if (recent_n < recent_buf.len) recent_n += 1 else at = recent_buf.len - 1;
+    }
+    if (at >= recent_n) at = recent_n - 1;
+    var i = at;
+    while (i > 0) : (i -= 1) {
+        recent_buf[i] = recent_buf[i - 1];
+        recent_len[i] = recent_len[i - 1];
+    }
+    const n = @min(s.len, recent_buf[0].len);
+    @memcpy(recent_buf[0][0..n], s[0..n]);
+    recent_len[0] = @intCast(n);
+}
+
+fn freeHits(hits: []ev.SearchHit) void {
+    for (hits) |h| {
+        alloc.free(h.author_name);
+        alloc.free(h.content);
+        alloc.free(h.files);
+    }
+    if (hits.len > 0) alloc.free(hits);
+}
+
+/// A resposta chegou (da thread da interface, entre os quadros).
+pub fn deliver(r: ev.SearchResults) void {
+    if (delivered) |old| freeHits(old.hits);
+    delivered = r;
+}
+
+fn takeDelivered(ctx: *d.Ctx) void {
+    const r = delivered orelse return;
+    delivered = null;
+    defer freeHits(r.hits);
+    if (r.req != req_id) return;
+    switch (r.status) {
+        .ok => {
+            server = .done;
+            total = r.total;
+            loadHits(ctx, r.hits);
+        },
+        .indexing => {
+            retries +|= 1;
+            if (retries > 10) return serverFailed(ctx);
+            server = .indexing;
+            indexed = r.indexed;
+            retry_at_ms = ctx.now_ms + @max(r.retry_ms, 1000);
+        },
+        .forbidden => server = .forbidden,
+        .failed => serverFailed(ctx),
+    }
+}
+
+/// Sem resposta: fica o que está neste computador, com um aviso.
+fn serverFailed(ctx: *d.Ctx) void {
+    source = .local;
+    server = .failed;
+    rebuild(ctx, false);
+}
+
+fn loadHits(ctx: *d.Ctx, hits: []const ev.SearchHit) void {
+    clearResults();
+    const ra = res_arena.allocator();
+    const term: []const u8 = if (view_query.n_terms > 0) view_query.term(0) else "";
+    for (hits) |h| {
+        const name = if (ctx.store.user(h.author)) |u| u.name else h.author_name;
+        const where = if (ctx.store.channel(h.channel)) |cs| whereLabel(ctx, ra, cs) catch continue else i18n.tr("canal que não está na lista", "channel not in the list");
+        var r: Result = .{
+            .channel = h.channel,
+            .id = h.id,
+            .ts = @divTrunc(types.snowflakeTime(h.id), 1000),
+            .author_id = h.author,
+            .author = ra.dupe(u8, name) catch continue,
+            .where = where,
+            .snippet = "",
+        };
+        snippet(ctx, ra, &r, h.content, h.files, term);
+        results.append(alloc, r) catch return;
+    }
 }

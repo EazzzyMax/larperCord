@@ -461,11 +461,11 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
             _ = d.textClipped(ctx.dl, fam.get(.semibold), 12, card.x + 44, card.y + 19, ctx.col(.accent), ml, card.w - 48);
         } else _ = d.textClipped(ctx.dl, fam.get(.regular), 12, card.x + 44, card.y + 19, ctx.col(.muted), switch (me.status) {
             .online => "Online",
-            .idle => i18n.tr("Ausente", "Idle"),
-            .dnd => i18n.tr("Não perturbe", "Do Not Disturb"),
-            .offline => i18n.tr("Invisível", "Invisible"),
+            .idle => i18n.tr3("Ausente", "Idle", "退席中"),
+            .dnd => i18n.tr3("Não perturbe", "Do Not Disturb", "取り込み中"),
+            .offline => i18n.tr3("Invisível", "Invisible", "オンライン状態を隠す"),
         }, card.w - 48);
-        if (modes != null) d.tip(ctx, card, i18n.tr("Clique para mudar ou sair", "Click to change or turn off"), hb.hovered);
+        if (modes != null) d.tip(ctx, card, i18n.tr3("Clique para mudar ou sair", "Click to change or turn off", "クリックで変更・オフ"), hb.hovered);
     }
 
     // Mudo, ensurdecer, configurações.
@@ -476,9 +476,9 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         const hb = d.hit(ctx, 10 + i, br);
         qa.mark(br, "user-btn:{d}", .{i});
         d.tip(ctx, br, switch (i) {
-            0 => if (ctx.st.muted) i18n.tr("Desmutar", "Unmute") else i18n.tr("Mutar microfone", "Mute"),
-            1 => if (ctx.st.deafened) i18n.tr("Voltar a ouvir", "Undeafen") else i18n.tr("Ensurdecer", "Deafen"),
-            else => i18n.tr("Configurações  (Ctrl+,)", "User Settings  (Ctrl+,)"),
+            0 => if (ctx.st.muted) i18n.tr3("Desmutar", "Unmute", "ミュート解除") else i18n.tr3("Mutar microfone", "Mute", "マイクをミュート"),
+            1 => if (ctx.st.deafened) i18n.tr3("Voltar a ouvir", "Undeafen", "スピーカーを元に戻す") else i18n.tr3("Ensurdecer", "Deafen", "スピーカーをミュート"),
+            else => i18n.tr3("Configurações  (Ctrl+,)", "User Settings  (Ctrl+,)", "ユーザー設定  (Ctrl+,)"),
         }, hb.hovered);
         const vf = ctx.store.voiceFlags(ctx.store.me);
         const in_call = ctx.st.voice != null;

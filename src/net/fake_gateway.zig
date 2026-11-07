@@ -21,6 +21,7 @@ pub const Sink = struct {
     ctx: *anyopaque,
     push: *const fn (ctx: *anyopaque, event: ev.Event) void,
 };
+const links = @import("../core/links.zig");
 
 /// O que a demonstração "mandou para o Discord" (o QA confere; não há servidor
 /// para perguntar). Lido da thread da interface.
@@ -38,6 +39,15 @@ pub const sent = struct {
     pub var pin_ops: A = .init(0);
     pub var pin_fetches: A = .init(0);
     pub var invite_fetches: A = .init(0);
+    pub var invite_creates: A = .init(0);
+    pub var invite_age: A = .init(0);
+    pub var invite_uses: A = .init(0);
+    pub var invite_temporary: A = .init(0);
+    pub var invite_joins: A = .init(0);
+    pub var searches: A = .init(0);
+    pub var search_len: A = .init(0);
+    /// A consulta da última busca (o QA confere o que iria para o Discord).
+    pub var search_params: [1100]u8 = undefined;
 };
 
 const demo_gifs = [_][]const u8{ "dancing cat", "thumbs up", "good morning", "laughing", "confused", "applause", "typing fast", "shrug" };
@@ -65,6 +75,7 @@ pub const Gateway = struct {
     next_live_ms: i64 = 0,
     pending_typing: ?struct { channel: Id, user: Id, at_ms: i64 } = null,
     next_latency_ms: i64 = 0,
+    search_indexed: bool = false,
     voice: ?*voice_mod.Voice = null,
     voice_channel: ?Id = null,
     nonce_replies: std.ArrayList(struct { at_ms: i64, msg: types.Message }) = .empty,
@@ -264,6 +275,20 @@ pub const Gateway = struct {
                     }
                     g.emit(.{ .gifs = .{ .req = req, .favorites = true, .items = items } });
                 },
+                .forward_message => |f| {
+                    // Como a de verdade: o texto vira um cartão marcado.
+                    const cards = try alloc.alloc(types.Embed, 1);
+                    cards[0] = .{ .provider = try alloc.dupe(u8, i18n.tr("Encaminhada", "Forwarded")), .description = f.text };
+                    g.emit(.{ .message_create = .{
+                        .id = types.makeSnowflake(nowMs(), g.rng.random().int(u22)),
+                        .channel = f.to,
+                        .author = me_id,
+                        .timestamp = @divTrunc(nowMs(), 1000),
+                        .content = try alloc.dupe(u8, ""),
+                        .embeds = cards,
+                    } });
+                    g.emit(.{ .notice = try i18n.allocPrint(alloc, "mensagem encaminhada", "message forwarded", .{}) });
+                },
                 .edit_message => |m| {
                     const shown = try jsonx.simplifyContent(alloc, m.content);
                     var raw: ?[]const u8 = null;
@@ -275,6 +300,10 @@ pub const Gateway = struct {
                 .leave_guild => |id| g.emit(.{ .guild_delete = id }),
                 .edit_place => |e| try g.editPlace(e),
                 .react => |r| g.emit(.{ .reaction = .{ .channel = r.channel, .id = r.id, .emoji = r.emoji, .user = me_id, .add = r.add } }),
+                .search_messages => |s| {
+                    defer alloc.free(s.params);
+                    try g.searchPage(s);
+                },
                 .fetch_history => |ch| {
                     g.hot_channel = ch;
                     try g.history_replies.append(alloc, .{ .at_ms = nowMs() + 140, .channel = ch });
@@ -443,6 +472,28 @@ pub const Gateway = struct {
                     g.emit(.{ .message_update = .{ .channel = p.channel, .id = p.id, .content = null, .pinned = p.add } });
                     g.emit(.{ .pins_changed = p.channel });
                 },
+                .create_invite => |ci| {
+                    const n = sent.invite_creates.fetchAdd(1, .monotonic) + 1;
+                    sent.invite_age.store(ci.max_age, .monotonic);
+                    sent.invite_uses.store(ci.max_uses, .monotonic);
+                    sent.invite_temporary.store(@intFromBool(ci.temporary), .monotonic);
+                    // 100 usos faz as vezes da falta de permissão, e 50 a dos convites desligados.
+                    if (ci.max_uses == 100) {
+                        g.emit(.{ .invite_created = .{ .req = ci.req, .status = .forbidden } });
+                    } else if (ci.max_uses == 50) {
+                        g.emit(.{ .invite_created = .{ .req = ci.req, .status = .disabled } });
+                    } else {
+                        var cb: [16]u8 = undefined;
+                        g.emit(.{ .invite_created = .{ .req = ci.req, .status = .ok, .code = links.InviteCode.init(std.fmt.bufPrint(&cb, "qa{d}", .{n}) catch "qa") } });
+                    }
+                },
+                .join_invite => |code| {
+                    _ = sent.invite_joins.fetchAdd(1, .monotonic);
+                    const c0 = code.slice();
+                    const status: ev.JoinStatus = if (std.mem.eql(u8, c0, "qacaptcha")) .captcha else if (std.mem.eql(u8, c0, "qabanido")) .forbidden else if (std.mem.eql(u8, c0, "qacheio")) .too_many else .ok;
+                    // Sem servidor novo na demonstração: "entra" num que já está na barra.
+                    g.emit(.{ .invite_joined = .{ .code = code, .status = status, .guild = if (status == .ok) guildId(2) else 0 } });
+                },
                 .fetch_invite => |code| {
                     _ = sent.invite_fetches.fetchAdd(1, .monotonic);
                     g.emit(.{ .invite = .{ .code = code, .invite = try demoInvite(code.slice()) } });
@@ -500,6 +551,45 @@ pub const Gateway = struct {
 
     /// Uma página de threads de um canal da demonstração: nos fóruns, os
     /// posts; num canal de texto, só as arquivadas (as ativas vieram no sync).
+    /// A busca do Discord de mentira: 60 resultados para qualquer palavra, em blocos de dois
+    /// canais, com palavras que imitam o que o Discord pode responder.
+    fn searchPage(g: *Gateway, s: ev.SearchRequest) !void {
+        const n = @min(s.params.len, sent.search_params.len);
+        @memcpy(sent.search_params[0..n], s.params[0..n]);
+        sent.search_len.store(n, .release);
+        _ = sent.searches.fetchAdd(1, .monotonic);
+        var term_buf: [120]u8 = undefined;
+        const term = searchParam(s.params, "content", &term_buf);
+        if (std.mem.eql(u8, term, "falha")) return g.emit(.{ .search_results = .{ .req = s.req, .status = .failed } });
+        if (std.mem.eql(u8, term, "proibido")) return g.emit(.{ .search_results = .{ .req = s.req, .status = .forbidden } });
+        if (std.mem.eql(u8, term, "indexando") and !g.search_indexed) {
+            g.search_indexed = true;
+            return g.emit(.{ .search_results = .{ .req = s.req, .status = .indexing, .retry_ms = 1000, .indexed = 1234 } });
+        }
+        const total: u32 = if (std.mem.eql(u8, term, "nada")) 0 else 60;
+        var num_buf: [16]u8 = undefined;
+        const offset = std.fmt.parseInt(u32, searchParam(s.params, "offset", &num_buf), 10) catch 0;
+        const count = @min(25, total -| offset);
+        var id_buf: [24]u8 = undefined;
+        const only = std.fmt.parseInt(Id, searchParam(s.params, "channel_id", &id_buf), 10) catch 0;
+        const hits = try alloc.alloc(ev.SearchHit, count);
+        // Antigas de verdade: `fetch_around` monta a conversa em volta de cada uma.
+        const base_id: Id = @as(Id, @intCast(nowMs() - 30 * 86_400_000 - 1420070400000)) << 22;
+        for (hits, 0..) |*h, i| {
+            const at = offset + i;
+            const other = s.guild == guildId(0) and (at / 8) % 2 == 1;
+            h.* = .{
+                .channel = if (only != 0) only else if (other) channelId(0, 5) else s.channel,
+                .id = base_id - (@as(Id, @intCast(at)) + 1) * (@as(Id, 3_600_000) << 22),
+                .author = 1001 + @as(Id, @intCast(at % 2)),
+                .author_name = try alloc.dupe(u8, if (at % 2 == 0) "ana.exe" else "bruno"),
+                .content = try std.fmt.allocPrint(alloc, "resultado {d}: alguém falou de {s} nesta mensagem antiga, e a conversa continuou por um bom tempo depois disso, com mais gente dando opinião", .{ at + 1, if (term.len > 0) term else "isso" }),
+                .files = try alloc.dupe(u8, ""),
+            };
+        }
+        g.emit(.{ .search_results = .{ .req = s.req, .status = .ok, .hits = hits, .total = total } });
+    }
+
     fn threadsPage(g: *Gateway, channel: Id, guild: Id, archived: bool, offset: u32) !void {
         const forum = isDemoForum(channel);
         const total: u32 = if (forum) (if (archived) @as(u32, 8) else 60) else if (archived and channel == channelId(thread_guild, 9)) 6 else 0;
@@ -1019,6 +1109,28 @@ pub fn dmRecipient(ch: Id) ?Id {
     return users[@intCast(ch - 900_000 + 1)].id;
 }
 
+/// O valor de um parâmetro da consulta, decodificado (só o que o QA precisa).
+fn searchParam(params: []const u8, name: []const u8, out: []u8) []const u8 {
+    var it = std.mem.splitScalar(u8, params, '&');
+    while (it.next()) |pair| {
+        if (!std.mem.startsWith(u8, pair, name) or pair.len <= name.len or pair[name.len] != '=') continue;
+        const raw = pair[name.len + 1 ..];
+        var n: usize = 0;
+        var i: usize = 0;
+        while (i < raw.len and n < out.len) : (n += 1) {
+            if (raw[i] == '%' and i + 2 < raw.len) {
+                out[n] = std.fmt.parseInt(u8, raw[i + 1 .. i + 3], 16) catch '?';
+                i += 3;
+            } else {
+                out[n] = raw[i];
+                i += 1;
+            }
+        }
+        return out[0..n];
+    }
+    return "";
+}
+
 pub fn guildId(i: usize) Id {
     return 500_000 + @as(Id, i) * 1000;
 }
@@ -1221,6 +1333,7 @@ fn demoReadStates(epoch_ms: i64) ![]types.ReadEntry {
 
 /// Cartão de convite da demonstração (sem conta, sem entrar em nada).
 fn demoInvite(code: []const u8) !types.Invite {
+    if (std.mem.startsWith(u8, code, "qa")) return .{ .state = .ok, .guild = 777_100, .name = try alloc.dupe(u8, "Servidor de teste"), .members = 321, .online = 45 };
     if (std.mem.eql(u8, code, "larper")) return .{ .state = .ok, .guild = guildId(0), .name = try alloc.dupe(u8, pick(guilds[0].name, guilds[0].name_en)), .members = 12, .online = 7 };
     if (std.mem.eql(u8, code, "zigbr")) return .{ .state = .ok, .guild = 777_000, .name = try alloc.dupe(u8, "Zig Brasil (oficial)"), .icon = try alloc.dupe(u8, "demo:icon:2"), .banner = try alloc.dupe(u8, "demo:2"), .members = 4312, .online = 389 };
     return .{ .state = .invalid };

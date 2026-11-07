@@ -17,7 +17,13 @@ const tray = @import("../platform/tray.zig");
 const inbox = @import("inbox.zig");
 const mem_use_mod = @import("../core/mem_use.zig");
 
-const Section = struct { title: []const u8, title_en: []const u8, items: []const struct { page: S.Page, label: []const u8, label_en: []const u8 } };
+// Japonês: como o `label` é também a marca do QA (settings:…), a tradução
+// mora no ponto de uso (`sidebarLabel`), não num campo aqui.
+const Section = struct {
+    title: []const u8,
+    title_en: []const u8,
+    items: []const struct { page: S.Page, label: []const u8, label_en: []const u8 },
+};
 
 pub const sections = [_]Section{
     .{ .title = "CONFIGURAÇÕES DE USUÁRIO", .title_en = "USER SETTINGS", .items = &.{
@@ -44,6 +50,34 @@ pub const sections = [_]Section{
         .{ .page = .sobre, .label = "Sobre", .label_en = "About" },
     } },
 };
+
+/// Rótulo da barra lateral: o japonês vem de uma tabela aqui, porque o
+/// campo `label` (português) é a marca do QA e não pode mudar.
+fn sidebarLabel(pt: []const u8, en: []const u8) []const u8 {
+    if (i18n.current() != .ja) return i18n.tr(pt, en);
+    const Pair = struct { pt: []const u8, ja: []const u8 };
+    const ja = [_]Pair{
+        .{ .pt = "Minha conta", .ja = "アカウント" },
+        .{ .pt = "Privacidade", .ja = "プライバシー" },
+        .{ .pt = "Alertas e filtros", .ja = "通知とフィルター" },
+        .{ .pt = "Aparência", .ja = "外観" },
+        .{ .pt = "Acessibilidade", .ja = "アクセシビリティ" },
+        .{ .pt = "Chat", .ja = "チャット" },
+        .{ .pt = "Voz", .ja = "音声" },
+        .{ .pt = "Notificações", .ja = "通知" },
+        .{ .pt = "Atalhos de teclado", .ja = "キーボードショートカット" },
+        .{ .pt = "Idioma", .ja = "言語" },
+        .{ .pt = "Avançado", .ja = "詳細設定" },
+        .{ .pt = "Desempenho", .ja = "パフォーマンス" },
+        .{ .pt = "Erros no código", .ja = "コードの診断" },
+        .{ .pt = "Plugins", .ja = "プラグイン" },
+        .{ .pt = "Atualizações", .ja = "アップデート" },
+        .{ .pt = "Novidades", .ja = "新着情報" },
+        .{ .pt = "Sobre", .ja = "larperCordについて" },
+    };
+    for (ja) |e| if (std.mem.eql(u8, e.pt, pt)) return e.ja;
+    return en;
+}
 
 /// Estado de desenho de uma página (posição corrente, largura útil).
 const Page = struct {
@@ -344,12 +378,15 @@ pub fn draw(ctx: *d.Ctx, previews: []const Preview) void {
     const mx = side.right() - 210;
     const fam = ctx.ui;
     for (sections, 0..) |sec, si| {
-        d.text(dl, fam.get(.bold), 11.5, mx + 10, y, ctx.col(.faint), i18n.tr(sec.title, sec.title_en));
+        d.text(dl, fam.get(.bold), 11.5, mx + 10, y, ctx.col(.faint), if (i18n.current() == .ja)
+                (if (std.mem.eql(u8, sec.title_en, "USER SETTINGS")) "ユーザー設定" else if (std.mem.eql(u8, sec.title_en, "APP SETTINGS")) "アプリ設定" else sec.title_en)
+            else
+                i18n.tr(sec.title, sec.title_en));
         y += 24;
         for (sec.items, 0..) |it, ii| {
             const r: d.Rect = .{ .x = mx, .y = y, .w = 192, .h = 32 };
             const hb = d.hit(ctx, 100 + si * 20 + ii, r);
-            const label = i18n.tr(it.label, it.label_en);
+            const label = sidebarLabel(it.label, it.label_en);
             qa.mark(r, "settings:{s}", .{label});
             if (hb.clicked) s.page = it.page;
             const sel = s.page == it.page;
@@ -632,6 +669,9 @@ fn page(p: *Page, previews: []const Preview) void {
             p.divider();
             p.heading(i18n.tr("Escala da fonte", "Font scaling"));
             p.slider(i18n.tr("Tamanho do texto", "Text size"), &s.font_scale, 0.8, 1.3, "{d:.0}%", 100);
+            p.slider(i18n.tr3("Tamanho da interface", "Interface size", "インターフェースの大きさ"), &s.ui_scale, 0.75, 2, "{d:.0}%", 100);
+            s.ui_scale = @round(s.ui_scale * 20) / 20;
+            p.note(i18n.tr3("Aumenta tudo, não só o texto. Vale ao soltar o mouse.", "Makes everything bigger, not just the text. Applies when you let go of the mouse.", "テキストだけでなく全体を拡大します。マウスを離すと反映されます。"));
             p.heading(i18n.tr("Exibição das mensagens", "Message display"));
             p.toggle(i18n.tr("Modo compacto", "Compact mode"), i18n.tr("Menos espaço entre grupos e avatares menores.", "Less space between groups and smaller avatars."), &s.compact);
             p.toggle(i18n.tr("Mostrar avatares", "Show avatars"), i18n.tr("Exibe a foto ao lado do nome.", "Shows the profile picture next to the name."), &s.show_avatars);
@@ -732,10 +772,23 @@ fn page(p: *Page, previews: []const Preview) void {
             }
         },
         .idioma => {
-            p.title(i18n.tr("Idioma", "Language"));
+            p.title(i18n.tr3("Idioma", "Language", "言語"));
             // Os nomes dos idiomas ficam sempre na própria língua.
-            p.radio(&.{ i18n.tr("Seguir o sistema", "Follow system"), "Português (Brasil)", "English (US)" }, &.{}, &s.language);
-            p.note(i18n.tr("Por padrão o app segue o idioma do sistema. A troca vale na hora.", "By default the app follows your system language. Changes apply right away."));
+            p.radio(&.{
+                i18n.tr3("Seguir o sistema", "Follow system", "システムに従う"),
+                "Português (Brasil)",
+                "English (US)",
+                "日本語 (Japanese)",
+            }, &.{}, &s.language);
+            p.note(i18n.tr3(
+                "Por padrão o app segue o idioma do sistema. A troca vale na hora.",
+                "By default the app follows your system language. Changes apply right away.",
+                "デフォルトではシステムの言語に従います。変更はすぐに反映されます。",
+            ));
+            if (ctx.fonts.scripts_tried and ctx.fonts.cjk_n == 0) p.note(i18n.tr(
+                "Nenhuma fonte de japonês, coreano ou chinês foi encontrada neste sistema, e esses textos aparecem como ???. Instale uma, como a Noto Sans CJK (pacote noto-fonts-cjk ou fonts-noto-cjk).",
+                "No Japanese, Korean or Chinese font was found on this system, so those texts show as ???. Install one, such as Noto Sans CJK (package noto-fonts-cjk or fonts-noto-cjk).",
+            ));
         },
         .avancado => {
             p.title(i18n.tr("Avançado", "Advanced"));

@@ -97,6 +97,7 @@ pub const GuildFolder = struct {
 
 /// Permissões do Discord que o cliente usa.
 pub const perm = struct {
+    pub const create_instant_invite: u64 = 1 << 0;
     pub const administrator: u64 = 1 << 3;
     pub const manage_guild: u64 = 1 << 5;
     pub const manage_messages: u64 = 1 << 13;
@@ -275,7 +276,8 @@ pub const ReadEntry = struct {
 
 /// Convite (GET /invites/{code}). `name` e `icon` alocados com o c_allocator.
 pub const Invite = struct {
-    state: enum { loading, ok, invalid, failed } = .loading,
+    pub const State = enum { loading, ok, invalid, failed };
+    state: State = .loading,
     /// Servidor do convite (0 = convite de grupo).
     guild: Id = 0,
     name: []const u8 = "",

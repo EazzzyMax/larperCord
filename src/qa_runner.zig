@@ -699,10 +699,48 @@ fn pinnedImageShown(app: *App) bool {
     // E o link com prévia.
     return qa.find(std.fmt.bufPrint(&b, "pin-media:{d}", .{demoEmbedMessage(app)}) catch return false) != null;
 }
+fn wheelUp(app: *App) void {
+    c.ImGuiIO_AddMouseWheelEvent(app.io, 0, 3);
+}
+fn wheelDown(app: *App) void {
+    c.ImGuiIO_AddMouseWheelEvent(app.io, 0, -40);
+}
+fn viewerZoomed(app: *App) bool {
+    const v = app.st.viewer orelse return false;
+    return v.zoom > 1.5;
+}
+fn viewerMoved(app: *App) bool {
+    const v = app.st.viewer orelse return false;
+    return v.zoom > 1.5 and (v.pan_x != 0 or v.pan_y != 0);
+}
+fn viewerFits(app: *App) bool {
+    const v = app.st.viewer orelse return false;
+    return v.zoom == 1 and v.pan_x == 0 and v.pan_y == 0;
+}
 fn toastDemoFile(app: *App) bool {
     return std.mem.indexOf(u8, app.st.toast.text(), "arquivo") != null;
 }
 /// Gera um PNG de teste (um degradê) e põe na bandeja, como um arrastar e soltar.
+var clip_bmp: ?[*]u8 = null;
+var clip_bmp_size: usize = 0;
+fn clipBmpData(_: ?*anyopaque, _: [*c]const u8, size: [*c]usize) callconv(.c) ?*const anyopaque {
+    size.* = clip_bmp_size;
+    return clip_bmp;
+}
+/// Como o print chega no Windows: a área de transferência só tem o bitmap.
+fn copyBitmap(_: *App) void {
+    const surf = c.SDL_CreateSurface(40, 30, c.SDL_PIXELFORMAT_RGBA32) orelse return;
+    defer c.SDL_DestroySurface(surf);
+    _ = c.SDL_FillSurfaceRect(surf, null, 0xff3366cc);
+    _ = c.SDL_SaveBMP(surf, "qa-out/print.bmp");
+    clip_bmp = @ptrCast(c.SDL_LoadFile("qa-out/print.bmp", &clip_bmp_size) orelse return);
+    var mimes = [_][*c]const u8{"image/bmp"};
+    _ = c.SDL_SetClipboardData(clipBmpData, null, null, &mimes, 1);
+}
+fn pastedAsPng(app: *App) bool {
+    const ups = app.st.uploads.items;
+    return ups.len == 1 and ups[0].width == 40 and std.mem.endsWith(u8, ups[0].path, ".png");
+}
 fn attachQaImage(app: *App) void {
     const surf = c.SDL_CreateSurface(160, 100, c.SDL_PIXELFORMAT_RGBA32) orelse return;
     defer c.SDL_DestroySurface(surf);
@@ -842,6 +880,30 @@ fn inputEmpty(app: *App) bool {
 }
 fn paletteOpen(app: *App) bool {
     return app.st.palette.open;
+}
+/// O que foi desenhado mesmo aparece: o painel da paleta já cobriu a caixa de texto, e toda a
+/// lógica continuava certa. Procura pixels que destoam do fundo na área da marcação.
+pub fn hasInk(app: *App, key_name: []const u8) bool {
+    const r = qa.find(key_name) orelse return false;
+    const k = app.uiScale();
+    var area: c.SDL_Rect = .{ .x = @intFromFloat(r.x * k), .y = @intFromFloat(r.y * k), .w = @intFromFloat(r.w * k), .h = @intFromFloat(r.h * k) };
+    const surface = c.SDL_RenderReadPixels(app.win.renderer, &area) orelse return false;
+    defer c.SDL_DestroySurface(surface);
+    const w: usize = @intCast(surface.*.w);
+    const pitch: usize = @intCast(surface.*.pitch);
+    const px: [*]const u8 = @ptrCast(surface.*.pixels orelse return false);
+    var ink: usize = 0;
+    for (0..@intCast(surface.*.h)) |y| {
+        for (0..w) |x| {
+            const p = px[y * pitch + x * 4 ..][0..3];
+            const diff = @max(@abs(@as(i16, p[0]) - px[0]), @abs(@as(i16, p[1]) - px[1]), @abs(@as(i16, p[2]) - px[2]));
+            if (diff > 40) ink += 1;
+        }
+    }
+    return ink >= 12;
+}
+fn paletteInk(app: *App) bool {
+    return hasInk(app, "palette-input");
 }
 fn onZig(app: *App) bool {
     const cs = active(app) orelse return false;
@@ -1623,8 +1685,12 @@ fn searchFromDisk(_: *App) bool {
     search_target = .{ .ch = r.channel, .id = r.id };
     return r.disk;
 }
+fn searchClose(_: *App) void {
+    search.close();
+}
+/// O painel continua aberto, como no Discord: dá para ir de um resultado a outro.
 fn searchJumped(app: *App) bool {
-    if (search.open or app.st.activeChannel() != search_target.ch) return false;
+    if (!search.open or app.st.activeChannel() != search_target.ch) return false;
     var b: [40]u8 = undefined;
     return qa.find(std.fmt.bufPrint(&b, "msg:{d}", .{search_target.id}) catch return false) != null;
 }
@@ -1928,7 +1994,7 @@ const ops_plugin_section = [_]Op{
     .{ .run = @import("qa_plugins.zig").endSection },
     expect("sem plugins, a thread dos plugins sai", @import("qa_plugins.zig").threadGone),
 
-};
+} ++ @import("qa_plugins.zig").ops_forward;
 
 const ops = [_]Op{
     s("início"),
@@ -2196,7 +2262,9 @@ const ops = [_]Op{
     s("paleta"),
     ctrl(c.ImGuiKey_K),
     expect("Ctrl+K abre a paleta", paletteOpen),
+    expect("a dica da paleta aparece na tela", paletteInk),
     .{ .text = "zig" },
+    expect("o que se digita na paleta aparece na tela", paletteInk),
     .{ .shot = "09-paleta" },
     key(c.ImGuiKey_Enter),
     expect("Enter na paleta abre o canal", onZig),
@@ -2312,6 +2380,21 @@ const ops = [_]Op{
     .{ .shot = "27-imagem-tela-cheia" },
     click("viewer:Copiar imagem"),
     .{ .expect = .{ .name = "copiar imagem põe a imagem na área de transferência", .check = imageCopied, .timeout_ms = 5000 } },
+    .{ .hover = .{ .mark = "viewer" } },
+    .{ .run = wheelUp },
+    .{ .wait = 150 },
+    expect("a roda do mouse amplia a imagem", viewerZoomed),
+    .{ .wait = 200 },
+    .{ .shot = "27a-imagem-ampliada" },
+    .{ .drag = .{ .from = .{ .mark = "viewer" }, .to = .{ .mark = "viewer:fechar" } } },
+    expect("arrastar move a imagem ampliada, sem fechar", viewerMoved),
+    .{ .run = wheelDown },
+    .{ .wait = 150 },
+    expect("não encolhe além do tamanho que cabe, e volta ao centro", viewerFits),
+    .{ .dclick = .{ .mark = "viewer" } },
+    expect("dois cliques ampliam", viewerZoomed),
+    .{ .dclick = .{ .mark = "viewer" } },
+    expect("dois cliques voltam", viewerFits),
     key(c.ImGuiKey_Escape),
     expect("Esc fecha a tela cheia", viewerClosed),
     .{ .click = .{ .dyn = tDemoImage } },
@@ -2339,6 +2422,12 @@ const ops = [_]Op{
     .{ .shot = "28-bandeja" },
     click("upload-remove:0"),
     expect("tirar o arquivo da bandeja", noUploads),
+    click("composer"),
+    .{ .run = copyBitmap },
+    ctrl(c.ImGuiKey_V),
+    expect("Ctrl+V com um print em bitmap entra na bandeja como PNG", pastedAsPng),
+    click("upload-remove:0"),
+    expect("tirar o print colado da bandeja", noUploads),
     .{ .run = attachQaImage },
     click("composer"),
     .{ .text = "olha essa imagem" },
@@ -2515,6 +2604,8 @@ const ops = [_]Op{
     expect("e acha o mesmo no cache", searchFromDisk),
     click("search-result:0"),
     .{ .expect = .{ .name = "clicar no resultado abre o canal e pula até a mensagem", .check = searchJumped, .timeout_ms = 4000 } },
+    .{ .run = searchClose },
+} ++ @import("qa_busca.zig").ops ++ @import("qa_convites.zig").ops ++ [_]Op{
     ctrl(c.ImGuiKey_Comma),
     click("settings:Privacidade"),
     expect("Privacidade tem a opção do cache", privacyPage),
@@ -2837,7 +2928,7 @@ const ops_nome = [_]Op{
 
 /// Só o emoji e o autocompletar (QA_SCENE=emoji), para olhar em outros temas.
 const ops_emoji = [_]Op{expect("pronto", ready)} ++ @import("qa_emoji.zig").ops;
-const ops_paineis = [_]Op{expect("pronto", ready)} ++ @import("qa_paineis.zig").all;
+const ops_paineis = [_]Op{expect("pronto", ready)} ++ @import("qa_paineis.zig").ops_no_scripts ++ @import("qa_paineis.zig").all;
 const ops_quadros = [_]Op{expect("pronto", ready)} ++ @import("qa_quadros.zig").ops;
 
 const ops_config = [_]Op{
@@ -3098,6 +3189,10 @@ const ops_plugins_only = [_]Op{expect("carrega e mostra a conversa", ready)} ++ 
 const ops_plugins_tls = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_tls;
 const ops_extras = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_paineis.zig").ops_extras;
 const ops_ffmpeg = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_paineis.zig").ops_ffmpeg;
+const ops_scripts = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_scripts;
+const ops_ime = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_paineis.zig").ops_ime;
+const ops_busca = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_busca.zig").ops;
+const ops_convites = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_convites.zig").ops;
 const ops_plugins_real = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_real;
 const ops_vitrine = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_vitrine;
 const ops_plugins_a = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_persist_a;
@@ -3122,6 +3217,10 @@ fn script() []const Op {
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-tls")) return &ops_plugins_tls;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "extras")) return &ops_extras;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "ffmpeg")) return &ops_ffmpeg;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "escritas")) return &ops_scripts;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "ime")) return &ops_ime;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "busca")) return &ops_busca;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "convites")) return &ops_convites;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-real")) return &ops_plugins_real;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "vitrine")) return &ops_vitrine;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-a")) return &ops_plugins_a;
@@ -3506,6 +3605,8 @@ pub const Runner = struct {
                     r.dclick_time = .{ app.io.*.MouseDoubleClickTime, app.io.*.MouseSingleClickDelay };
                     app.io.*.MouseSingleClickDelay = 3.5;
                     app.io.*.MouseDoubleClickTime = 3;
+                    // Com esse tempo, um duplo clique logo depois de outro contaria como 3º e 4º cliques.
+                    app.io.*.MouseClickedTime[@intCast(button)] = -1e9;
                 }
                 r.pos(app, r.target_pos);
             },
@@ -3672,7 +3773,9 @@ pub const Runner = struct {
                 r.next();
             },
             .resize => |sz| {
-                _ = c.SDL_SetWindowSize(app.win.window, sz[0], sz[1]);
+                // The script's sizes are in points; on Windows SDL wants pixels.
+                const k = app.uiScale();
+                _ = c.SDL_SetWindowSize(app.win.window, @intFromFloat(@as(f32, @floatFromInt(sz[0])) * k), @intFromFloat(@as(f32, @floatFromInt(sz[1])) * k));
                 r.next();
             },
             .run => |f| {

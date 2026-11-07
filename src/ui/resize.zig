@@ -125,7 +125,7 @@ pub fn submit(ctx: *d.Ctx) void {
     dragging = false;
     // Com algo aberto por cima, o clique é de quem está aberto (ou o fecha).
     const st = ctx.st;
-    if (st.popup != .none or st.settings.open or st.viewer != null or st.palette.open or search.open or dropdown.anyOpen() or plugin_panel.floating()) return;
+    if (st.popup != .none or st.settings.open or st.viewer != null or st.palette.open or dropdown.anyOpen() or plugin_panel.floating()) return;
     for (queue[0..queued]) |h| one(ctx, h);
 }
 

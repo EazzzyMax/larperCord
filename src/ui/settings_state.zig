@@ -52,10 +52,12 @@ pub const Settings = struct {
 
     // Aparência / acessibilidade
     font_scale: f32 = 1.0,
-    /// Limites de memória, em Desempenho: imagens e cada GIF (MB), e mensagens somando os canais.
+    /// Tamanho de toda a interface, por cima da escala do sistema.
+    ui_scale: f32 = 1.0,
     /// Traço e encaixe das letras nos pixels (ui/fonts.zig).
     text_weight: f32 = 1,
     text_hinting: u8 = 0,
+    /// Limites de memória, em Desempenho: imagens e cada GIF (MB), e mensagens somando os canais.
     image_cache_mb: f32 = 32,
     gif_limit_mb: f32 = 12,
     message_budget: f32 = 2000,
@@ -175,7 +177,7 @@ pub const Settings = struct {
     hot_reload: bool = true,
     /// Fechar a janela deixa o app na bandeja (sem bandeja, fechar sai igual).
     close_to_tray: bool = true,
-    /// 0 = seguir o sistema, 1 = português, 2 = inglês.
+    /// 0 = seguir o sistema, 1 = português, 2 = inglês, 3 = japonês.
     language: u8 = 0,
     /// 0 = escuro, 1 = claro, 2 = seguir o sistema.
     color_mode: u8 = 0,

@@ -81,6 +81,14 @@ pub var lang_en: *const fn () bool = &struct {
     }
 }.f;
 
+/// O que `larper.lang()` responde: em japonês, os textos caem no inglês, mas a tradução
+/// precisa saber o idioma de verdade.
+pub var lang_code: *const fn () [*:0]const u8 = &struct {
+    fn f() [*:0]const u8 {
+        return if (lang_en()) "en" else "pt";
+    }
+}.f;
+
 fn tr(pt: []const u8, en: []const u8) []const u8 {
     return if (lang_en()) en else pt;
 }
@@ -1654,7 +1662,7 @@ fn lGuild(L: ?*lua.State) callconv(.c) c_int {
 
 /// larper.lang() -> "pt" ou "en": o idioma da interface.
 fn lLang(L: ?*lua.State) callconv(.c) c_int {
-    _ = lua.lua_pushstring(L, if (lang_en()) "en" else "pt");
+    _ = lua.lua_pushstring(L, lang_code());
     return 1;
 }
 

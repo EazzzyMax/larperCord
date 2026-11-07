@@ -644,7 +644,17 @@ fn form(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
                 "Switch channels and click a request to /api.",
                 "Under Headers, copy the Authorization value.",
             };
-            const steps = if (i18n.en()) steps_en else steps_pt;
+            const steps_ja = [_][]const u8{
+                "ブラウザで discord.com/app を開いてログインします。",
+                "F12 を押して Network タブを開きます。",
+                "チャンネルを切り替え、/api へのリクエストをクリックします。",
+                "Headers の Authorization の値をコピーします。",
+            };
+            const steps = switch (i18n.current()) {
+                .en => steps_en,
+                .ja => steps_ja,
+                .pt => steps_pt,
+            };
             const full_h: f32 = 4 * 26 + 50;
             const hr: Rect = .{ .x = x, .y = y, .w = w, .h = full_h * l.help_k };
             c.ImDrawList_PushClipRect(dl, d.v(hr.x - 2, hr.y), d.v(hr.right() + 2, hr.bottom()), true);
@@ -661,7 +671,7 @@ fn form(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
                 hy += 26;
             }
             hy += 4;
-            _ = d.textClipped(dl, f.font(.medium), 12.5, hr.x + 16, hy, f.p.danger.alpha(f.a), i18n.tr("Quem tem o token tem a sua conta. Não mande pra ninguém.", "Anyone with your token has your account. Never share it."), hr.w - 28);
+            _ = d.textClipped(dl, f.font(.medium), 12.5, hr.x + 16, hy, f.p.danger.alpha(f.a), i18n.tr3("Quem tem o token tem a sua conta. Não mande pra ninguém.", "Anyone with your token has your account. Never share it.", "トークンを持つ人はあなたのアカウントを乗っ取れます。誰にも送らないでください。"), hr.w - 28);
             c.ImDrawList_PopClipRect(dl);
             y += hr.h + 6;
         }
@@ -703,7 +713,16 @@ fn connecting(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
         "Loading servers and direct messages",
         "Getting your channels ready",
     };
-    const tips = if (i18n.en()) tips_en else tips_pt;
+    const tips_ja = [_][]const u8{
+        "ゲートウェイへの接続を開いています",
+        "サーバーとダイレクトメッセージを読み込んでいます",
+        "チャンネルを準備しています",
+    };
+    const tips = switch (i18n.current()) {
+        .en => tips_en,
+        .ja => tips_ja,
+        .pt => tips_pt,
+    };
     const since = t - l.phase_at;
     const tip = tips[@min(tips.len - 1, @as(usize, @intFromFloat(since / 1.6)))];
     f.centered(.regular, 14, cx, y, f.p.muted, tip);

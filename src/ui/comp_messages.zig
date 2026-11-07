@@ -1485,12 +1485,12 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         d.rectFlags(dl, bar, ctx.col(.rail).mix(ctx.col(.elevated), 0.5), @max(ctx.th.radius + 4, 4), c.ImDrawFlags_RoundTop);
         var buf: [128]u8 = undefined;
         const t = if (st.editing != 0)
-            i18n.tr("Editando mensagem  ·  Esc cancela  ·  Enter salva", "Editing message  ·  Esc to cancel  ·  Enter to save")
+            i18n.tr3("Editando mensagem  ·  Esc cancela  ·  Enter salva", "Editing message  ·  Esc to cancel  ·  Enter to save", "メッセージを編集中  ·  Escでキャンセル  ·  Enterで保存")
         else blk: {
             const f = ctx.store.findAny(st.reply_to);
             const u = if (f) |x| ctx.store.user(x.m.msg.author) else null;
             if (u) |x| break :blk i18n.fmt(&buf, "Respondendo a {s}", "Replying to {s}", .{x.name});
-            break :blk i18n.tr("Respondendo a mensagem", "Replying to a message");
+            break :blk i18n.tr3("Respondendo a mensagem", "Replying to a message", "メッセージに返信中");
         };
         d.text(dl, fam.get(.medium), 13, bar.x + 14, bar.y + 8, ctx.col(.muted), t);
         const xr: d.Rect = .{ .x = bar.right() - 30, .y = bar.y + 5, .w = 22, .h = 22 };
@@ -1516,7 +1516,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
     if (d.pflag(n, "typing", true) and cs.typing.items.len > 0) {
         const u = ctx.store.user(cs.typing.items[0].user);
         var buf: [96]u8 = undefined;
-        const who = if (u) |x| x.name else i18n.tr("alguém", "someone");
+        const who = if (u) |x| x.name else i18n.tr3("alguém", "someone", "誰か");
         const t = i18n.fmt(&buf, "{s} está digitando", "{s} is typing", .{who});
         const ty = top - 19;
         const tx = r.x + (if (prompt) @as(f32, 10) else 6);
@@ -1530,7 +1530,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         d.line(dl, r.x, r.y + 0.5, r.right(), r.y + 0.5, ctx.col(.border), 1);
         const me = ctx.store.user(ctx.store.me);
         var buf: [96]u8 = undefined;
-        const p = std.fmt.bufPrint(&buf, "{s}@{s}{s} {s} ", .{ if (me) |x| x.name else i18n.tr("eu", "me"), sigil(&cs.info), cs.info.name, if (st.editing != 0) "✎" else if (st.reply_to != 0) "↩" else "❯" }) catch "❯ ";
+        const p = std.fmt.bufPrint(&buf, "{s}@{s}{s} {s} ", .{ if (me) |x| x.name else i18n.tr3("eu", "me", "自分"), sigil(&cs.info), cs.info.name, if (st.editing != 0) "✎" else if (st.reply_to != 0) "↩" else "❯" }) catch "❯ ";
         const fs = ctx.th.font_size;
         d.text(dl, fam.get(.bold), fs, r.x + 10, d.centerY(r, fs), ctx.col(.accent), p);
         input_x = r.x + 10 + d.width(fam.get(.bold), fs, p);
@@ -1547,7 +1547,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         qa.mark(pr, "composer-attach", .{});
         d.text(dl, fam.get(.bold), fs, pr.x + 4, d.centerY(pr, fs), if (ph.hovered) ctx.col(.accent) else ctx.col(.muted), "[+]");
         if (ph.clicked) ctx.act(.pick_files);
-        d.tip(ctx, pr, i18n.tr("Anexar arquivo", "Attach File"), ph.hovered);
+        d.tip(ctx, pr, i18n.tr3("Anexar arquivo", "Attach File", "ファイルを添付"), ph.hovered);
         const er: d.Rect = .{ .x = r.right() - 36, .y = r.y + r.h / 2 - 13, .w = 26, .h = 26 };
         const eh = d.hit(ctx, 2, er);
         qa.mark(er, "composer-emoji", .{});
@@ -1564,7 +1564,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         d.circle(dl, ar.x + 14, ar.y + 14, 11.5, ctx.col(.muted).mix(ctx.col(.text), ak));
         icons.plus(dl, ar.x + 14, ar.y + 14, 5.5, ctx.col(.elevated).u());
         if (ah.clicked) ctx.act(.pick_files);
-        d.tip(ctx, ar, i18n.tr("Anexar arquivo", "Attach File"), ah.hovered);
+        d.tip(ctx, ar, i18n.tr3("Anexar arquivo", "Attach File", "ファイルを添付"), ah.hovered);
         const ex = r.right() - (if (pill) @as(f32, 84) else 40);
         const gr: d.Rect = .{ .x = ex - 36, .y = r.y + r.h / 2 - 11, .w = 32, .h = 22 };
         const gh = d.hit(ctx, 40, gr);
@@ -1658,7 +1658,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         autocomplete.update(ctx, ch_id, active, .{ .x = r.x + inset, .y = top - tray_h, .w = r.w - inset * 2, .h = 0 });
     }
     // Ctrl+V com imagem copiada (print, imagem do navegador): vira anexo.
-    if (active and ctx.io.*.KeyCtrl and c.ImGui_IsKeyPressed(c.ImGuiKey_V) and c.SDL_HasClipboardData("image/png") and !c.SDL_HasClipboardText())
+    if (active and ctx.io.*.KeyCtrl and c.ImGui_IsKeyPressed(c.ImGuiKey_V) and @import("../platform/window.zig").clipboardImage() != null and !c.SDL_HasClipboardText())
         ctx.act(.paste_image);
     // Esc cancela a edição (ou a resposta), com ou sem foco na caixa. A lista de
     // sugestões aberta e os painéis por cima pegam o Esc primeiro.

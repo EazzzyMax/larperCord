@@ -22,8 +22,34 @@ pub const Ready = struct {
     premium_type: u8 = 0,
 };
 
+/// A busca do Discord (`GET .../messages/search`). `params` já é a consulta em URL, alocada
+/// com o c_allocator. Com `guild` 0, busca só na conversa `channel`.
+pub const SearchRequest = struct { req: u32, guild: Id, channel: Id, params: []const u8 };
+/// Um resultado. Os textos são alocados com o c_allocator e passam para quem recebe.
+pub const SearchHit = struct { channel: Id, id: Id, author: Id, author_name: []const u8, content: []const u8, files: []const u8 };
+pub const SearchStatus = enum { ok, indexing, forbidden, failed };
+pub const SearchResults = struct {
+    req: u32,
+    status: SearchStatus,
+    hits: []SearchHit = &.{},
+    total: u32 = 0,
+    /// Em `indexing`: quando tentar de novo, e quantas mensagens já estão prontas.
+    retry_ms: u32 = 0,
+    indexed: u32 = 0,
+};
+
+/// Entrar por convite: como terminou. `idle` e `joining` são só da tela.
+pub const JoinStatus = enum { idle, joining, ok, captcha, invalid, forbidden, too_many, failed };
+pub const InviteJoined = struct { code: InviteCode, status: JoinStatus, guild: Id = 0 };
+pub const InviteStatus = enum { ok, forbidden, disabled, failed };
+pub const InviteCreated = struct { req: u32, status: InviteStatus, code: InviteCode = .{} };
+pub const CreateInvite = struct { req: u32, channel: Id, max_age: u32, max_uses: u8, temporary: bool };
+
 pub const Event = union(enum) {
     ready: Ready,
+    invite_joined: InviteJoined,
+    invite_created: InviteCreated,
+    search_results: SearchResults,
     message_create: types.Message,
     /// `older`: página antes da mais antiga que já temos (rolou para cima).
     /// `more`: o Discord ainda tem mais antigas (ou, em `newer`, mais novas).
@@ -189,12 +215,15 @@ pub const Command = union(enum) {
     send_message: struct { channel: Id, content: []const u8, nonce: u64, reply_to: Id = 0, files: []const [:0]const u8 = &.{} },
     edit_message: struct { channel: Id, id: Id, content: []const u8 },
     leave_guild: Id,
+    /// `text`: cópia do conteúdo, só para a demonstração (o Discord já tem a original).
+    forward_message: struct { from: Id, id: Id, to: Id, nonce: u64, text: []const u8 },
     delete_message: struct { channel: Id, id: Id },
     delete_thread: Id,
     /// Editar servidor ou grupo: só o que mudou (null/keep = deixa como está).
     edit_place: EditPlace,
     react: struct { channel: Id, id: Id, emoji: types.Reaction, add: bool },
     fetch_history: Id,
+    search_messages: SearchRequest,
     /// Mais 50 mensagens antes de `before` (rolagem para cima).
     fetch_older: struct { channel: Id, before: Id },
     /// "fulano está digitando" (o Discord limita a um a cada ~8 s).
@@ -244,6 +273,8 @@ pub const Command = union(enum) {
     gif_favorites: u32,
     pin: struct { channel: Id, id: Id, add: bool },
     fetch_invite: InviteCode,
+    join_invite: InviteCode,
+    create_invite: CreateInvite,
     /// Uma página de threads de um canal. Ativas: por `offset`; arquivadas:
     /// as de antes de `before` (s; 0 = as mais recentes).
     fetch_threads: struct { channel: Id, guild: Id, archived: bool, offset: u32 = 0, before: i64 = 0 },
@@ -259,6 +290,7 @@ pub const Command = union(enum) {
 };
 
 pub const Action = union(enum) {
+    search_messages: SearchRequest,
     select_guild: Id,
     select_channel: Id,
     close_tab: usize,
@@ -323,6 +355,11 @@ pub const Action = union(enum) {
     want_pins: Id,
     pin_message: struct { channel: Id, id: Id, add: bool },
     leave_guild: Id,
+    /// Abre a paleta para escolher para onde encaminhar a mensagem.
+    forward_pick: Id,
+    forward_to: struct { id: Id, to: Id },
+    join_invite: InviteCode,
+    create_invite: CreateInvite,
     /// Link de convite na tela: busca o cartão (uma vez por código).
     want_invite: InviteCode,
     /// Liga/desliga uma opção do tema atual (índice em `Theme.options`).

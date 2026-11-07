@@ -33,6 +33,9 @@ pub const Popup = union(enum) {
     new_post: struct { forum: Id },
     /// Editar um servidor ou um grupo de DM (ui/edit_place.zig).
     edit_place: struct { id: Id, group: bool },
+    /// Entrar por convite e criar um (ui/invites.zig).
+    join_invite,
+    create_invite: struct { channel: Id },
 };
 
 /// Seleção de texto entre mensagens: âncora e cabeça (mensagem + byte).
@@ -60,6 +63,10 @@ pub const Viewer = struct {
     /// Banner, ícone ou foto: o CDN não diz o tamanho antes. `w` e `h` são um
     /// palpite até a imagem chegar, e ela é pedida inteira.
     original: bool = false,
+    /// Ampliação em cima do tamanho que cabe na janela, e para onde a imagem foi arrastada.
+    zoom: f32 = 1,
+    pan_x: f32 = 0,
+    pan_y: f32 = 0,
 };
 
 /// Arquivo escolhido para ir junto com a próxima mensagem.
@@ -114,6 +121,8 @@ pub const Palette = struct {
     query: [128]u8 = @splat(0),
     selected: usize = 0,
     focus: bool = false,
+    /// Encaminhando esta mensagem: a paleta só mostra e escolhe o destino.
+    forward: Id = 0,
     items: std.ArrayList(PaletteItem) = .empty,
     /// Textos montados para os itens (liberados ao reconstruir a lista).
     arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator),

@@ -95,7 +95,9 @@ fn popupKey(p: state.Popup) u64 {
         .new_thread => |t| 9 +% t.message *% 31,
         .new_post => |t| 10 +% t.forum *% 31,
         .edit_place => |t| 11 +% t.id *% 31,
-        .gif => 12,
+        .gif => 14,
+        .join_invite => 12,
+        .create_invite => |t| 13 +% t.channel *% 31,
     };
 }
 
@@ -163,6 +165,8 @@ pub fn draw(ctx: *d.Ctx) void {
         .new_thread => |t| forum.newThread(ctx, t.message),
         .new_post => |t| forum.newPost(ctx, t.forum),
         .edit_place => |t| @import("edit_place.zig").draw(ctx, t.id, t.group),
+        .join_invite => @import("invites.zig").drawJoin(ctx),
+        .create_invite => |t| @import("invites.zig").drawCreate(ctx, t.channel),
         .none => {},
     }
     animateOpen(ctx);
@@ -263,6 +267,7 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
             add(&items, &n, .{ .label = "Responder", .en = "Reply", .id = 1 });
             if (own) add(&items, &n, .{ .label = "Editar mensagem", .en = "Edit Message", .id = 2 });
             add(&items, &n, .{ .label = "Adicionar reação", .en = "Add Reaction", .id = 3 });
+            if (found.m.msg.id != 0 and found.m.msg.system == .none) add(&items, &n, .{ .label = "Encaminhar", .en = "Forward", .id = 14 });
             add(&items, &n, .{ .label = if (ctx.st.selection.empty()) "Copiar texto" else "Copiar seleção", .en = if (ctx.st.selection.empty()) "Copy Text" else "Copy Selection", .id = 4 });
             add(&items, &n, .{ .label = "Copiar link da mensagem", .en = "Copy Message Link", .id = 5 });
             // Salvas: só neste computador (ui/saved.zig).
@@ -328,6 +333,7 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
                 add(&items, &n, .{ .label = "Ver threads", .en = "View Threads", .id = 49, .sep = true });
                 add(&items, &n, .{ .label = "Threads arquivadas", .en = "Archived Threads", .id = 48 });
             };
+            if (ctx.store.channel(id)) |ics| if (@import("invites.zig").canInvite(ctx, &ics.info)) add(&items, &n, .{ .label = "Convidar pessoas…", .en = "Invite People…", .id = 56, .sep = true });
             if (ctx.store.channel(id)) |gcs| if (gcs.info.group) {
                 add(&items, &n, .{ .label = "Editar grupo…", .en = "Edit Group…", .id = 53, .sep = true });
                 if (gcs.info.icon != null) add(&items, &n, .{ .label = "Ver ícone", .en = "View Icon", .id = 54 });
@@ -388,6 +394,7 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
         },
         .guild => {
             add(&items, &n, .{ .label = "Marcar como lido", .en = "Mark As Read", .id = 60 });
+            if (@import("invites.zig").channelFor(ctx, id) != null) add(&items, &n, .{ .label = "Convidar pessoas…", .en = "Invite People…", .id = 69 });
             if (ctx.store.can(id, types.perm.manage_guild)) add(&items, &n, .{ .label = "Editar servidor…", .en = "Edit Server…", .id = 64 });
             if (ctx.store.guild(id)) |vg| {
                 if (vg.icon != null) add(&items, &n, .{ .label = "Ver ícone", .en = "View Icon", .id = 65 });
@@ -535,6 +542,7 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
             copyFmt(ctx, "https://discord.com/channels/{s}/{d}/{d}", .{ guildPart(&gb, f.cs.info.guild), f.cs.info.id, id });
         },
         7 => ctx.act(.{ .mark_unread = id }),
+        14 => ctx.act(.{ .forward_pick = id }),
         13 => if (ctx.store.findAny(id)) |f| ctx.act(.{ .pin_message = .{ .channel = f.cs.info.id, .id = id, .add = !f.m.msg.pinned } }),
         8, 25, 44, 63 => copyFmt(ctx, "{d}", .{id}),
         10 => ctx.act(if (st.saved.find(id) != null) .{ .unsave_message = id } else .{ .save_message = id }),
@@ -552,6 +560,8 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
         52 => {},
         53 => @import("edit_place.zig").open(ctx, id, true),
         64 => @import("edit_place.zig").open(ctx, id, false),
+        56 => @import("invites.zig").openCreate(ctx, id),
+        69 => if (@import("invites.zig").channelFor(ctx, id)) |ch| @import("invites.zig").openCreate(ctx, ch),
         27 => @import("profile.zig").viewAvatar(ctx, id),
         54 => if (ctx.store.channel(id)) |cs| if (cs.info.icon) |h| {
             var ub: [192]u8 = undefined;

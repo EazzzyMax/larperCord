@@ -247,6 +247,13 @@ pub fn statusGlyph(s: types.Status) []const u8 {
 
 pub const LocalTime = struct { year: i32, month: u8, day: u8, hour: u8, minute: u8, day_index: i64 };
 
+/// Segundos a somar ao UTC para ter a hora local nesse instante.
+pub fn utcOffset(unix_s: i64) i64 {
+    var dt: c.SDL_DateTime = undefined;
+    _ = c.SDL_TimeToDateTime(unix_s * 1_000_000_000, &dt, true);
+    return dt.utc_offset;
+}
+
 pub fn localTime(unix_s: i64) LocalTime {
     var dt: c.SDL_DateTime = undefined;
     _ = c.SDL_TimeToDateTime(unix_s * 1_000_000_000, &dt, true);
@@ -264,16 +271,19 @@ pub fn localTime(unix_s: i64) LocalTime {
 
 pub const months = [_][]const u8{ "janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro" };
 pub const months_en = [_][]const u8{ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
+pub const months_ja = [_][]const u8{ "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月" };
 
 /// Nome do mês (1..12) no idioma da interface.
 pub fn monthName(m: anytype) []const u8 {
     const i: usize = @intCast(m - 1);
+    if (i18n.current() == .ja) return months_ja[i];
     return if (i18n.en()) months_en[i] else months[i];
 }
 
 /// Data por extenso: "3 de novembro de 2026" / "November 3, 2026".
 /// `month` vai de 1 a 12.
 pub fn dateLong(buf: []u8, day: anytype, month: anytype, year: anytype) []const u8 {
+    if (i18n.current() == .ja) return std.fmt.bufPrint(buf, "{d}年{d}月{d}日", .{ year, @as(u32, @intCast(month)), @as(u32, @intCast(day)) }) catch "";
     return i18n.fmt(buf, "{d} de {s} de {d}", "{1s} {0d}, {2d}", .{ day, monthName(month), year });
 }
 
@@ -284,6 +294,13 @@ pub fn stamp(buf: []u8, ts: i64, now_s: i64) []const u8 {
     const today = localTime(now_s).day_index;
     var cb: [16]u8 = undefined;
     const hm = clock(&cb, ts);
+    if (i18n.current() == .ja) {
+        return switch (today - t.day_index) {
+            0 => std.fmt.bufPrint(buf, "今日 {s}", .{hm}) catch "",
+            1 => std.fmt.bufPrint(buf, "昨日 {s}", .{hm}) catch "",
+            else => std.fmt.bufPrint(buf, "{d}/{d:0>2}/{d:0>2} {s}", .{ t.year, t.month, t.day, hm }) catch "",
+        };
+    }
     return switch (today - t.day_index) {
         0 => i18n.fmt(buf, "Hoje às {s}", "Today at {s}", .{hm}),
         1 => i18n.fmt(buf, "Ontem às {s}", "Yesterday at {s}", .{hm}),
@@ -298,12 +315,18 @@ pub fn fullDate(buf: []u8, ts: i64) []const u8 {
     const t = localTime(ts);
     const days = [_][]const u8{ "domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado" };
     const days_en = [_][]const u8{ "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+    const days_ja = [_][]const u8{ "日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日" };
     // 1º de janeiro de 1970 foi uma quinta.
     const wd: usize = @intCast(@mod(t.day_index + 4, 7));
     var cb: [16]u8 = undefined;
     var db: [64]u8 = undefined;
     const hm = clock(&cb, ts);
     const date = dateLong(&db, t.day, t.month, t.year);
+    if (i18n.current() == .ja) {
+        var db2: [64]u8 = undefined;
+        const date2 = std.fmt.bufPrint(&db2, "{d}年{d}月{d}日", .{ t.year, t.month, t.day }) catch "";
+        return std.fmt.bufPrint(buf, "{s} {s} {s}", .{ days_ja[wd], date2, hm }) catch "";
+    }
     return i18n.fmt(buf, "{s}, {s} às {s}", "{s}, {s} at {s}", .{ if (i18n.en()) days_en[wd] else days[wd], date, hm });
 }
 
@@ -338,3 +361,4 @@ pub fn typingDots(dl: *c.ImDrawList, x: f32, cy: f32, color: d.Rgba, now_ms: i64
         d.circle(dl, x + @as(f32, @floatFromInt(i)) * 7, cy - k * 2.5, 2.4, color.alpha(0.45 + 0.55 * k));
     }
 }
+

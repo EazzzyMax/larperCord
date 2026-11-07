@@ -18,6 +18,8 @@ const Queue = @import("net/queue.zig").Queue;
 const themes = @import("theme/manager.zig");
 const layout = @import("theme/layout.zig");
 const fonts_mod = @import("ui/fonts.zig");
+/// Pontos da interface para coordenadas da janela, para a janela do IME (imgui_impl_sdl3.cpp).
+pub extern var larper_ime_scale: f32;
 const State = @import("ui/state.zig").State;
 const d = @import("ui/draw.zig");
 const anim = @import("ui/anim.zig");
@@ -119,6 +121,10 @@ pub const App = struct {
     started_ns: u64,
     layout_key: u32 = 0,
     login: login_mod.Login = .{},
+    /// O `ui_scale` das Configurações que já está valendo (ver `uiScale`).
+    ui_size: f32 = 1,
+    /// O idioma mudou no meio do quadro: as fontes acompanham antes do próximo.
+    fonts_lang_changed: bool = false,
     /// Parar o laço e sair de verdade (nunca para a bandeja). Só da thread da
     /// interface: de outra, chame `Window.wake` em seguida para acordar o laço.
     restart_wanted: bool = false,
@@ -216,6 +222,7 @@ pub const App = struct {
         app.themes.mode = app.wantedMode();
         // Já aqui: os dados da demonstração saem no idioma da interface.
         i18n.set(if (opts.qa and opts.lang == null) .pt else opts.lang orelse i18n.fromSetting(app.st.settings.language));
+        app.fonts.preferLanguage(@tagName(i18n.current()));
         app.st.settings.open = opts.settings;
         timeline.mark(.config);
         const name = opts.theme orelse saved_theme orelse "classico";
@@ -296,6 +303,11 @@ pub const App = struct {
         _ = c.SDL_ShowWindow(app.win.window);
         _ = c.SDL_RestoreWindow(app.win.window);
         _ = c.SDL_RaiseWindow(app.win.window);
+    }
+
+    /// Pontos da interface para pixels da janela: o único fator de escala do app.
+    pub fn uiScale(app: *const App) f32 {
+        return platform.contentScale(app.win.window) * app.ui_size;
     }
 
     pub fn destroy(app: *App) void {
@@ -472,16 +484,22 @@ pub const App = struct {
 
     /// Imagem colada: vai para um arquivo temporário e entra na bandeja.
     fn pasteImage(app: *App) void {
+        const kind = platform.clipboardImage() orelse return;
         var size: usize = 0;
-        const data = c.SDL_GetClipboardData("image/png", &size) orelse return;
+        const data = c.SDL_GetClipboardData(kind.mime, &size) orelse return;
         defer c.SDL_free(data);
         const dir = sys.tempDir();
         var pbuf: [512]u8 = undefined;
         app.paste_n += 1;
         // O nome do arquivo aparece na bandeja e vai junto para o Discord.
-        const path = i18n.fmtZ(&pbuf, "{s}/larpercord-colado-{d}-{d}.png", "{s}/larpercord-pasted-{d}-{d}.png", .{ dir, c.getpid(), app.paste_n });
+        const path = i18n.fmtZ(&pbuf, "{s}/larpercord-colado-{d}-{d}.{s}", "{s}/larpercord-pasted-{d}-{d}.{s}", .{ dir, c.getpid(), app.paste_n, kind.ext });
         if (path.len == 0) return;
-        if (!c.SDL_SaveFile(path.ptr, data, size)) return app.st.showToast(now(), true, "não consegui colar a imagem", "couldn't paste the image", .{});
+        const saved = if (kind.bitmap) blk: {
+            const surface = c.SDL_LoadBMP_IO(c.SDL_IOFromConstMem(data, size), true) orelse break :blk false;
+            defer c.SDL_DestroySurface(surface);
+            break :blk c.SDL_SavePNG(surface, path.ptr);
+        } else c.SDL_SaveFile(path.ptr, data, size);
+        if (!saved) return app.st.showToast(now(), true, "não consegui colar a imagem", "couldn't paste the image", .{});
         app.attachFile(path);
     }
 
@@ -1205,6 +1223,9 @@ pub const App = struct {
                 app.store.gif_favorites.state = .loading;
                 app.cmd(.{ .gif_favorites = app.store.gif_favorites.req });
             },
+            .search_messages => |s| app.cmd(.{ .search_messages = s }),
+            .join_invite => |code| app.cmd(.{ .join_invite = code }),
+            .create_invite => |ci| app.cmd(.{ .create_invite = ci }),
             .open_pins => |id| {
                 st.popup = .{ .pins = .{ .channel = id } };
                 app.handle(.{ .want_pins = id });
@@ -1554,11 +1575,23 @@ pub const App = struct {
             .open_palette => {
                 st.palette.open = true;
                 st.palette.focus = false;
+                st.palette.forward = 0;
                 @memset(&st.palette.query, 0);
                 st.palette.selected = 0;
             },
+            .forward_pick => |id| {
+                app.handle(.open_palette);
+                st.palette.forward = id;
+            },
+            .forward_to => |f| {
+                const found = app.store.findAny(f.id) orelse return;
+                const copy = std.heap.c_allocator.dupe(u8, found.m.msg.content) catch return;
+                st.nonce += 1;
+                app.cmd(.{ .forward_message = .{ .from = found.cs.info.id, .id = f.id, .to = f.to, .nonce = st.nonce, .text = copy } });
+            },
             .close_palette => {
                 st.palette.open = false;
+                st.palette.forward = 0;
                 st.focus_input = true;
             },
             .open_settings => {
@@ -1772,6 +1805,16 @@ pub const App = struct {
     fn afterEvent(app: *App, e: ev.Event) void {
         const st = &app.st;
         switch (e) {
+            .search_results => |r| @import("ui/search.zig").deliver(r),
+            .invite_created => |r| @import("ui/invites.zig").created(r),
+            .invite_joined => |r| {
+                const invites = @import("ui/invites.zig");
+                invites.joined(r);
+                if (r.status != .ok) return;
+                if (st.popup == .join_invite) st.popup = .none;
+                // O servidor costuma chegar pelo gateway, às vezes depois desta resposta.
+                if (r.guild != 0 and app.store.guild(r.guild) != null) app.handle(.{ .select_guild = r.guild }) else invites.pending_guild = r.guild;
+            },
             .read_states => |rs| {
                 leitura.applyMuted(&app.store, &st.muted_channels, app.gpa, rs.muted);
                 if (rs.muted.len > 0) std.heap.c_allocator.free(rs.muted);
@@ -1782,7 +1825,14 @@ pub const App = struct {
                     app.prepareUnread(cs);
                 };
             },
-            .guild_create => |gc| leitura.applyGuild(&app.store, &st.filtros, app.gpa, gc.guild.id, now()),
+            .guild_create => |gc| {
+                leitura.applyGuild(&app.store, &st.filtros, app.gpa, gc.guild.id, now());
+                const invites = @import("ui/invites.zig");
+                if (invites.pending_guild == gc.guild.id) {
+                    invites.pending_guild = 0;
+                    app.handle(.{ .select_guild = gc.guild.id });
+                }
+            },
             .read => |r| {
                 const cs = app.store.channel(r.channel) orelse return;
                 if (store_mod.read_debug) std.log.info("leitura: ack do Discord no canal {d}: até {d}, menções {?d}, manual {}", .{ r.channel, r.message, r.mentions, r.manual });
@@ -2233,6 +2283,12 @@ pub const App = struct {
                         e.type == c.SDL_EVENT_RENDER_TARGETS_RESET or e.type == c.SDL_EVENT_RENDER_DEVICE_RESET) app.gate.redraw();
                     // Com a lista do autocompletar aberta, setas, Tab, Enter e Esc são dela.
                     const for_list = e.type == c.SDL_EVENT_KEY_DOWN and autocomplete.takeSdlKey(e.key.key, e.key.mod);
+                    // The mouse comes in window pixels; ImGui works in points (see NewFrame).
+                    if (e.type == c.SDL_EVENT_MOUSE_MOTION) {
+                        const s = app.uiScale();
+                        e.motion.x /= s;
+                        e.motion.y /= s;
+                    }
                     // Aperte para falar (e "aperte uma tecla" nas Configurações).
                     if (!for_list and !voz_audio.onSdlEvent(&e)) _ = c.cImGui_ImplSDL3_ProcessEvent(&e);
                     // QUIT é sair sempre (sinal, fim da sessão); o fechar da janela, depende.
@@ -2325,8 +2381,33 @@ pub const App = struct {
             last = t0;
             anim.active = false;
 
+            if (app.fonts_lang_changed) {
+                app.fonts_lang_changed = false;
+                app.fonts.preferLanguage(@tagName(i18n.current()));
+            }
+            if (app.fonts.loadWanted()) {
+                app.st.theme_gen +%= 1;
+                app.trim_wanted.store(true, .release);
+                app.gate.redraw();
+                pending = 3;
+            }
+
             c.cImGui_ImplSDLRenderer3_NewFrame();
             c.cImGui_ImplSDL3_NewFrame();
+            // On Windows and X11 the backend reports the window in pixels. The UI is
+            // laid out in points, as on macOS and Wayland, and the display scale goes
+            // into DisplayFramebufferScale (fonts are rasterized at it).
+            // O tamanho escolhido nas Configurações entra aqui também. Só ao soltar o mouse:
+            // senão o slider fugiria de baixo do cursor enquanto é arrastado.
+            // De 5 em 5%: 99,8% aparece como 100%, mas deixa o texto inteiro fora da grade de pixels.
+            if (!app.io.*.MouseDown[0]) app.ui_size = @round(std.math.clamp(app.st.settings.ui_scale, 0.75, 2) * 20) / 20;
+            const ui_scale = app.uiScale();
+            larper_ime_scale = ui_scale;
+            app.io.*.DisplaySize.x /= ui_scale;
+            app.io.*.DisplaySize.y /= ui_scale;
+            app.io.*.DisplayFramebufferScale.x *= ui_scale;
+            app.io.*.DisplayFramebufferScale.y *= ui_scale;
+            app.fonts.setDensity(app.io.*.DisplayFramebufferScale.x);
             if (app.opts.qa) runner.holdMouse(app);
             // Janela em foco? (Confirmar leitura depende disso; o QA e os prints
             // rodam fora da tela, sem foco de verdade.)
@@ -2353,6 +2434,7 @@ pub const App = struct {
             if (set.language != lang_setting) {
                 lang_setting = set.language;
                 i18n.set(if (app.opts.qa and app.opts.lang == null) .pt else app.opts.lang orelse i18n.fromSetting(set.language));
+                app.fonts_lang_changed = true;
                 app.st.theme_gen +%= 1;
             }
             anim.instant = set.reduce_motion;
@@ -2570,6 +2652,7 @@ pub const App = struct {
             if (app.opts.qa and (app.store.ready or app.login.visible()) and !runner.tick(app)) running = false;
             if (show) _ = c.SDL_RenderPresent(r);
             if (pending > 0) pending -= 1;
+            if (fonts_mod.scriptsWanted()) pending = @max(pending, 1);
             was_active = anim.active;
             // Sem o present, nada segura o laço no ritmo da tela. Os quadros que
             // `pending` pede depois de um evento são poucos e podem correr; animação

@@ -14,6 +14,7 @@ const anim = @import("anim.zig");
 const w = @import("widgets.zig");
 const types = @import("../core/types.zig");
 const i18n = @import("i18n.zig");
+const icons = @import("icons.zig");
 
 pub fn draw(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     icon_style = std.meta.stringToEnum(IconStyle, d.pstr(n, "icon-style", "fill")) orelse .fill;
@@ -101,7 +102,7 @@ fn folder(ctx: *d.Ctx, dl: *c.ImDrawList, f: *const types.GuildFolder, cx: f32, 
     const pill: f32 = if (selected and !open) size * 0.83 else if (hb.hovered) size * 0.42 else if (unread and !open) 8 else 0;
     const pk = anim.to(anim.id("f-pill", @truncate(f.id)), pill, 18);
     if (pk > 0.5) d.rectFlags(dl, .{ .x = bar.x, .y = y + size / 2 - pk / 2, .w = 4, .h = pk }, ctx.col(.text), 4, c.ImDrawFlags_RoundRight);
-    tooltip(ctx, @truncate(f.id *% 13 +% 7000), ir.right() + 14, y + size / 2, if (f.name.len > 0) f.name else i18n.tr("Pasta", "Folder"), hb.hovered);
+    tooltip(ctx, @truncate(f.id *% 13 +% 7000), ir.right() + 14, y + size / 2, if (f.name.len > 0) f.name else i18n.tr3("Pasta", "Folder", "フォルダー"), hb.hovered);
     y += step;
     if (open) for (f.guilds) |gid| if (ctx.store.guild(gid)) |g| {
         icon(ctx, dl, .{ .g = g, .i = indexOf(ctx, g) }, cx, y, size, shape, .left, bar);
@@ -137,6 +138,15 @@ fn verticalBar(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect, shape: w.Shape) void 
         },
         .folder => |f| y = folder(ctx, dl, f, cx, y, size, shape, r, step),
     };
+    // Entrar em outro servidor, como no Discord.
+    const add_r: d.Rect = .{ .x = cx - size / 2, .y = y, .w = size, .h = size };
+    const add_h = d.hit(ctx, 0x7f00, add_r);
+    qa.mark(add_r, "guild-join", .{});
+    d.rect(dl, add_r, if (add_h.hovered) ctx.col(.accent) else ctx.col(.text).alpha(0.07), w.shapeRadius(shape, size));
+    icons.plus(dl, cx, y + size / 2, size * 0.2, (if (add_h.hovered) ctx.col(.accent_text) else ctx.col(.muted)).u());
+    tooltip(ctx, 0x7f01, add_r.right() + 14, y + size / 2, i18n.tr("Entrar em um servidor", "Join a server"), add_h.hovered);
+    if (add_h.clicked) @import("invites.zig").openJoin(ctx, "");
+    y += step;
     d.endRegion(ctx, y, r.x);
 }
 
@@ -309,7 +319,7 @@ fn icon(ctx: *d.Ctx, dl: *c.ImDrawList, ref: ?GuildRef, cx: f32, y: f32, size: f
         c.ImDrawList_AddTriangleFilled(dl, d.v(cx - 7 * s, cy + 6 * s), d.v(cx - 1 * s, cy + 6 * s), d.v(cx - 9 * s, cy + 13 * s), ink.u());
         for ([_]f32{ -6, 0, 6 }) |dx| d.circle(dl, cx + dx * s, cy - 0.5 * s, 2 * s, bg);
         if (selected and ind == .left) d.rectFlags(dl, .{ .x = bar.x, .y = y + size / 2 - size * 0.42, .w = 4, .h = size * 0.83 }, ctx.col(.text), 4, c.ImDrawFlags_RoundRight);
-        if (ind == .left) tooltip(ctx, n, ir.right() + 14, y + size / 2, i18n.tr("Mensagens diretas", "Direct Messages"), hb.hovered);
+        if (ind == .left) tooltip(ctx, n, ir.right() + 14, y + size / 2, i18n.tr3("Mensagens diretas", "Direct Messages", "ダイレクトメッセージ"), hb.hovered);
     }
 }
 
@@ -375,7 +385,7 @@ fn textTabs(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         if (hb.clicked) ctx.act(.{ .select_guild = 0 });
         if (sel) d.rect(dl, tr, ctx.col(.accent), 0) else if (hb.hovered) d.rect(dl, tr, ctx.col(.hover), 0);
         d.text(dl, if (sel) bold else font, fs, x, d.centerY(tr, fs), if (sel) ctx.col(.accent_text) else ctx.col(.text), lbl);
-        d.tip(ctx, tr, i18n.tr("Mensagens diretas", "Direct Messages"), hb.hovered);
+        d.tip(ctx, tr, i18n.tr3("Mensagens diretas", "Direct Messages", "ダイレクトメッセージ"), hb.hovered);
         x += tw + 2;
     }
     for (order, 0..) |g, i| {
@@ -440,7 +450,7 @@ fn dock(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect, shape: w.Shape) void {
         }
         if (ctx.st.guild == gid) d.circle(dl, cx, bg.bottom() - 3, 2.5, ctx.col(.accent));
         if (hb.hovered) {
-            const name = if (g) |gg| gg.name else i18n.tr("Mensagens diretas", "Direct Messages");
+            const name = if (g) |gg| gg.name else i18n.tr3("Mensagens diretas", "Direct Messages", "ダイレクトメッセージ");
             const fs: f32 = 13;
             const tw = d.width(ctx.ui.get(.semibold), fs, name);
             const tr: d.Rect = .{ .x = cx - tw / 2 - 10, .y = ir.y - 34, .w = tw + 20, .h = 26 };
@@ -476,7 +486,7 @@ fn list(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect, shape: w.Shape) void {
         if (g) |gg| glyph(ctx, dl, gg, rr.x + 6 + size / 2, cy, size, shape, sel or hb.hovered) else {
             d.rect(dl, .{ .x = rr.x + 6, .y = cy - size / 2, .w = size, .h = size }, ctx.col(.accent), w.shapeRadius(shape, size));
         }
-        const name = if (g) |gg| gg.name else i18n.tr("Mensagens diretas", "Direct Messages");
+        const name = if (g) |gg| gg.name else i18n.tr3("Mensagens diretas", "Direct Messages", "ダイレクトメッセージ");
         const unread = if (g) |gg| gg.unread else false;
         _ = d.textClipped(dl, fam.get(if (sel or unread) .semibold else .medium), 14, rr.x + size + 14, d.centerY(rr, 14), if (sel) ctx.col(.text) else ctx.col(.muted), name, rr.w - size - 40);
         if (g) |gg| if (gg.mentions > 0) {

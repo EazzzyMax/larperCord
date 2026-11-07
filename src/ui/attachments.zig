@@ -267,8 +267,19 @@ pub fn openOriginal(ctx: *d.Ctx, url: []const u8, name: []const u8, w: u16, h: u
 // --- Visualizador ------------------------------------------------------------
 
 var viewer_shown = false;
+var viewer_drag = false;
 /// O maior tamanho que o cache de imagens guarda.
 const full_side: f32 = 4096;
+const max_zoom: f32 = 8;
+
+/// Amplia mantendo parado o ponto da imagem que está embaixo do mouse.
+fn zoomAt(v: *state.Viewer, next: f32, dx: f32, dy: f32) void {
+    const to = std.math.clamp(next, 1, max_zoom);
+    const ratio = to / v.zoom;
+    v.pan_x = dx * (1 - ratio) + v.pan_x * ratio;
+    v.pan_y = dy * (1 - ratio) + v.pan_y * ratio;
+    v.zoom = to;
+}
 
 pub fn viewer(ctx: *d.Ctx) void {
     const open_now = ctx.st.viewer != null;
@@ -302,18 +313,53 @@ pub fn viewer(ctx: *d.Ctx) void {
         else => {},
     };
 
-    // Cabe na janela, sem passar do tamanho original.
+    // Cabe na janela, sem passar do tamanho original. A roda do mouse amplia a partir daí.
     const ow: f32 = @floatFromInt(v.w);
     const oh: f32 = @floatFromInt(v.h);
     const s = @min(1.0, @min((win.w - 120) / ow, (win.h - 150) / oh));
-    const zoom = 0.94 + 0.06 * k;
+    const by = win.bottom() - 46;
+    const area_h = win.h - 50;
+    const cx = win.x + win.w / 2;
+    const cy = win.y + area_h / 2;
+    const dx = ctx.mouse.x - cx;
+    const dy = ctx.mouse.y - cy;
+    const wheel = ctx.io.*.MouseWheel;
+    if (wheel != 0) zoomAt(v, v.zoom * std.math.pow(f32, 1.25, wheel), dx, dy);
+    const zoom = (0.94 + 0.06 * k) * v.zoom;
     const iw = ow * s * zoom;
     const ih = oh * s * zoom;
-    const ir: d.Rect = .{ .x = win.x + (win.w - iw) / 2, .y = win.y + (win.h - 50 - ih) / 2, .w = iw, .h = ih };
+    // Menor que a janela fica no centro; maior, não sai toda da tela.
+    const room_x = @max(0, (iw - win.w) / 2);
+    const room_y = @max(0, (ih - area_h) / 2);
+    v.pan_x = std.math.clamp(v.pan_x, -room_x, room_x);
+    v.pan_y = std.math.clamp(v.pan_y, -room_y, room_y);
+    const ir: d.Rect = .{ .x = cx - iw / 2 + v.pan_x, .y = cy - ih / 2 + v.pan_y, .w = iw, .h = ih };
     qa.mark(ir, "viewer", .{});
+    // Arrastar move a imagem ampliada; dois cliques ampliam ou voltam ao tamanho que cabe.
+    const on_image = ir.contains(ctx.mouse.x, ctx.mouse.y) and ctx.mouse.y < by - 4;
+    if (c.ImGui_IsMouseClicked(0) and on_image) viewer_drag = true;
+    if (!c.ImGui_IsMouseDown(0)) viewer_drag = false;
+    if (viewer_drag and v.zoom > 1) {
+        v.pan_x += ctx.io.*.MouseDelta.x;
+        v.pan_y += ctx.io.*.MouseDelta.y;
+    }
+    if (c.ImGui_IsMouseDoubleClicked(0) and on_image) {
+        if (v.zoom > 1) {
+            v.zoom = 1;
+            v.pan_x = 0;
+            v.pan_y = 0;
+        } else zoomAt(v, 2.5, dx, dy);
+    }
+    if (on_image and v.zoom > 1) c.ImGui_SetMouseCursor(c.ImGuiMouseCursor_ResizeAll);
     const url = v.url[0..v.url_len];
     const scale = ctx.io.*.DisplayFramebufferScale.x;
-    switch (if (v.original) ctx.images.get(url, full_side, full_side) else ctx.images.get(url, ow * s * scale, oh * s * scale)) {
+    // Ampliada, pede a imagem no tamanho dela; até chegar, fica a que já estava na tela.
+    var picture = if (v.original) ctx.images.get(url, full_side, full_side) else ctx.images.get(url, ow * s * scale, oh * s * scale);
+    if (v.zoom > 1 and !v.original) switch (ctx.images.get(url, @min(ow, full_side), @min(oh, full_side))) {
+        .ready => |t| picture = .{ .ready = t },
+        else => {},
+    };
+    switch (picture) {
         .ready => |t| c.ImDrawList_AddImageRounded(dl, t.ref, d.v(ir.x, ir.y), d.v(ir.right(), ir.bottom()), d.v(0, 0), d.v(1, 1), d.Rgba.white.col(k), 6, 0),
         .loading => {
             d.rect(dl, ir, d.Rgba.white.alpha(0.04 * k), 6);
@@ -329,12 +375,15 @@ pub fn viewer(ctx: *d.Ctx) void {
         },
     }
 
-    // Legenda e ações embaixo.
+    // Legenda e ações embaixo. Com a imagem ampliada passando por trás, elas ganham um fundo.
+    if (v.zoom > 1) d.rect(dl, .{ .x = win.x, .y = by - 6, .w = win.w, .h = win.bottom() - by + 6 }, d.Rgba.black.alpha(0.72 * k), 0);
     const fam = ctx.ui;
     const name = v.name[0..v.name_len];
-    var buf: [96]u8 = undefined;
-    const dims = std.fmt.bufPrint(&buf, "{d} × {d}", .{ v.w, v.h }) catch "";
-    const by = win.bottom() - 46;
+    var buf: [128]u8 = undefined;
+    const dims = if (v.zoom > 1)
+        std.fmt.bufPrint(&buf, "{d} × {d}  ·  {d}%", .{ v.w, v.h, @as(u32, @intFromFloat(s * v.zoom * 100 + 0.5)) }) catch ""
+    else
+        std.fmt.bufPrint(&buf, "{d} × {d}  ·  {s}", .{ v.w, v.h, i18n.tr3("roda do mouse: zoom", "mouse wheel: zoom", "ホイールで拡大") }) catch "";
     d.text(dl, fam.get(.semibold), 14, win.x + 24, by + 4, d.Rgba.white.alpha(k), name);
     d.text(dl, fam.get(.regular), 12.5, win.x + 24, by + 24, d.Rgba.white.alpha(0.55 * k), dims);
     var bx = win.right() - 24;

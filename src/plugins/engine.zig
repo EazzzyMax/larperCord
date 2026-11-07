@@ -194,6 +194,8 @@ pub const Engine = struct {
     panel_wanted_len: u8 = 0,
     last_channel: u64 = 0,
     last_en: bool = false,
+    /// A primeira letra de `larper.lang()`: de inglês para japonês, `en` não muda.
+    last_lang: u8 = 0,
 
     pub fn init(gpa: std.mem.Allocator, host: Host) Engine {
         return .{ .gpa = gpa, .host = host, .deco = deco.Index.init(gpa) };
@@ -546,8 +548,11 @@ pub const Engine = struct {
             e.publishWhere(w);
             if (e.n_channel > 0) w.push(.channel);
         }
-        if (en != e.last_en) {
+        const code = runtime.lang_code()[0];
+        if (e.last_lang == 0) e.last_lang = code;
+        if (en != e.last_en or code != e.last_lang) {
             e.last_en = en;
+            e.last_lang = code;
             e.generation +%= 1;
             if (e.n_lang > 0) w.push(.lang);
         }
@@ -1716,6 +1721,17 @@ test "plugins: larper.tr segue o idioma" {
     defer runtime.lang_en = saved;
     try cmdOk(&e, "/fala");
     try std.testing.expectEqualStrings("en hi", T.note(1));
+    // Em japonês o texto fica em inglês, mas o idioma é o de verdade.
+    const J = struct {
+        fn code() [*:0]const u8 {
+            return "ja";
+        }
+    };
+    const saved_code = runtime.lang_code;
+    runtime.lang_code = &J.code;
+    defer runtime.lang_code = saved_code;
+    try cmdOk(&e, "/fala");
+    try std.testing.expectEqualStrings("ja hi", T.note(2));
 }
 
 test "plugins: painel chega pronto e os botões voltam ao Lua" {

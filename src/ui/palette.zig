@@ -97,6 +97,18 @@ const commands = [_]Command{
     .{ .pt = "Mutar / desmutar microfone", .en = "Mute / unmute microphone", .run = simple(.toggle_mute) },
     .{ .pt = "Ensurdecer / ouvir", .en = "Deafen / undeafen", .run = simple(.toggle_deafen) },
     .{ .pt = "Sair da call", .en = "Leave call", .run = simple(.leave_voice) },
+    .{ .pt = "Entrar em um servidor por convite", .en = "Join a server with an invite", .run = struct {
+        fn f(ctx: *d.Ctx) void {
+            @import("invites.zig").openJoin(ctx, "");
+        }
+    }.f },
+    .{ .pt = "Convidar pessoas para este servidor", .en = "Invite people to this server", .run = struct {
+        fn f(ctx: *d.Ctx) void {
+            const invites = @import("invites.zig");
+            const ch = invites.channelFor(ctx, ctx.st.guild) orelse return ctx.st.showToast(ctx.now_ms, true, "você não pode criar convites aqui", "you can't create invites here", .{});
+            invites.openCreate(ctx, ch);
+        }
+    }.f },
 };
 
 /// Nomes das opções liga/desliga (os mesmos da tela de configurações).
@@ -172,24 +184,24 @@ fn rebuild(ctx: *d.Ctx) void {
             }
         }
         const label = std.fmt.allocPrint(a, "{s}", .{g.name}) catch continue;
-        add(p, gpa, q, .{ .label = label, .hint = i18n.tr("servidor", "server"), .kind = .guild, .id = g.id });
+        add(p, gpa, q, .{ .label = label, .hint = i18n.tr3("servidor", "server", "サーバー"), .kind = .guild, .id = g.id });
     }
     // Mensagens diretas e grupos.
     for (ctx.store.channelsOf(0)) |id| {
         const cs = ctx.store.channel(id) orelse continue;
         if (cs.info.kind != .text) continue;
         const label = std.fmt.allocPrint(a, "@ {s}", .{cs.info.name}) catch continue;
-        add(p, gpa, q, .{ .label = label, .hint = if (cs.info.group) i18n.tr("grupo", "group") else i18n.tr("mensagem direta", "direct message"), .kind = .channel, .id = id });
+        add(p, gpa, q, .{ .label = label, .hint = if (cs.info.group) i18n.tr3("grupo", "group", "グループ") else i18n.tr3("mensagem direta", "direct message", "ダイレクトメッセージ"), .kind = .channel, .id = id });
     }
     for (ctx.theme_names, 0..) |name, i| {
         const label = i18n.allocPrint(a, "tema: {s}", "theme: {s}", .{name}) catch continue;
-        add(p, gpa, q, .{ .label = label, .hint = if (i == ctx.theme_index) i18n.tr("atual", "current") else i18n.tr("aparência", "appearance"), .kind = .theme, .index = i });
+        add(p, gpa, q, .{ .label = label, .hint = if (i == ctx.theme_index) i18n.tr3("atual", "current", "使用中") else i18n.tr3("aparência", "appearance", "外観"), .kind = .theme, .index = i });
     }
-    for (commands, 0..) |cmd, i| add(p, gpa, q, .{ .label = i18n.tr(cmd.pt, cmd.en), .hint = i18n.tr("ação", "action"), .kind = .action, .index = i });
+    for (commands, 0..) |cmd, i| add(p, gpa, q, .{ .label = i18n.tr(cmd.pt, cmd.en), .hint = i18n.tr3("ação", "action", "アクション"), .kind = .action, .index = i });
     // Páginas das configurações.
     for (settings.sections) |sec| for (sec.items) |it| {
         const label = i18n.allocPrint(a, "Configurações: {s}", "Settings: {s}", .{i18n.tr(it.label, it.label_en)}) catch continue;
-        add(p, gpa, q, .{ .label = label, .hint = i18n.tr("configurações", "settings"), .kind = .page, .index = @intFromEnum(it.page) });
+        add(p, gpa, q, .{ .label = label, .hint = i18n.tr3("configurações", "settings", "設定"), .kind = .page, .index = @intFromEnum(it.page) });
     };
     // Painéis dos plugins que estão rodando.
     if (@import("../plugins/engine.zig").current) |e| for (e.list.items, 0..) |pl, i| {
@@ -203,7 +215,20 @@ fn rebuild(ctx: *d.Ctx) void {
         const on = (S.getByte(&ctx.st.settings, i) orelse continue) != 0;
         const name = toggleName(f.name) orelse f.name;
         const label = (if (on) i18n.allocPrint(a, "Desligar: {s}", "Turn off: {s}", .{name}) else i18n.allocPrint(a, "Ligar: {s}", "Turn on: {s}", .{name})) catch continue;
-        add(p, gpa, q, .{ .label = label, .hint = if (on) i18n.tr("ligado agora", "on now") else i18n.tr("desligado agora", "off now"), .kind = .setting, .index = i });
+        add(p, gpa, q, .{ .label = label, .hint = if (on) i18n.tr3("ligado agora", "on now", "オン") else i18n.tr3("desligado agora", "off now", "オフ"), .kind = .setting, .index = i });
+    }
+
+    // Encaminhando: só onde dá para escrever.
+    if (p.forward != 0) {
+        var kept: usize = 0;
+        for (p.items.items) |it| {
+            if (it.kind != .channel) continue;
+            const cs = ctx.store.channel(it.id) orelse continue;
+            if (cs.info.kind != .text or !ctx.store.canSend(&cs.info)) continue;
+            p.items.items[kept] = it;
+            kept += 1;
+        }
+        p.items.shrinkRetainingCapacity(kept);
     }
 
     @import("../core/sort.zig").stable(state.PaletteItem, p.items.items, {}, struct {
@@ -215,6 +240,10 @@ fn rebuild(ctx: *d.Ctx) void {
 }
 
 fn choose(ctx: *d.Ctx, item: state.PaletteItem) void {
+    if (ctx.st.palette.forward != 0) {
+        if (item.kind == .channel) ctx.act(.{ .forward_to = .{ .id = ctx.st.palette.forward, .to = item.id } });
+        return ctx.act(.close_palette);
+    }
     switch (item.kind) {
         .channel => {
             const cs = ctx.store.channel(item.id) orelse return;
@@ -246,8 +275,17 @@ pub fn draw(ctx: *d.Ctx) void {
     if (!p.open) commands_first = false;
     const k = anim.to(anim.id("palette", 0), if (p.open) 1 else 0, 22);
     if (k < 0.01) return;
-    const fg = ctx.fg;
     const win = ctx.win;
+    // Tudo numa janela própria do ImGui, que recebe o teclado. Na camada da frente (`ctx.fg`),
+    // o painel ficaria por cima da caixa de texto, e não daria para ver o que se digita.
+    c.ImGui_SetNextWindowPos(d.v(win.x, win.y), 0);
+    c.ImGui_SetNextWindowSize(d.v(win.w, win.h), 0);
+    if (p.open) c.ImGui_SetNextWindowFocus();
+    _ = c.ImGui_Begin("##palette", null, c.ImGuiWindowFlags_NoDecoration | c.ImGuiWindowFlags_NoBackground |
+        c.ImGuiWindowFlags_NoSavedSettings | c.ImGuiWindowFlags_NoMove | c.ImGuiWindowFlags_NoScrollWithMouse |
+        (if (p.open) 0 else c.ImGuiWindowFlags_NoInputs));
+    defer c.ImGui_End();
+    const fg = c.ImGui_GetWindowDrawList();
     d.rect(fg, win, d.Rgba.black.alpha(0.45 * k), 0);
 
     const pw = @min(620, win.w - 40);
@@ -259,28 +297,27 @@ pub fn draw(ctx: *d.Ctx) void {
     d.border(fg, box, ctx.col(.border).alpha(k), radius, 1);
     if (!p.open) return;
 
-    // Campo de busca numa janela própria do ImGui, para receber o teclado.
+    // Clique fora da caixa fecha, como na busca.
+    if (c.ImGui_IsMouseClicked(0) and !ctx.hovering(box)) ctx.act(.close_palette);
+
     const font = ctx.ui.get(.regular);
     const fs: f32 = 17;
     icons.search(fg, box.x + 24, box.y + 28, ctx.col(.muted).u());
-    c.ImGui_SetNextWindowPos(d.v(box.x + 42, box.y + 14), 0);
-    c.ImGui_SetNextWindowSize(d.v(box.w - 60, 32), 0);
-    c.ImGui_SetNextWindowFocus();
-    _ = c.ImGui_Begin("##palette", null, c.ImGuiWindowFlags_NoDecoration | c.ImGuiWindowFlags_NoBackground |
-        c.ImGuiWindowFlags_NoSavedSettings | c.ImGuiWindowFlags_NoMove);
+    const ir: d.Rect = .{ .x = box.x + 42, .y = box.y + 14, .w = box.w - 60, .h = 30 };
+    @import("qa.zig").mark(ir, "palette-input", .{});
+    c.ImGui_SetCursorScreenPos(d.v(ir.x, ir.y));
     c.ImGui_PushFontFloat(font, fs);
     if (!p.focus) {
         c.ImGui_SetKeyboardFocusHere();
         p.focus = true;
         rebuild(ctx);
     }
-    c.ImGui_SetNextItemWidth(box.w - 60);
-    if (c.ImGui_InputTextWithHint("##q", i18n.trZ("Ir para canal, servidor, DM, tema, ação ou opção…", "Go to a channel, server, DM, theme, action or option…").ptr, &p.query, p.query.len, 0)) {
+    c.ImGui_SetNextItemWidth(ir.w);
+    if (c.ImGui_InputTextWithHint("##q", if (p.forward != 0) i18n.trZ("Encaminhar para qual canal ou DM?", "Forward to which channel or DM?") else i18n.trZ("Ir para canal, servidor, DM, tema, ação ou opção…", "Go to a channel, server, DM, theme, action or option…").ptr, &p.query, p.query.len, 0)) {
         p.selected = 0;
         rebuild(ctx);
     }
     c.ImGui_PopFont();
-    c.ImGui_End();
     d.line(fg, box.x, box.y + 58, box.right(), box.y + 58, ctx.col(.border), 1);
 
     const n = p.items.items.len;
@@ -310,5 +347,5 @@ pub fn draw(ctx: *d.Ctx) void {
         _ = d.textClipped(fg, font, 13, rr.right() - 14 - @min(hw, 150), d.centerY(rr, 13), ctx.col(.faint), item.hint, 150);
         y += row_h;
     }
-    if (n == 0) d.text(fg, font, 15, box.x + 24, box.y + 80, ctx.col(.faint), i18n.tr("Nada encontrado.", "Nothing found."));
+    if (n == 0) d.text(fg, font, 15, box.x + 24, box.y + 80, ctx.col(.faint), i18n.tr3("Nada encontrado.", "Nothing found.", "見つかりません。"));
 }

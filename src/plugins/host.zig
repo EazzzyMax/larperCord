@@ -57,6 +57,15 @@ pub fn init(app: *App) void {
     });
     engine.current = &app.plugins;
     runtime.lang_en = &i18n.en;
+    runtime.lang_code = &struct {
+        fn f() [*:0]const u8 {
+            return switch (i18n.current()) {
+                .pt => "pt",
+                .en => "en",
+                .ja => "ja",
+            };
+        }
+    }.f;
     // Prints da documentação: sempre iguais, sem os plugins de quem roda.
     if (app.opts.shot != null) return;
     var buf: [512]u8 = undefined;

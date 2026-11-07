@@ -433,6 +433,16 @@ static bool ImGui_ImplFreeType_FontBakedInit(ImFontAtlas*, ImFontConfig* src, Im
     ImGui_ImplFreeType_FontSrcData* bd_font_data = (ImGui_ImplFreeType_FontSrcData*)src->FontLoaderData;
     bd_font_data->BakedLastActivated = baked;
 
+    // [larperCord] REAL_DIM (below) sizes a font by ascender + descender, which varies a lot between
+    // families: next to Inter (1.21 em), Noto Sans CJK (1.45 em) came out 16% smaller.
+    if (src->MergeMode && (bd_font_data->UserFlags & ImGuiFreeTypeLoaderFlags_LarperMatchEm))
+    {
+        const FT_Face own_face = bd_font_data->FtFace;
+        const FT_Face main_face = ((ImGui_ImplFreeType_FontSrcData*)baked->OwnerFont->Sources[0]->FontLoaderData)->FtFace;
+        if (FT_IS_SCALABLE(own_face) && FT_IS_SCALABLE(main_face))
+            size *= ((float)(own_face->ascender - own_face->descender) / own_face->units_per_EM) / ((float)(main_face->ascender - main_face->descender) / main_face->units_per_EM);
+    }
+
     // We use one FT_Size per (source + baked) combination.
     ImGui_ImplFreeType_FontSrcBakedData* bd_baked_data = (ImGui_ImplFreeType_FontSrcBakedData*)loader_data_for_baked_src;
     IM_ASSERT(bd_baked_data != nullptr);
