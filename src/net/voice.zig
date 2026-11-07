@@ -31,6 +31,7 @@ const ev = @import("../core/event.zig");
 const Sink = @import("fake_gateway.zig").Sink;
 const i18n = @import("../ui/i18n.zig");
 const j = @import("jsonx.zig");
+const web = @import("web_client.zig");
 const voz = @import("../core/voz.zig");
 const voz_audio = @import("voz_audio.zig");
 
@@ -353,7 +354,13 @@ const Worker = struct {
         _ = c.curl_easy_setopt(h, c.CURLOPT_CONNECT_ONLY, @as(c_long, 2));
         _ = c.curl_easy_setopt(h, c.CURLOPT_CONNECTTIMEOUT_MS, @as(c_long, 4000));
         _ = c.curl_easy_setopt(h, c.CURLOPT_HTTP_VERSION, @as(c_long, c.CURL_HTTP_VERSION_1_1));
-        _ = c.curl_easy_setopt(h, c.CURLOPT_USERAGENT, @as([*c]const u8, @ptrCast("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36")));
+        _ = c.curl_easy_setopt(h, c.CURLOPT_USERAGENT, web.user_agent.ptr);
+        // O cliente web manda Origin também no handshake do gateway de voz.
+        var hs_headers: ?*c.struct_curl_slist = null;
+        hs_headers = c.curl_slist_append(hs_headers, "Origin: https://discord.com");
+        defer if (hs_headers) |list| c.curl_slist_free_all(list);
+        if (hs_headers) |list| _ = c.curl_easy_setopt(h, c.CURLOPT_HTTPHEADER, list);
+        _ = c.curl_easy_setopt(h, c.CURLOPT_PROTOCOLS_STR, "https,wss");
         const rc = c.curl_easy_perform(h);
         if (rc != c.CURLE_OK) {
             std.log.warn("voz: curl {d}: {s}", .{ rc, c.curl_easy_strerror(rc) });

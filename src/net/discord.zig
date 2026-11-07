@@ -13,8 +13,10 @@
 //!  - uma requisição REST por vez, respeitando os cabeçalhos de rate limit;
 //!  - reconexão com espera crescente; erros de autenticação não reconectam.
 const std = @import("std");
+const builtin = @import("builtin");
 const sys = @import("../platform/sys.zig");
 const c = @import("c");
+const web = @import("web_client.zig");
 const types = @import("../core/types.zig");
 const ev = @import("../core/event.zig");
 const Queue = @import("queue.zig").Queue;
@@ -44,11 +46,10 @@ const api_root = "https://discord.com/api";
 const gateway_host = "wss://gateway.discord.gg";
 /// Query do gateway: JSON + compressão zlib-stream (a mesma do cliente oficial).
 const gateway_query = "v=10&encoding=json&compress=zlib-stream";
-/// Identifica-se como o cliente web do Discord (o mesmo navegador nos dois).
-const web_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
-const identity_props =
-    \\{"os":"Windows","browser":"Chrome","device":"","system_locale":"en-US","has_client_mods":false,"browser_user_agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36","browser_version":"152.0.0.0","os_version":"10","referrer":"","referring_domain":"","referrer_current":"","referring_domain_current":"","release_channel":"stable","client_build_number":661871,"client_event_source":null}
-;
+/// Identifica-se como o cliente web do Discord (as três constantes saem do
+/// mesmo lugar: UA, IDENTIFY e `X-Super-Properties`).
+const web_user_agent = web.user_agent;
+const identity_props = web.super_properties;
 const client_state_json =
     \\{"guild_hashes":{},"highest_last_message_id":"0","read_state_version":0,"user_guild_settings_version":-1,"user_settings_version":-1}
 ;
@@ -419,9 +420,18 @@ pub const Gateway = struct {
         _ = c.curl_easy_setopt(h, c.CURLOPT_CONNECT_ONLY, @as(c_long, 2));
         _ = c.curl_easy_setopt(h, c.CURLOPT_USERAGENT, web_user_agent.ptr);
         _ = c.curl_easy_setopt(h, c.CURLOPT_CONNECTTIMEOUT, @as(c_long, 15));
-        useProxy(h);
-        g.abortable(h);
-        if (c.curl_easy_perform(h) != c.CURLE_OK) return .retry;
+        // Navegador manda Origin também no handshake do WebSocket.
+        {
+            var hs_headers: ?*c.struct_curl_slist = null;
+            hs_headers = c.curl_slist_append(hs_headers, "Origin: https://discord.com");
+            defer if (hs_headers) |list| c.curl_slist_free_all(list);
+            if (hs_headers) |list| _ = c.curl_easy_setopt(h, c.CURLOPT_HTTPHEADER, list);
+            _ = c.curl_easy_setopt(h, c.CURLOPT_PROTOCOLS_STR, "https,wss");
+            _ = c.curl_easy_setopt(h, c.CURLOPT_REDIR_PROTOCOLS_STR, "https,wss");
+            useProxy(h);
+            g.abortable(h);
+            if (c.curl_easy_perform(h) != c.CURLE_OK) return .retry;
+        }
         timeline.mark(.websocket);
         var sock: sys.Socket = sys.no_socket;
         _ = c.curl_easy_getinfo(h, c.CURLINFO_ACTIVESOCKET, &sock);
@@ -2494,9 +2504,55 @@ pub const Gateway = struct {
         return g.requestEx(method, path, body, null);
     }
 
+    /// Token vai dentro de uma linha de cabeçalho: nada de controle, espaço
+    /// ou quebra de linha, senão um token colado errado vira injeção de
+    /// cabeçalho (e o pedido sai errado para o Discord).
+    fn validToken(t: []const u8) bool {
+        if (t.len == 0 or t.len > 200) return false;
+        for (t) |ch| if (ch < 0x21 or ch > 0x7e) return false;
+        return true;
+    }
+
+    /// Fuso IANA para o `X-Discord-Timezone`, como o navegador manda. Se não
+    /// der para descobrir, omite o cabeçalho: melhor faltar do que mentir.
+    fn timezone(buf: []u8) ?[]const u8 {
+        if (c.SDL_getenv("TZ")) |v| {
+            const raw = std.mem.span(v);
+            const tz = if (raw.len > 0 and raw[0] == ':') raw[1..] else raw;
+            if (validTimezone(tz)) return std.fmt.bufPrint(buf, "{s}", .{tz}) catch null;
+        }
+        // Windows não expõe o nome IANA; sem TZ definido, não inventa.
+        switch (builtin.os.tag) {
+            .windows => return null,
+            else => {
+                var link_buf: [4096]u8 = undefined;
+                const n = c.readlink("/etc/localtime", &link_buf, link_buf.len);
+                if (n > 0) {
+                    const path = link_buf[0..@intCast(n)];
+                    if (std.mem.indexOf(u8, path, "/zoneinfo/")) |i| {
+                        const tz = path[i + "/zoneinfo/".len ..];
+                        if (validTimezone(tz)) return std.fmt.bufPrint(buf, "{s}", .{tz}) catch null;
+                    }
+                }
+                return null;
+            },
+        }
+    }
+
+    fn validTimezone(tz: []const u8) bool {
+        if (tz.len == 0 or tz.len > 64) return false;
+        if (tz[0] == '/' or std.mem.indexOf(u8, tz, "..") != null) return false;
+        for (tz) |ch| if (!(std.ascii.isAlphanumeric(ch) or ch == '/' or ch == '_' or ch == '-' or ch == '+')) return false;
+        return std.mem.eql(u8, tz, "UTC") or std.mem.indexOfScalar(u8, tz, '/') != null;
+    }
+
     /// `mime`: corpo multipart (envio de arquivos) no lugar do JSON.
     fn requestEx(g: *Gateway, method: [:0]const u8, path: []const u8, body: ?[]const u8, mime: ?*c.curl_mime) ?Response {
         const h = g.rest orelse return null;
+        if (!validToken(g.token)) {
+            g.notice("token inválido", "invalid token", .{});
+            return null;
+        }
         var url_buf: [1400]u8 = undefined;
         const url = std.fmt.bufPrintSentinel(&url_buf, "{s}{s}", .{ if (std.mem.startsWith(u8, path, "/v9/")) api_root else api, path }, 0) catch return null;
         var auth_buf: [256]u8 = undefined;
@@ -2507,6 +2563,10 @@ pub const Gateway = struct {
         const props = superProperties(&props_buf);
         var super_buf: [1200]u8 = undefined;
         const super_line = std.fmt.bufPrintSentinel(&super_buf, "X-Super-Properties: {s}", .{props}, 0) catch return null;
+        var tz_buf: [64]u8 = undefined;
+        var tz_line_buf: [96]u8 = undefined;
+        const tz = timezone(&tz_buf);
+        var failed_buf: [40]u8 = undefined;
 
         var attempt: u8 = 0;
         while (attempt < 3) : (attempt += 1) {
@@ -2528,7 +2588,17 @@ pub const Gateway = struct {
             var headers: ?*c.struct_curl_slist = null;
             headers = c.curl_slist_append(headers, auth.ptr);
             headers = c.curl_slist_append(headers, super_line.ptr);
-            if (mime == null) headers = c.curl_slist_append(headers, "Content-Type: application/json");
+            // Navegador só manda Content-Type quando há corpo JSON. Sem corpo,
+            // o `Content-Type:` vazio impede o curl de inventar
+            // `application/x-www-form-urlencoded` no POST/PUT vazio.
+            if (mime == null) {
+                headers = c.curl_slist_append(headers, if (body != null) "Content-Type: application/json" else "Content-Type:");
+            }
+            headers = c.curl_slist_append(headers, "Accept: */*");
+            headers = c.curl_slist_append(headers, "Priority: u=1, i");
+            headers = c.curl_slist_append(headers, "Sec-CH-UA: " ++ web.sec_ch_ua);
+            headers = c.curl_slist_append(headers, "Sec-CH-UA-Mobile: ?0");
+            headers = c.curl_slist_append(headers, "Sec-CH-UA-Platform: \"Windows\"");
             headers = c.curl_slist_append(headers, "Origin: https://discord.com");
             headers = c.curl_slist_append(headers, "Referer: https://discord.com/channels/@me");
             headers = c.curl_slist_append(headers, "Sec-Fetch-Dest: empty");
@@ -2537,11 +2607,25 @@ pub const Gateway = struct {
             headers = c.curl_slist_append(headers, "X-Debug-Options: bugReporterEnabled");
             headers = c.curl_slist_append(headers, "X-Discord-Locale: en-US");
             headers = c.curl_slist_append(headers, "Accept-Language: en-US,en;q=0.9");
+            if (tz) |z| {
+                if (std.fmt.bufPrintSentinel(&tz_line_buf, "X-Discord-Timezone: {s}", .{z}, 0)) |line| {
+                    headers = c.curl_slist_append(headers, line.ptr);
+                } else |_| {}
+            }
+            if (attempt > 0) {
+                if (std.fmt.bufPrintSentinel(&failed_buf, "X-Failed-Requests: {d}", .{attempt}, 0)) |line| {
+                    headers = c.curl_slist_append(headers, line.ptr);
+                } else |_| {}
+            }
             defer c.curl_slist_free_all(headers);
             var rate: RateInfo = .{};
             var resp: Response = .{ .status = 0, .body = .empty };
             c.curl_easy_reset(h);
             sys.curlTls(h);
+            // A URL é fixa (discord.com/api), mas restringir o protocolo
+            // impede que um redirect ou proxy mal configurado vire http.
+            _ = c.curl_easy_setopt(h, c.CURLOPT_PROTOCOLS_STR, "https");
+            _ = c.curl_easy_setopt(h, c.CURLOPT_REDIR_PROTOCOLS_STR, "https");
             _ = c.curl_easy_setopt(h, c.CURLOPT_URL, url.ptr);
             _ = c.curl_easy_setopt(h, c.CURLOPT_HTTPHEADER, headers);
             _ = c.curl_easy_setopt(h, c.CURLOPT_USERAGENT, web_user_agent.ptr);

@@ -489,6 +489,10 @@ pub fn credDelete(target: [*:0]const u8) void {
 /// Linux, cada família de distros guarda o pacote num lugar, e o caminho embutido no
 /// OpenSSL do binário portátil só valeria na distro onde ele foi compilado.
 pub fn curlTls(h: *c.CURL) void {
+    // O padrão do libcurl já é verificar; explícito para ninguém desligar sem
+    // querer (e para o `curl_easy_reset` não pegar ninguém de surpresa).
+    _ = c.curl_easy_setopt(h, c.CURLOPT_SSL_VERIFYPEER, @as(c_long, 1));
+    _ = c.curl_easy_setopt(h, c.CURLOPT_SSL_VERIFYHOST, @as(c_long, 2));
     if (windows) {
         _ = c.curl_easy_setopt(h, c.CURLOPT_SSL_OPTIONS, @as(c_long, c.CURLSSLOPT_NATIVE_CA));
     } else {

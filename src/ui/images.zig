@@ -11,6 +11,7 @@ const c = @import("c");
 const Queue = @import("../net/queue.zig").Queue;
 const platform = @import("../platform/window.zig");
 const media_url = @import("../net/media_url.zig");
+const web_client = @import("../net/web_client.zig");
 const allowedHost = media_url.allowedHost;
 const proxiedUrl = media_url.proxiedUrl;
 const apng = @import("apng.zig");
@@ -753,7 +754,10 @@ pub fn fetch(curl: *?*c.CURL, url: [:0]const u8, sink: Sink, stop: *std.atomic.V
         @import("../platform/sys.zig").curlTls(h);
         _ = c.curl_easy_setopt(h, c.CURLOPT_URL, cur_url.ptr);
         _ = c.curl_easy_setopt(h, c.CURLOPT_NOSIGNAL, @as(c_long, 1));
-        _ = c.curl_easy_setopt(h, c.CURLOPT_USERAGENT, "Mozilla/5.0 (X11; Linux x86_64) larperCord/0.1");
+        // No CDN do Discord, o mesmo UA do cliente web: um "larperCord/0.1"
+        // aqui é um fingerprint de graça. Fora do Discord, o app se identifica.
+        const ua: [*c]const u8 = if (media_url.discordHost(cur_url)) web_client.user_agent.ptr else "Mozilla/5.0 (X11; Linux x86_64) larperCord/0.1";
+        _ = c.curl_easy_setopt(h, c.CURLOPT_USERAGENT, ua);
         _ = c.curl_easy_setopt(h, c.CURLOPT_WRITEFUNCTION, writeCb);
         _ = c.curl_easy_setopt(h, c.CURLOPT_WRITEDATA, &t);
         if (timeout_s > 0) {
