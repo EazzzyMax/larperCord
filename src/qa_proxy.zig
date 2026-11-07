@@ -45,8 +45,16 @@ fn noOverlap(_: *App) bool {
 // --- Desafios ------------------------------------------------------------------
 
 var captcha_before: u32 = 0;
-fn noteChallenges(_: *App) void {
+var warning_before = true;
+/// Sem o aviso de antes de entrar (ui/entrada.zig, testado em QA_SUITE=entrada):
+/// aqui o clique em Entrar vai direto para o Discord, que pede o captcha.
+fn noteChallenges(app: *App) void {
     captcha_before = challenge.count(.captcha);
+    warning_before = app.st.settings.join_warning;
+    app.st.settings.join_warning = false;
+}
+fn restoreWarning(app: *App) void {
+    app.st.settings.join_warning = warning_before;
 }
 fn resetGap(_: *App) void {
     invites.qaResetGap();
@@ -121,6 +129,7 @@ pub const ops = [_]Op{
     expect("o pedido de captcha do Discord entra na contagem", captchaCounted),
     click("join-cancel"),
     run(resetGap),
+    run(restoreWarning),
     ctrl(c.ImGuiKey_Comma),
     click("settings:Avançado"),
     .{ .wait = 200 },
