@@ -2622,7 +2622,7 @@ const ops = [_]Op{
     click("search-result:0"),
     .{ .expect = .{ .name = "clicar no resultado abre o canal e pula até a mensagem", .check = searchJumped, .timeout_ms = 4000 } },
     .{ .run = searchClose },
-} ++ @import("qa_busca.zig").ops ++ @import("qa_convites.zig").ops ++ [_]Op{
+} ++ @import("qa_busca.zig").ops ++ @import("qa_convites.zig").ops ++ @import("qa_conta.zig").ops ++ [_]Op{
     ctrl(c.ImGuiKey_Comma),
     click("settings:Privacidade"),
     expect("Privacidade tem a opção do cache", privacyPage),
@@ -3210,6 +3210,7 @@ const ops_scripts = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @impo
 const ops_ime = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_paineis.zig").ops_ime;
 const ops_busca = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_busca.zig").ops;
 const ops_convites = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_convites.zig").ops;
+const ops_conta = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_conta.zig").ops;
 const ops_plugins_real = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_real;
 const ops_vitrine = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_vitrine;
 const ops_plugins_a = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_persist_a;
@@ -3238,6 +3239,7 @@ fn script() []const Op {
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "ime")) return &ops_ime;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "busca")) return &ops_busca;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "convites")) return &ops_convites;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "conta")) return &ops_conta;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-real")) return &ops_plugins_real;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "vitrine")) return &ops_vitrine;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-a")) return &ops_plugins_a;

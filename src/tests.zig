@@ -34,6 +34,7 @@ test {
     _ = @import("core/cache_format.zig");
     _ = @import("core/search_query.zig");
     _ = @import("core/accounts.zig");
+    _ = @import("core/conta.zig");
     _ = @import("theme/kdl.zig");
     _ = @import("theme/color.zig");
     _ = @import("theme/theme.zig");
@@ -53,6 +54,8 @@ test {
     _ = @import("net/media_url.zig");
     _ = @import("net/proxy.zig");
     _ = @import("net/settings_proto.zig");
+    _ = @import("net/status_proto.zig");
+    _ = @import("net/conta_json.zig");
     _ = @import("net/thread_json.zig");
     _ = @import("net/user_json.zig");
     _ = @import("ui/apng.zig");

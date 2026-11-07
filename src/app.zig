@@ -327,6 +327,7 @@ pub const App = struct {
         app.saveDrafts();
         app.st.drafts.deinit(app.gpa);
         app.st.filtros.deinit(app.gpa);
+        app.st.conta.deinit();
         app.asked_profiles.deinit(app.gpa);
         var colors_it = app.theme_colors.iterator();
         while (colors_it.next()) |e| app.gpa.free(e.key_ptr.*);
@@ -355,7 +356,7 @@ pub const App = struct {
         app.gpa.destroy(app);
     }
 
-    fn cmd(app: *App, command: ev.Command) void {
+    pub fn cmd(app: *App, command: ev.Command) void {
         switch (app.net) {
             .none => {},
             .fake => |*g| g.commands.push(command),
@@ -527,6 +528,7 @@ pub const App = struct {
         app.viewing = 0;
         const st = &app.st;
         st.muted_channels.clearRetainingCapacity();
+        st.conta.reset();
         st.jump = 0;
         st.jump_asked = 0;
         st.tabs.clearRetainingCapacity();
@@ -1295,6 +1297,7 @@ pub const App = struct {
             },
             .set_setting => |ss| if (settings_state.setByte(&st.settings, ss.index, ss.value)) app.saveSettings(),
             .accept_friend => |u| app.cmd(.{ .relationship = .{ .user = u, .accept = true } }),
+            .conta => |ca| @import("app_conta.zig").handle(app, ca),
             .remove_relationship => |u| app.cmd(.{ .relationship = .{ .user = u, .accept = false } }),
             .select_channel => |ch| {
                 if (app.opts.qa and c.SDL_getenv("QA_DEBUG") != null) std.debug.print("[ação] select_channel ctrl={}\n", .{app.io.*.KeyCtrl});
@@ -1835,6 +1838,7 @@ pub const App = struct {
             },
             .guild_create => |gc| {
                 leitura.applyGuild(&app.store, &st.filtros, app.gpa, gc.guild.id, now());
+                @import("app_conta.zig").onGuild(app, gc.guild.id);
                 const invites = @import("ui/invites.zig");
                 if (invites.pending_guild == gc.guild.id) {
                     invites.pending_guild = 0;
@@ -1855,6 +1859,7 @@ pub const App = struct {
             },
             // Falar é ter lido: o contador zera junto.
             .message_create => |m| if (m.author == app.store.me) st.filtros.clear(&app.store, m.channel),
+            .conta => |ce| @import("app_conta.zig").onEvent(app, ce),
             else => {},
         }
     }
@@ -1867,12 +1872,11 @@ pub const App = struct {
         if (m.author == app.store.me) return null;
         const cs = app.store.channel(m.channel) orelse return null;
         const verdict = f.judge(m.author, m.content, cs.info.guild == 0, app.mentionsMe(m, cs.info.guild));
-        if (verdict == .important) {
-            f.bump(app.gpa, &app.store, m.channel);
-            if (!app.st.muted_channels.contains(m.channel)) {
-                f.notified +%= 1;
-                app.notify(m, cs);
-            }
+        if (verdict == .important) f.bump(app.gpa, &app.store, m.channel);
+        // Silêncio e nível de notificação vêm da conta (app_conta.zig).
+        if (verdict != .hidden and @import("app_conta.zig").allowsNotify(app, m, cs, verdict == .important)) {
+            f.notified +%= 1;
+            app.notify(m, cs);
         }
         if (verdict != .important and f.focusOn(now()) and !cs.info.unread and app.st.activeChannel() != m.channel) return m.channel;
         return null;

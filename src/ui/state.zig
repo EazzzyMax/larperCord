@@ -7,7 +7,7 @@ pub const Settings = @import("settings_state.zig").Settings;
 
 /// `voice_move`: os canais de voz para onde dá para mover alguém (id = a pessoa).
 /// `plugin_choices`: a segunda lista de uma entrada de plugin (id = a mensagem ou a pessoa).
-pub const MenuKind = enum { message, user, channel, guild, status, voice_move, thread_delete, guild_leave, plugin_choices };
+pub const MenuKind = enum { message, user, channel, guild, status, voice_move, thread_delete, guild_leave, plugin_choices, notif, block_confirm };
 
 pub const Popup = union(enum) {
     none,
@@ -36,6 +36,8 @@ pub const Popup = union(enum) {
     /// Entrar por convite e criar um (ui/invites.zig).
     join_invite,
     create_invite: struct { channel: Id },
+    /// Status personalizado: texto, emoji e até quando (ui/custom_status.zig).
+    custom_status: struct { x: f32, y: f32 },
 };
 
 /// Seleção de texto entre mensagens: âncora e cabeça (mensagem + byte).
@@ -189,6 +191,8 @@ pub const State = struct {
     muted_channels: std.AutoHashMapUnmanaged(Id, void) = .empty,
     /// Palavras de alerta, filtro, ignorados e modo foco (core/filtros.zig).
     filtros: @import("../core/filtros.zig").Filtros = .{},
+    /// Notificações, status personalizado e o resto da conta no Discord.
+    conta: @import("../core/conta.zig").State = .{},
     /// Rascunho de cada canal (ui/rascunhos.zig).
     drafts: @import("rascunhos.zig").Drafts = .{},
     toast: Toast = .{},

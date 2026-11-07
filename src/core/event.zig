@@ -164,6 +164,8 @@ pub const Event = union(enum) {
     thread_members: struct { thread: Id, replace: bool = false, count: ?u32 = null, added: []Id = &.{}, removed: []Id = &.{} },
     /// A thread que acabamos de criar existe: abre ela.
     thread_open: Id,
+    /// Notificações, ignorar, status personalizado, perfil (core/conta.zig).
+    conta: @import("conta.zig").Event,
 };
 
 /// `rejected`: o Discord recusou o token (4004). Vem logo antes de `failed`.
@@ -286,6 +288,8 @@ pub const Command = union(enum) {
     join_thread: struct { thread: Id, join: bool },
     /// Quem está na thread, pelo REST (a lista do op 14 pode não vir).
     fetch_thread_members: Id,
+    /// Bloquear, ignorar, amizade, notificações, status, perfil (core/conta.zig).
+    conta: @import("conta.zig").Cmd,
     shutdown,
 };
 
@@ -427,4 +431,6 @@ pub const Action = union(enum) {
     join_thread: struct { thread: Id, join: bool },
     /// A primeira página (se ainda não veio ou falhou) ou a próxima.
     fetch_threads: struct { channel: Id, archived: bool },
+    /// O que mexe na conta no Discord (app_conta.zig).
+    conta: @import("conta.zig").Action,
 };

@@ -98,6 +98,7 @@ fn popupKey(p: state.Popup) u64 {
         .gif => 14,
         .join_invite => 12,
         .create_invite => |t| 13 +% t.channel *% 31,
+        .custom_status => 15,
     };
 }
 
@@ -167,6 +168,7 @@ pub fn draw(ctx: *d.Ctx) void {
         .edit_place => |t| @import("edit_place.zig").draw(ctx, t.id, t.group),
         .join_invite => @import("invites.zig").drawJoin(ctx),
         .create_invite => |t| @import("invites.zig").drawCreate(ctx, t.channel),
+        .custom_status => |t| @import("custom_status.zig").draw(ctx, t.x, t.y),
         .none => {},
     }
     animateOpen(ctx);
@@ -175,7 +177,9 @@ pub fn draw(ctx: *d.Ctx) void {
 // --- Menu de contexto -------------------------------------------------------
 
 /// `label` (português) também é a marca do QA; `en` é o texto em inglês.
-const Item = struct { label: []const u8, en: []const u8, id: u8, danger: bool = false, sep: bool = false };
+/// `on`: marcado (a opção que vale agora).
+pub const Item = struct { label: []const u8, en: []const u8, id: u8, danger: bool = false, sep: bool = false, on: bool = false };
+const conta_menu = @import("conta_menu.zig");
 
 /// Texto do botão de confirmar a exclusão (leva o nome da thread).
 var delete_buf: [128]u8 = undefined;
@@ -299,11 +303,8 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
             add(&items, &n, .{ .label = "Mencionar", .en = "Mention", .id = 21 });
             const hook = if (ctx.store.user(id)) |u| u.webhook else false;
             if (id != ctx.store.me and !hook) add(&items, &n, .{ .label = "Mensagem", .en = "Message", .id = 22 });
-            // Ignorar não bloqueia: as mensagens só ficam recolhidas aqui.
-            if (id != ctx.store.me) add(&items, &n, if (ctx.st.filtros.isIgnored(id))
-                .{ .label = "Deixar de ignorar", .en = "Unignore", .id = 26 }
-            else
-                .{ .label = "Ignorar", .en = "Ignore", .id = 26 });
+            // Amizade, ignorar e bloquear vão para a conta (ui/conta_menu.zig).
+            n += conta_menu.userItems(ctx, id, items[n..]);
             add(&items, &n, .{ .label = "Copiar nome de usuário", .en = "Copy Username", .id = 24, .sep = true });
             if (dev and !hook) add(&items, &n, .{ .label = "Copiar ID do usuário", .en = "Copy User ID", .id = 25 });
             if (movable(ctx, id) != null) {
@@ -317,7 +318,7 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
             add(&items, &n, .{ .label = "Abrir em nova aba", .en = "Open in New Tab", .id = 41 });
             // Tela dividida: o canal ao lado do que está aberto (até 3).
             if (mosaic.canOpenBeside(ctx, id)) add(&items, &n, .{ .label = "Abrir ao lado", .en = "Open to the Side", .id = 45 });
-            add(&items, &n, .{ .label = if (ctx.st.muted_channels.contains(id)) "Reativar notificações" else "Silenciar canal", .en = if (ctx.st.muted_channels.contains(id)) "Unmute Channel" else "Mute Channel", .id = 42 });
+            n += conta_menu.channelItems(ctx, id, items[n..]);
             // Thread: entrar, sair e as arquivadas do mesmo canal pai. Num canal
             // de texto: as threads dele (a lista de canais só mostra algumas).
             if (ctx.store.channel(id)) |tcs| if (tcs.info.thread) |t| {
@@ -374,8 +375,11 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
                 .{ .label = "Desligar modo economia", .en = "Turn Off Data Saver", .id = 90 }
             else
                 .{ .label = "Ligar modo economia", .en = "Turn On Data Saver", .id = 90 });
+            n += conta_menu.statusItems(ctx, items[n..]);
             add(&items, &n, .{ .label = "Ver perfil", .en = "View Profile", .id = 84, .sep = true });
         },
+        .notif => n += conta_menu.notifItems(ctx, id, items[n..]),
+        .block_confirm => n += conta_menu.blockItems(ctx, id, items[n..]),
         .voice_move => {
             var tb: [20]Id = undefined;
             for (voiceTargets(ctx, id, &tb), 0..) |ch, i| {
@@ -400,6 +404,7 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
                 if (vg.icon != null) add(&items, &n, .{ .label = "Ver ícone", .en = "View Icon", .id = 65 });
                 if (vg.banner != null) add(&items, &n, .{ .label = "Ver banner", .en = "View Banner", .id = 66 });
             }
+            n += conta_menu.guildItems(ctx, id, items[n..]);
             if (dev) add(&items, &n, .{ .label = "Copiar ID do servidor", .en = "Copy Server ID", .id = 63 });
             // Quem é dono não pode sair: precisa passar o servidor antes.
             if (ctx.store.guild(id)) |vg| if (vg.owner != ctx.store.me) add(&items, &n, .{ .label = "Sair do servidor", .en = "Leave Server", .id = 67, .danger = true, .sep = true });
@@ -459,7 +464,15 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
         const base = if (it.danger) ctx.col(.danger) else ctx.col(.accent);
         if (hb.hovered) d.rect(dl, ir, base, @max(ctx.th.radius - 2, 2));
         const tc = if (hb.hovered) (if (it.danger) d.Rgba.white else ctx.col(.accent_text)) else if (it.danger) ctx.col(.danger) else ctx.col(.text).mix(ctx.col(.muted), 0.15);
-        _ = d.textClipped(dl, fam.get(.medium), 14, ir.x + 10, d.centerY(ir, 14), tc, i18n.tr(it.label, it.en), ir.w - 18);
+        _ = d.textClipped(dl, fam.get(.medium), 14, ir.x + 10, d.centerY(ir, 14), tc, i18n.tr(it.label, it.en), ir.w - (if (it.on) @as(f32, 40) else 18));
+        if (it.on) {
+            // A opção que vale agora: um visto à direita.
+            const cx = ir.right() - 18;
+            const cy = ir.y + ir.h / 2;
+            d.line(dl, cx - 5, cy, cx - 1.5, cy + 4, tc, 2);
+            d.line(dl, cx - 1.5, cy + 4, cx + 5.5, cy - 4.5, tc, 2);
+            qa.mark(ir, "menu-on:{s}", .{it.label});
+        }
         if (hb.clicked) return choose(ctx, kind, id, it.id, r);
         yy += row_h;
     }
@@ -518,6 +531,7 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
         return;
     }
     if (item >= 200) return pluginEntry(ctx, if (kind == .user) .user else .message, item - 200, id, r.x + r.w - 8, r.y + r.h - 70);
+    if (kind != .message and conta_menu.choose(ctx, kind, id, item, r)) return;
     if (kind == .voice_move and item >= 100) {
         var tb: [20]Id = undefined;
         const list = voiceTargets(ctx, id, &tb);
@@ -594,15 +608,6 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
             else
                 st.showToast(ctx.now_ms, false, "modo economia desligado", "data saver off", .{});
         },
-        26 => {
-            const on = !st.filtros.isIgnored(id);
-            st.filtros.setIgnored(st.gpa, id, on);
-            const name = if (ctx.store.user(id)) |u| u.name else "?";
-            if (on)
-                st.showToast(ctx.now_ms, false, "{s} ignorado: as mensagens ficam recolhidas", "ignoring {s}: their messages are collapsed", .{name})
-            else
-                st.showToast(ctx.now_ms, false, "{s} não é mais ignorado", "no longer ignoring {s}", .{name});
-        },
         9 => ctx.act(.{ .delete_message = id }),
         20 => st.popup = .{ .profile = .{ .user = id, .x = r.x, .y = r.y } },
         21 => if (ctx.store.user(id)) |u| {
@@ -623,12 +628,6 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
             ctx.act(.{ .focus_tab = st.tabs.items.len - 1 });
         },
         45 => mosaic.openBeside(ctx, id),
-        42 => {
-            if (st.muted_channels.contains(id)) {
-                _ = st.muted_channels.remove(id);
-            } else st.muted_channels.put(st.gpa, id, {}) catch {};
-            if (ctx.store.channel(id)) |cs| ctx.store.refreshGuildUnread(cs.info.guild);
-        },
         46 => if (ctx.store.channel(id)) |cs| {
             st.voice_guild = cs.info.guild;
             ctx.act(.leave_voice);
