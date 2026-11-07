@@ -5,6 +5,7 @@
 //! prints em qa-out/ e no fim imprime o relatório.
 const std = @import("std");
 const c = @import("c");
+const sys = @import("platform/sys.zig");
 const App = @import("app.zig").App;
 const qa = @import("ui/qa.zig");
 const qa_temas = @import("qa_temas.zig");
@@ -17,7 +18,7 @@ const Key = []const u8;
 
 // O QA roda em debug (tools/qa.sh). O servidor de mentira e o roteiro do LSP são
 // pesados para o pouco que a função pesa, e ficam fora do executável de quem usa.
-const has_lsp_qa = @import("builtin").mode == .debug and @import("builtin").os.tag != .windows;
+const has_lsp_qa = @import("builtin").mode == .debug and @import("builtin").os.tag != .windows and !sys.macos;
 const lsp_ops = if (has_lsp_qa) @import("qa_lsp.zig").ops else [_]Op{};
 const lsp_ops_quit = if (has_lsp_qa) @import("qa_lsp.zig").ops_quit else [_]Op{};
 const lsp_ops_real = if (has_lsp_qa) @import("qa_lsp.zig").ops_real else [_]Op{};
@@ -51,7 +52,7 @@ pub const Op = union(enum) {
     /// Arrasta algo que anda junto com o mouse (a alça de um painel): o caminho
     /// sai de onde ele estava ao começar. Alvo vazio pula o passo.
     drag_by: struct { from: Target, dx: f32 },
-    key: struct { key: c_int, ctrl: bool = false, shift: bool = false, alt: bool = false },
+    key: struct { key: c_int, ctrl: bool = false, physical_ctrl: bool = false, shift: bool = false, alt: bool = false },
     text: []const u8,
     wait: u32,
     expect: struct { name: []const u8, check: *const fn (app: *App) bool, timeout_ms: u32 = 2500 },
@@ -79,6 +80,16 @@ fn key(k: c_int) Op {
 }
 fn ctrl(k: c_int) Op {
     return .{ .key = .{ .key = k, .ctrl = true } };
+}
+/// Ctrl literal: use para atalhos que pertencem a um componente, não para os
+/// atalhos primários do app (que são Command no macOS).
+fn physicalCtrl(k: c_int) Op {
+    return .{ .key = .{ .key = k, .physical_ctrl = true } };
+}
+
+fn primaryMod() c_int {
+    // Injeta teclas físicas: o ImGui troca Super/Ctrl no macOS.
+    return if (sys.macos) c.ImGuiMod_Super else c.ImGuiMod_Ctrl;
 }
 
 fn active(app: *App) ?*@import("core/store.zig").ChannelState {
@@ -838,6 +849,11 @@ fn updateShownReady(_: *App) bool {
 fn updateShownCurrent(_: *App) bool {
     return qa.find("update-status:up_to_date") != null;
 }
+fn updateManualMac(_: *App) bool {
+    return qa.find("button:Reiniciar o larperCord") != null and
+        qa.find("button:Verificar atualizações") == null and
+        qa.find("button:Baixar e instalar") == null;
+}
 fn changelogShown(_: *App) bool {
     return qa.find("changelog") != null;
 }
@@ -1517,10 +1533,10 @@ const ops_editor = [_]Op{
     expect("G vai para o fim", stuckBottom),
     // Meia página perto do fim (no topo chegam as antigas e a rolagem anda junto).
     .{ .run = rememberTarget },
-    ctrl(c.ImGuiKey_U),
+    physicalCtrl(c.ImGuiKey_U),
     expect("Ctrl+u sobe meia página", halfPageUp),
     .{ .run = rememberTarget },
-    ctrl(c.ImGuiKey_D),
+    physicalCtrl(c.ImGuiKey_D),
     expect("Ctrl+d desce meia página", halfPageDown),
     key(c.ImGuiKey_G),
     key(c.ImGuiKey_G),
@@ -1939,7 +1955,7 @@ const ops_plugin_section = [_]Op{
     key(c.ImGuiKey_Enter),
     key(c.ImGuiKey_Enter),
     expect("plugin em laço infinito é parado pelo limite de instruções", travaStopped),
-    .{ .key = .{ .key = c.ImGuiKey_Y, .ctrl = true, .shift = true } },
+    .{ .key = .{ .key = c.ImGuiKey_Y, .physical_ctrl = true, .shift = true } },
     expect("atalho Ctrl+Shift+Y do plugin manda mensagem", keySent),
     click("composer"),
     .{ .text = "ping-plugin" },
@@ -2012,7 +2028,7 @@ const ops = [_]Op{
     click("guild:500000"),
     expect("volta para o primeiro servidor", onGuild0),
     .{ .run = rememberTab },
-    ctrl(c.ImGuiKey_Tab),
+    if (sys.macos) physicalCtrl(c.ImGuiKey_Tab) else ctrl(c.ImGuiKey_Tab),
     expect("Ctrl+Tab troca de aba", tabMoved),
     .{ .key = .{ .key = c.ImGuiKey_2, .alt = true } },
     expect("Alt+2 vai para a segunda aba", tab1),
@@ -2098,7 +2114,7 @@ const ops = [_]Op{
     expect("arrastar seleciona texto entre mensagens", hasSelection),
     .{ .shot = "06-selecao" },
     ctrl(c.ImGuiKey_C),
-    expect("Ctrl+C copia a seleção", toastCopied),
+    expect("atalho de copiar copia a seleção", toastCopied),
     key(c.ImGuiKey_Escape),
 
     s("atualizações e novidades"),
@@ -2106,6 +2122,10 @@ const ops = [_]Op{
     .{ .wait = 300 },
     click("settings:Atualizações"),
     .{ .wait = 150 },
+} ++ (if (sys.macos) [_]Op{
+    expect("macOS oferece reinício e atualização manual", updateManualMac),
+    .{ .shot = "06c-atualizacao" },
+} else [_]Op{
     click("button:Verificar atualizações"),
     expect("verificar mostra que está na última versão", updateShownCurrent),
     .{ .run = updateAvailable },
@@ -2114,6 +2134,7 @@ const ops = [_]Op{
     .{ .shot = "06c-atualizacao" },
     click("button:Baixar e instalar"),
     expect("instalar pede para reiniciar", updateShownReady),
+}) ++ [_]Op{
     click("button:Reiniciar o larperCord"),
     expect("reiniciar (no QA só avisa)", toastRestart),
     click("settings:Novidades"),
@@ -3674,7 +3695,7 @@ pub const Runner = struct {
         }
         switch (r.sub) {
             0 => {
-                if (ctrl_held) c.ImGuiIO_AddKeyEvent(app.io, c.ImGuiMod_Ctrl, true);
+                if (ctrl_held) c.ImGuiIO_AddKeyEvent(app.io, primaryMod(), true);
                 // Em máquina lenta, dois quadros já passam do tempo de um duplo clique.
                 // (O ImGui exige o atraso do clique simples maior que esse tempo.)
                 if (double) {
@@ -3691,7 +3712,7 @@ pub const Runner = struct {
             3 => if (double) c.ImGuiIO_AddMouseButtonEvent(app.io, button, true),
             4 => if (double) c.ImGuiIO_AddMouseButtonEvent(app.io, button, false),
             else => {
-                if (ctrl_held) c.ImGuiIO_AddKeyEvent(app.io, c.ImGuiMod_Ctrl, false);
+                if (ctrl_held) c.ImGuiIO_AddKeyEvent(app.io, primaryMod(), false);
                 if (double) {
                     app.io.*.MouseDoubleClickTime = r.dclick_time[0];
                     app.io.*.MouseSingleClickDelay = r.dclick_time[1];
@@ -3803,18 +3824,20 @@ pub const Runner = struct {
             .key => |k| {
                 switch (r.sub) {
                     0 => {
-                        if (k.ctrl) c.ImGuiIO_AddKeyEvent(app.io, c.ImGuiMod_Ctrl, true);
+                        if (k.ctrl) c.ImGuiIO_AddKeyEvent(app.io, primaryMod(), true);
+                        if (k.physical_ctrl) c.ImGuiIO_AddKeyEvent(app.io, c.ImGuiMod_Ctrl, true);
                         if (k.shift) c.ImGuiIO_AddKeyEvent(app.io, c.ImGuiMod_Shift, true);
                         if (k.alt) c.ImGuiIO_AddKeyEvent(app.io, c.ImGuiMod_Alt, true);
                     },
                     1 => {
                         // Como no laço do app: com a lista do autocompletar
                         // aberta, a tecla é dela e o campo de texto não vê.
-                        if (autocomplete.takeImGuiKey(k.key, k.shift, k.ctrl)) r.sub = 2 else c.ImGuiIO_AddKeyEvent(app.io, k.key, true);
+                        if (autocomplete.takeImGuiKey(k.key, k.shift, k.ctrl or k.physical_ctrl)) r.sub = 2 else c.ImGuiIO_AddKeyEvent(app.io, k.key, true);
                     },
                     2 => c.ImGuiIO_AddKeyEvent(app.io, k.key, false),
                     3 => {
-                        if (k.ctrl) c.ImGuiIO_AddKeyEvent(app.io, c.ImGuiMod_Ctrl, false);
+                        if (k.ctrl) c.ImGuiIO_AddKeyEvent(app.io, primaryMod(), false);
+                        if (k.physical_ctrl) c.ImGuiIO_AddKeyEvent(app.io, c.ImGuiMod_Ctrl, false);
                         if (k.shift) c.ImGuiIO_AddKeyEvent(app.io, c.ImGuiMod_Shift, false);
                         if (k.alt) c.ImGuiIO_AddKeyEvent(app.io, c.ImGuiMod_Alt, false);
                     },

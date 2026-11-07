@@ -3,6 +3,7 @@
 //! e dos atalhos de teclado.
 const std = @import("std");
 const c = @import("c");
+const sys = @import("../platform/sys.zig");
 const kdl = @import("../theme/kdl.zig");
 const layout = @import("../theme/layout.zig");
 const theme_mod = @import("../theme/theme.zig");
@@ -229,6 +230,8 @@ fn toast(ctx: *d.Ctx) void {
 /// uma tecla aqui, mude lá também.
 fn shortcuts(ctx: *d.Ctx) void {
     const io = ctx.io;
+    // ImGui já troca Command e Ctrl no macOS: KeyCtrl é o modificador
+    // principal (Command no macOS, Ctrl nos demais sistemas).
     const ctrl = io.*.KeyCtrl;
     const shift = io.*.KeyShift;
     if (c.ImGui_IsKeyPressed(c.ImGuiKey_Escape) and ctx.st.popup == .none and !ctx.st.selection.empty()) ctx.st.selection = .{};
@@ -250,7 +253,9 @@ fn shortcuts(ctx: *d.Ctx) void {
     if (c.ImGui_IsKeyPressed(c.ImGuiKey_F2) or (ctrl and c.ImGui_IsKeyPressed(c.ImGuiKey_T)))
         ctx.act(.{ .next_theme = if (shift) -1 else 1 });
     // Uma troca por toque: segurar não sai trocando de aba em rajada.
-    if (ctrl and c.ImGui_IsKeyPressedEx(c.ImGuiKey_Tab, false)) ctx.act(.{ .next_tab = if (shift) -1 else 1 });
+    // Command+Tab pertence ao sistema; a troca de abas usa Ctrl físico.
+    const tab_ctrl = if (sys.macos) io.*.KeySuper else io.*.KeyCtrl;
+    if (tab_ctrl and c.ImGui_IsKeyPressedEx(c.ImGuiKey_Tab, false)) ctx.act(.{ .next_tab = if (shift) -1 else 1 });
     if (ctrl and c.ImGui_IsKeyPressed(c.ImGuiKey_W)) ctx.act(.{ .close_tab = ctx.st.tab });
     // Caixa de entrada e mensagens salvas (ui/inbox.zig, ui/saved.zig).
     if (ctrl and !shift and c.ImGui_IsKeyPressed(c.ImGuiKey_I) and !ctx.st.settings.open) ctx.act(.toggle_inbox);
@@ -264,7 +269,8 @@ fn shortcuts(ctx: *d.Ctx) void {
     }
 }
 
-/// Ctrl + , Ctrl - e Ctrl 0: a interface inteira, como no navegador e no Discord.
+/// Command + , Command - e Command 0 no macOS; Ctrl nos demais sistemas.
+/// Ajusta a interface inteira, como no navegador e no Discord.
 fn zoomKeys(ctx: *d.Ctx) void {
     const set = &ctx.st.settings;
     const before = set.ui_scale;

@@ -55,7 +55,9 @@ pub const Window = struct {
             c.SDL_DestroySurface(icon);
         }
         // LARPER_RENDERER escolhe o backend do SDL (opengl, vulkan, gpu, software).
-        const renderer = c.SDL_CreateRenderer(window, c.SDL_getenv("LARPER_RENDERER")) orelse return error.SdlRenderer;
+        // Metal no macOS; a variável de ambiente continua podendo escolher outro.
+        const requested_renderer: [*c]const u8 = c.SDL_getenv("LARPER_RENDERER") orelse if (sys.macos) "metal" else null;
+        const renderer = c.SDL_CreateRenderer(window, requested_renderer) orelse return error.SdlRenderer;
         if (@import("timeline.zig").enabled) std.log.info("SDL video: {s}, renderer: {s}", .{ c.SDL_GetCurrentVideoDriver(), c.SDL_GetRendererName(renderer) });
         _ = c.SDL_SetRenderVSync(renderer, 1);
         _ = c.SDL_SetRenderDrawBlendMode(renderer, c.SDL_BLENDMODE_NONE);
@@ -165,6 +167,7 @@ pub fn decodeIcon(png: []const u8) ?*c.SDL_Surface {
 /// Em máquinas só com GPU NVIDIA, o glvnd carrega também o EGL do Mesa (e o
 /// LLVM junto, ~23 MB) sem necessidade. Restringe ao EGL da NVIDIA nesse caso.
 fn preferNvidiaEgl() void {
+    if (sys.macos) return;
     const vendor_file = "/usr/share/glvnd/egl_vendor.d/10_nvidia.json";
     if (c.SDL_getenv("__EGL_VENDOR_LIBRARY_FILENAMES") != null) return;
     if (c.SDL_getenv("LARPER_EGL_ALL") != null) return;
@@ -185,14 +188,16 @@ fn preferNvidiaEgl() void {
     if (found) _ = c.SDL_setenv_unsafe("__EGL_VENDOR_LIBRARY_FILENAMES", vendor_file, 0);
 }
 
-/// Memória proporcional (PSS) do próprio processo, em KB. `file` é a parte que vem
-/// de arquivos e dispositivos (bibliotecas, fontes, driver), 0 onde não se sabe.
+/// Memória do próprio processo em KB: PSS no Linux, RSS no macOS. `file` é a
+/// parte vinda de arquivos e dispositivos (bibliotecas, fontes, driver),
+/// 0 onde não se sabe.
 pub const SelfMem = struct { pss: u32 = 0, file: u32 = 0 };
 
 pub fn selfMemKb() SelfMem {
     if (sys.windows) return .{ .pss = sys.privateKb() };
     // Navegador: não há /proc; o que a aba guarda para o app é a memória do wasm.
     if (builtin.os.tag == .emscripten) return .{ .pss = @intCast(c.emscripten_get_heap_size() / 1024) };
+    if (sys.macos) return .{ .pss = @intCast(@min(c.larper_macos_resident_kb(), @as(u64, std.math.maxInt(u32)))) };
     // Arquivos do /proc não informam o tamanho, então lê direto.
     const fd = c.open("/proc/self/smaps_rollup", c.O_RDONLY);
     if (fd < 0) return .{};

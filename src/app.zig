@@ -93,6 +93,10 @@ pub const Options = struct {
 
 var wake_type_global: u32 = 0;
 
+fn reopenFromDock() callconv(.c) void {
+    platform.Window.wake(wake_type_global, .show);
+}
+
 fn lspWake() void {
     platform.Window.wake(wake_type_global, .tick);
 }
@@ -182,7 +186,7 @@ pub const App = struct {
     th_custom: @import("theme/theme.zig").Theme = undefined,
     /// Cores escolhidas por tema e por modo (persistidas em settings.kdl).
     theme_colors: std.StringHashMapUnmanaged(custom.ThemeOverrides) = .empty,
-    /// notify-send em andamento (recolhidos quando terminam).
+    /// notify-send em andamento no Linux (recolhidos quando terminam).
     notifiers: std.ArrayList(*c.SDL_Process) = .empty,
     paste_n: u32 = 0,
     /// Muita memória acabou de ser solta (READY, rajada de imagens): o tique
@@ -220,6 +224,7 @@ pub const App = struct {
         @import("platform/fc_warm.zig").join(fc_warm);
         app.win = try win;
         wake_type_global = app.win.wake_type;
+        if (sys.macos) c.larper_macos_install_reopen(&reopenFromDock);
         timeline.mark(.janela);
 
         _ = c.ImGui_CreateContext(null);
@@ -253,7 +258,8 @@ pub const App = struct {
         // Cache de mensagens e contas: o QA e os prints nunca usam os de verdade.
         msg_cache.init(opts.qa);
         msg_cache.off = opts.shot != null;
-        accounts_store.memory_only = opts.qa or opts.shot != null;
+        // No macOS, a demonstração também fica longe do Chaveiro (o sistema pediria permissão).
+        accounts_store.memory_only = opts.qa or opts.shot != null or (sys.macos and opts.demo);
         accounts_store.load();
 
         // Configurações salvas (ignoradas nos prints, para serem reprodutíveis).
@@ -523,6 +529,9 @@ pub const App = struct {
 
     /// Conecta na conta de verdade. O gateway passa a ser dono do token.
     pub fn startReal(app: *App, token: [:0]u8) !void {
+        // No macOS, a demonstração e o QA nunca podem abrir uma sessão real, mesmo se
+        // alguém tentar entrar pela tela de login depois da inicialização.
+        if (sys.macos and (app.opts.demo or app.opts.qa or (app.opts.shot != null and c.SDL_getenv("LARPER_SHOT_REAL") == null))) return error.OfflineMode;
         app.store.demo = false;
         app.net = .{ .real = .{
             .commands = try Queue(ev.Command).init(app.gpa),
@@ -787,7 +796,7 @@ pub const App = struct {
                 if (t.len == 0) return lg.fail(i18n.tr("Cole o token no campo acima.", "Paste the token in the field above."));
                 if (t.len < 50 or std.mem.indexOfAny(u8, t, " \t") != null)
                     return lg.fail(i18n.tr("Isso não parece um token do Discord.", "That doesn't look like a Discord token."));
-                if (app.opts.qa) {
+                if (app.opts.qa or (sys.macos and (app.opts.demo or (app.opts.shot != null and c.SDL_getenv("LARPER_SHOT_REAL") == null)))) {
                     // O QA nunca fala com o Discord: simula a recusa.
                     lg.clearToken();
                     return lg.fail(i18n.tr("O Discord recusou esse token (teste).", "Discord rejected that token (test)."));
@@ -2297,7 +2306,7 @@ pub const App = struct {
     }
 
     /// DM ou menção chegando sem a pessoa olhando: a janela pisca na barra
-    /// de tarefas e sai uma notificação do sistema (notify-send).
+    /// de tarefas e sai uma notificação do sistema.
     fn notify(app: *App, m: types.Message, cs: *const @import("core/store.zig").ChannelState) void {
         if (app.opts.qa or app.store.demo) return;
         const set = &app.st.settings;
@@ -2306,7 +2315,7 @@ pub const App = struct {
         const focused = !hidden and flags & c.SDL_WINDOW_INPUT_FOCUS != 0;
         if (focused and app.st.activeChannel() == m.channel) return;
         if (set.taskbar_flash and !focused and !hidden) _ = c.SDL_FlashWindow(app.win.window, c.SDL_FLASH_UNTIL_FOCUSED);
-        if (!set.desktop_notifs or focused or app.notifiers.items.len >= 8) return;
+        if (!set.desktop_notifs or focused or (!sys.macos and app.notifiers.items.len >= 8)) return;
 
         const who = if (app.store.user(m.author)) |u| u.name else "?";
         var tb: [160]u8 = undefined;
@@ -2324,10 +2333,15 @@ pub const App = struct {
         app.desktopNotify(title, body);
     }
 
-    /// Uma notificação do sistema: notify-send no Linux, o aviso da bandeja no Windows.
+    /// Uma notificação do sistema: notify-send no Linux, bandeja no Windows e
+    /// UserNotifications no macOS.
     pub fn desktopNotify(app: *App, title: [:0]const u8, body: [:0]const u8) void {
+        // No macOS, nem a demonstração nem o QA pedem a permissão de notificação: plugins
+        // também chamam esta função, inclusive na demonstração.
+        if (sys.macos and (app.opts.qa or app.opts.demo or app.opts.shot != null or app.store.demo)) return;
         if (app.notifiers.items.len >= 8) return;
         if (sys.windows) return sys.toast(c.SDL_GetPointerProperty(c.SDL_GetWindowProperties(app.win.window), c.SDL_PROP_WINDOW_WIN32_HWND_POINTER, null), now(), title, body);
+        if (sys.macos) return c.larper_macos_notify(title.ptr, body.ptr);
         var args = [_:null]?[*:0]const u8{ "notify-send", "--app-name=larperCord", "--", title.ptr, body.ptr };
         const proc = c.SDL_CreateProcess(@ptrCast(&args), false) orelse return;
         app.notifiers.append(app.gpa, proc) catch c.SDL_DestroyProcess(proc);

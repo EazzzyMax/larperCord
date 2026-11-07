@@ -1254,8 +1254,19 @@ fn removeExtra(_: *App) void {
 fn noisyLimited(_: *App) bool {
     return host.qa_desktop - desktop0 == 6 and std.mem.indexOf(u8, host.qa_desktop_text[0..host.qa_desktop_len], "barulho 6") != null;
 }
+var noise_blur_before = false;
+fn startNoise(app: *App) void {
+    noise_blur_before = app.qa_blur;
+    app.qa_blur = true;
+    rememberDesktop(app);
+}
+fn endNoise(app: *App) void {
+    app.qa_blur = noise_blur_before;
+}
 fn reminderAfterNoise(_: *App) bool {
-    return host.qa_desktop - desktop0 == 7 and std.mem.indexOf(u8, host.qa_desktop_text[0..host.qa_desktop_len], "depois do barulho") != null;
+    // Sem foco, tanto a confirmação "Vou lembrar" quanto o lembrete viram
+    // notificações. O teste não depende do foco real da janela do desktop.
+    return host.qa_desktop - desktop0 == 8 and std.mem.indexOf(u8, host.qa_desktop_text[0..host.qa_desktop_len], "depois do barulho") != null;
 }
 fn extraLoaded(app: *App) bool {
     const a = plugin(app, "qahttp.lua") orelse return false;
@@ -2105,7 +2116,7 @@ pub const ops = [_]Op{
     expect("http:// sem TLS é recusado", plainRefused),
 
     s("plugins: um barulhento não come o aviso dos outros"),
-    run(rememberDesktop),
+    run(startNoise),
     click("composer"),
     .{ .text = "/qa-barulho" },
     key(c.ImGuiKey_Enter),
@@ -2115,6 +2126,7 @@ pub const ops = [_]Op{
     .{ .text = "/remind 1s depois do barulho" },
     key(c.ImGuiKey_Enter),
     expectLong("e o lembrete avisa mesmo assim", reminderAfterNoise),
+    run(endNoise),
 
     s("plugins: o Lua não segura a interface"),
     run(clearFrames),

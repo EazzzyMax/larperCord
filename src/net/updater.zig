@@ -4,6 +4,7 @@
 //! reinício é a interface. Roda numa thread só dela, e nada aqui existe enquanto
 //! ninguém pede. Nenhum dado da conta vai junto.
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @import("c");
 const build_options = @import("build_options");
 const version = @import("../core/version.zig");
@@ -16,9 +17,12 @@ const alloc = std.heap.c_allocator;
 pub const current: []const u8 = build_options.version;
 const latest_url = "https://api.github.com/repos/RshaCuDeVidro/larperCord/releases/latest";
 pub const releases_page = "https://github.com/RshaCuDeVidro/larperCord/releases";
+/// As releases só têm arquivos para Linux e Windows. O bundle do macOS
+/// precisa de um formato próprio antes de poder ser atualizado por aqui.
+pub const supported = builtin.os.tag == .linux or builtin.os.tag == .windows;
 
 /// Arquivos publicados desta plataforma e onde cada um fica (core/atualizacao.zig).
-const files = at.files(sys.windows);
+const files: []const at.File = if (supported) at.files(sys.windows) else &.{};
 
 /// O executável que está rodando, num caminho que existe: depois da troca, o
 /// nome dele já é o da versão nova. null se o sistema não disser.
@@ -100,12 +104,14 @@ fn start(f: *const fn (?*anyopaque) callconv(.c) c_int) void {
 
 /// Pergunta se há versão nova (não bloqueia).
 pub fn check() void {
+    if (!supported) return set(.up_to_date, .none, 0);
     if (offline) return qaSet(.up_to_date, current);
     start(checkThread);
 }
 
 /// Baixa e instala a versão que `check` achou (não bloqueia).
 pub fn install() void {
+    if (!supported) return set(.up_to_date, .none, 0);
     if (offline) return qaSet(.ready, snapshot().latest());
     start(installThread);
 }
@@ -235,12 +241,14 @@ fn assetUrl(buf: []u8, name: []const u8) ![:0]const u8 {
 /// Instalado por um gerenciador de pacotes (a pasta do programa não é de quem usa): é ele quem
 /// atualiza, e trocar o arquivo daqui daria errado de qualquer jeito.
 pub fn managedBySystem() bool {
+    if (!supported) return true;
     if (sys.windows) return false;
     const base = c.SDL_GetBasePath() orelse return false;
     return c.access(base, c.W_OK) != 0;
 }
 
 fn runInstall() !void {
+    if (!supported) return error.ReadOnly;
     var sb: [1024]u8 = undefined;
     const exe = selfPath(&sb) orelse return error.Disk;
     var ub: [1024]u8 = undefined;
@@ -297,6 +305,7 @@ fn runInstall() !void {
 
 /// Sobras da troca anterior (no Windows o executável velho só sai depois).
 pub fn cleanLeftovers() void {
+    if (!supported) return;
     var sb: [1024]u8 = undefined;
     const exe = selfPath(&sb) orelse return;
     for (files) |f| {

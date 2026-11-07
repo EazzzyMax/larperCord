@@ -307,6 +307,12 @@ pub const ops = [_]Op{
     run(openLooks),
     .{ .resize = .{ 1280, 2400 } },
     .{ .wait = 500 },
+    // O desktop pode limitar a janela à altura da tela. Deixa o driver rolar
+    // até a cor antes de guardar a posição da grade; reabrir o popup não deve
+    // deslocar a grade já visível.
+    click("theme-color:2"),
+    esc,
+    .{ .wait = 200 },
     run(rememberColors),
     click("theme-color:2"),
     expect("clicar numa cor abre o editor", colorEditorOpen),

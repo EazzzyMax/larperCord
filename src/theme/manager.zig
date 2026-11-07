@@ -5,7 +5,8 @@
 //!   2. ./themes            (ao rodar de dentro do repositório)
 //!   3. $XDG_CONFIG_HOME/larpercord/themes  (ou ~/.config/larpercord/themes)
 //!
-//! As pastas são vigiadas com inotify: salvar um .kdl recarrega na hora.
+//! As pastas são vigiadas pelo mecanismo nativo: inotify no Linux, kqueue no
+//! macOS e notificações de pasta no Windows. Salvar um .kdl recarrega na hora.
 const std = @import("std");
 const sys = @import("../platform/sys.zig");
 const c = @import("c");
@@ -235,7 +236,7 @@ pub const Manager = struct {
         return true;
     }
 
-    /// Relê a paleta do pywal, a lista e o tema atual (chamado pelo inotify).
+    /// Relê a paleta do pywal, a lista e o tema atual (chamado pelo vigia).
     pub fn reload(m: *Manager) bool {
         m.wal = readWal();
         m.scan() catch {};
@@ -250,7 +251,14 @@ pub const Manager = struct {
     pub fn watch(m: *Manager, wake: *const fn () void) void {
         // Navegador: os temas são só os embutidos, ninguém edita arquivo.
         if (sys.web) return;
-        if (sys.windows) return m.watchWindows(wake);
+        if (comptime sys.windows) return m.watchWindows(wake);
+        if (comptime sys.macos) return m.watchMac(wake);
+        return m.watchLinux(wake);
+    }
+
+    /// Linux: inotify observa a pasta, não o arquivo, então substituições
+    /// atômicas feitas por editores também acordam o aplicativo.
+    fn watchLinux(m: *Manager, wake: *const fn () void) void {
         const fd = c.inotify_init1(c.IN_CLOEXEC);
         if (fd < 0) return;
         for (m.dirs.items) |dir| _ = c.inotify_add_watch(fd, dir.ptr, c.IN_CLOSE_WRITE | c.IN_MOVED_TO | c.IN_CREATE | c.IN_DELETE);
@@ -274,6 +282,124 @@ pub const Manager = struct {
         W.wake_fn = wake;
         W.watch_fd = fd;
         if (c.SDL_CreateThread(W.run, "theme-watch", null)) |t| c.SDL_DetachThread(t);
+    }
+
+    /// macOS: EVFILT_VNODE vigia as pastas e os .kdl. Arquivos pegam escrita
+    /// in-place; as pastas pegam o padrão de salvar em temporário e substituir
+    /// por rename, sem sondagem nem temporizador em repouso.
+    fn watchMac(m: *Manager, wake: *const fn () void) void {
+        const W = struct {
+            var wake_fn: *const fn () void = undefined;
+            var queue_fd: c_int = -1;
+            // Cópias dos caminhos: o reload na UI pode liberar as entradas
+            // do Manager enquanto esta thread rearma os arquivos substituídos.
+            var dir_paths: [16][4096:0]u8 = undefined;
+            var dir_fds: [16]c_int = undefined;
+            var dirs_n: usize = 0;
+            var wal_fd: c_int = -1;
+            var file_fds: std.ArrayList(c_int) = .empty;
+
+            fn addWatch(path: [*:0]const u8) ?c_int {
+                const fd = c.open(path, c.O_EVTONLY | c.O_CLOEXEC);
+                if (fd < 0) return null;
+                var change = std.mem.zeroes(c.struct_kevent);
+                change.ident = @intCast(fd);
+                change.filter = c.EVFILT_VNODE;
+                change.flags = c.EV_ADD | c.EV_ENABLE | c.EV_CLEAR;
+                change.fflags = c.NOTE_WRITE | c.NOTE_EXTEND | c.NOTE_ATTRIB | c.NOTE_RENAME | c.NOTE_DELETE | c.NOTE_REVOKE;
+                if (c.kevent(queue_fd, &change, 1, null, 0, null) != 0) {
+                    _ = c.close(fd);
+                    return null;
+                }
+                return fd;
+            }
+
+            fn addFile(path: [*:0]const u8) void {
+                const fd = addWatch(path) orelse return;
+                file_fds.append(std.heap.c_allocator, fd) catch {
+                    _ = c.close(fd);
+                };
+            }
+
+            fn scanThemes(dir: [*:0]const u8) void {
+                const dp = c.opendir(dir) orelse return;
+                defer _ = c.closedir(dp);
+                while (c.readdir(dp)) |ent| {
+                    const entry_name = std.mem.sliceTo(&ent.*.d_name, 0);
+                    if (!std.mem.endsWith(u8, entry_name, ".kdl")) continue;
+                    var buf: [1024]u8 = undefined;
+                    const path = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ std.mem.span(dir), entry_name }, 0) catch continue;
+                    addFile(path.ptr);
+                }
+            }
+
+            fn rearmFiles() void {
+                for (file_fds.items) |fd| _ = c.close(fd);
+                file_fds.clearRetainingCapacity();
+                for (dir_paths[0..dirs_n]) |*dir| scanThemes(@ptrCast(dir));
+            }
+
+            fn run(_: ?*anyopaque) callconv(.c) c_int {
+                defer {
+                    for (dir_fds[0..dirs_n]) |fd| _ = c.close(fd);
+                    if (wal_fd >= 0) _ = c.close(wal_fd);
+                    for (file_fds.items) |fd| _ = c.close(fd);
+                    file_fds.deinit(std.heap.c_allocator);
+                    _ = c.close(queue_fd);
+                }
+                var events: [16]c.struct_kevent = undefined;
+                while (true) {
+                    const got = c.kevent(queue_fd, null, 0, &events, events.len, null);
+                    if (got < 0) {
+                        if (std.c._errno().* == @backingInt(std.c.E.INTR)) continue;
+                        return 0;
+                    }
+                    if (got == 0) continue;
+                    // Agrupa rajadas do editor, sem acordar quando nada muda.
+                    c.SDL_Delay(60);
+                    // Rename troca o vnode: rearma os arquivos após o evento
+                    // para observar também escritas na versão substituta.
+                    rearmFiles();
+                    wake_fn();
+                }
+            }
+        };
+
+        const kq = c.kqueue();
+        if (kq < 0) return;
+        if (c.fcntl(kq, c.F_SETFD, c.FD_CLOEXEC) != 0) {
+            _ = c.close(kq);
+            return;
+        }
+        W.queue_fd = kq;
+        W.dirs_n = 0;
+        W.file_fds = .empty;
+        for (m.dirs.items) |dir| {
+            if (W.dirs_n == W.dir_fds.len) break;
+            if (dir.len > 4096) continue;
+            const fd = W.addWatch(dir.ptr) orelse continue;
+            @memcpy(W.dir_paths[W.dirs_n][0..dir.len], dir);
+            W.dir_paths[W.dirs_n][dir.len] = 0;
+            W.dir_fds[W.dirs_n] = fd;
+            W.dirs_n += 1;
+        }
+        W.rearmFiles();
+        // O pywal também substitui arquivos: observa a pasta mesmo sem temas.
+        var buf: [512]u8 = undefined;
+        const wal_fd = if (walDir(&buf)) |wd| W.addWatch(wd.ptr) else null;
+        W.wal_fd = wal_fd orelse -1;
+        if (W.dirs_n == 0 and wal_fd == null) {
+            _ = c.close(kq);
+            return;
+        }
+        W.wake_fn = wake;
+        if (c.SDL_CreateThread(W.run, "theme-watch", null)) |t| c.SDL_DetachThread(t) else {
+            for (W.dir_fds[0..W.dirs_n]) |fd| _ = c.close(fd);
+            for (W.file_fds.items) |fd| _ = c.close(fd);
+            W.file_fds.deinit(std.heap.c_allocator);
+            if (wal_fd) |fd| _ = c.close(fd);
+            _ = c.close(kq);
+        }
     }
 
     /// No Windows: um aviso de mudança por pasta (a maior parte é só uma).

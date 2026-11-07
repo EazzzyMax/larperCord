@@ -7,7 +7,8 @@
 //! fecha. No mesmo processo, cada ida à bandeja somaria um ícone. Esse processo
 //! fala StatusNotifierItem direto pelo D-Bus (platform/sni.zig), sem GTK e parado
 //! até o painel ou o app falarem; sem libdbus ou sem sessão D-Bus, fica o
-//! SDL_CreateTray (libappindicator) de antes. No Windows é o SDL_CreateTray.
+//! SDL_CreateTray (libappindicator) de antes. No Windows e no macOS é o
+//! SDL_CreateTray, no próprio processo.
 //!
 //! Clicar no próprio ícone: o botão esquerdo alterna a janela (ver
 //! janela.trayClick) e o direito abre o menu com Abrir e Sair. No Linux pelo
@@ -94,12 +95,13 @@ pub fn show(wake: u32, open_label: [*:0]const u8, quit_label: [*:0]const u8, wai
         fake_on = f;
         return f;
     }
-    if (!sys.trayHostAvailable()) {
+    if (!hostAvailable()) {
         std.log.info("bandeja: nenhum painel para mostrar o ícone neste sistema", .{});
         return false;
     }
     wake_type = wake;
-    if (!sys.windows) return startHelper(open_label, quit_label, wait);
+    // No macOS e no Windows, o SDL tira o ícone no próprio processo.
+    if (!sys.windows and !sys.macos) return startHelper(open_label, quit_label, wait);
     tray = build(open_label, quit_label, onOpen, onQuit);
     if (tray != null) hookClicks();
     return tray != null;
@@ -123,6 +125,7 @@ pub fn reap() bool {
 // --- O app, falando com o processo do ícone -------------------------------------
 
 fn startHelper(open_label: [*:0]const u8, quit_label: [*:0]const u8, wait: bool) bool {
+    if (sys.macos) return false;
     sys.closeOnExec();
     // Pelo nome de verdade, para aparecer como larpercord na lista de processos.
     // Se o arquivo foi trocado com o app aberto (atualização), o caminho do kernel ainda roda.
@@ -265,6 +268,7 @@ fn helperQuit(_: ?*anyopaque, _: ?*c.SDL_TrayEntry) callconv(.c) void {
 
 /// Mostra o ícone até a entrada fechar: o app mandou sair ou morreu, até com SIGKILL.
 pub fn helperMain(open_label: [*:0]const u8, quit_label: [*:0]const u8) noreturn {
+    if (sys.macos) std.process.exit(1);
     // O nosso StatusNotifierItem: só volta se não deu para começar pelo D-Bus.
     sni.run(open_label, quit_label);
     // De reserva, o libappindicator (com o GTK e uma volta a cada 50 ms para atendê-lo).

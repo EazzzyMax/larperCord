@@ -291,6 +291,9 @@ No magic, just many small decisions:
 
 ## Building
 
+For the experimental native **macOS / Apple Silicon** build and `.app` packaging,
+see [the macOS guide](docs/macos.md).
+
 On Linux you need **Zig 0.17**, **SDL3**, **FreeType**, **fontconfig** and **libcurl** (with WebSocket, 7.86+).
 Recommended fonts on Linux: Inter, JetBrains Mono and Noto Color Emoji (fontconfig picks substitutes if one is
 missing). On Windows the app uses Segoe UI, Consolas and Segoe UI Emoji.

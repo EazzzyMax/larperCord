@@ -1032,8 +1032,8 @@ fn performance(p: *Page) void {
     const built = ctx.stats.frames_built;
     const skipped = ctx.stats.frames_skipped;
     const stats = [_]struct { label: []const u8, value: []const u8 }{
-        // No Windows o número é a memória privada do processo, não o PSS (platform/window.zig).
-        .{ .label = if (sys.windows) i18n.tr("RAM (privada)", "RAM (private)") else "RAM (PSS)", .value = mbText(buf[0..32], "", ctx.stats.ram_kb) },
+        // No Windows o número é a memória privada do processo, não o PSS; no macOS, o RSS (platform/window.zig).
+        .{ .label = if (sys.windows) i18n.tr("RAM (privada)", "RAM (private)") else if (sys.macos) "RAM (RSS)" else "RAM (PSS)", .value = mbText(buf[0..32], "", ctx.stats.ram_kb) },
         .{ .label = i18n.tr("Tempo de CPU por quadro", "CPU time per frame"), .value = std.fmt.bufPrint(buf[32..64], "{d}.{d:0>2} ms", .{ ctx.stats.frame_us / 1000, (ctx.stats.frame_us % 1000) / 10 }) catch "" },
         .{ .label = i18n.tr("Quadros iguais, sem desenhar", "Unchanged frames, not drawn"), .value = std.fmt.bufPrint(buf[96..128], "{d}% ({d})", .{ skipped * 100 / @max(built, 1), skipped }) catch "" },
         .{ .label = i18n.tr("CPU parado", "Idle CPU"), .value = i18n.tr("0% (dorme esperando eventos)", "0% (sleeps until there are events)") },

@@ -386,6 +386,12 @@ fn toggleBelowCheck(_: *App) bool {
     const t = qa.find("toggle:Verificar ao abrir") orelse return false;
     return t.y >= b.bottom();
 }
+fn manualMacUpdate(_: *App) bool {
+    return qa.find("button:Reiniciar o larperCord") != null and
+        qa.find("button:Verificar atualizações") == null and
+        qa.find("button:Baixar e instalar") == null and
+        qa.find("toggle:Verificar ao abrir") == null;
+}
 fn scaleUp(app: *App) void {
     app.st.settings.font_scale = 1.3;
 }
@@ -844,22 +850,40 @@ fn uiNormal(app: *App) void {
 fn uiFractional(app: *App) void {
     app.st.settings.ui_scale = 1.25;
 }
+fn expectedFramebufferScale(app: *App) f32 {
+    // O backend SDL usa a escala da tela no macOS e a razão entre pixels
+    // e pontos nos demais sistemas; o app aplica sua escala por cima.
+    const win = app.win.window;
+    const backend = if (@import("builtin").os.tag == .macos) c.SDL_GetWindowDisplayScale(win) else blk: {
+        var w: c_int = 0;
+        var pixels: c_int = 0;
+        _ = c.SDL_GetWindowSize(win, &w, null);
+        _ = c.SDL_GetWindowSizeInPixels(win, &pixels, null);
+        break :blk if (w > 0) @as(f32, @floatFromInt(pixels)) / @as(f32, @floatFromInt(w)) else 1;
+    };
+    return backend * app.uiScale();
+}
+fn expectedDisplayWidth(app: *App) f32 {
+    var w: c_int = 0;
+    _ = c.SDL_GetWindowSize(app.win.window, &w, null);
+    return @as(f32, @floatFromInt(w)) / app.uiScale();
+}
 fn uiIs110(app: *App) bool {
-    return @abs(app.st.settings.ui_scale - 1.1) < 0.001 and @abs(app.io.*.DisplayFramebufferScale.x - 1.1) < 0.01;
+    return @abs(app.st.settings.ui_scale - 1.1) < 0.001 and @abs(app.io.*.DisplayFramebufferScale.x - expectedFramebufferScale(app)) < 0.01;
 }
 /// A janela é a mesma: em pontos ela encolhe, e o desenho sai 1,5 vez maior.
 fn uiIsBig(app: *App) bool {
     // As letras saem da resolução nova, não de um bitmap de 100% esticado.
     for (app.fonts.faces.items) |e| if (e.font.*.CurrentRasterizerDensity != app.io.*.DisplayFramebufferScale.x) return false;
-    return @abs(app.io.*.DisplaySize.x - 1280.0 / 1.5) < 2 and @abs(app.io.*.DisplayFramebufferScale.x - 1.5) < 0.01;
+    return @abs(app.io.*.DisplaySize.x - expectedDisplayWidth(app)) < 2 and @abs(app.io.*.DisplayFramebufferScale.x - expectedFramebufferScale(app)) < 0.01 and app.ui_size == 1.5;
 }
 fn uiIsNormal(app: *App) bool {
-    return app.io.*.DisplaySize.x == 1280 and app.io.*.DisplayFramebufferScale.x == 1;
+    return app.ui_size == 1 and @abs(app.io.*.DisplaySize.x - expectedDisplayWidth(app)) < 2 and @abs(app.io.*.DisplayFramebufferScale.x - expectedFramebufferScale(app)) < 0.01;
 }
 /// O valor do slider já está valendo no desenho: o arraste terminou.
 fn uiDragged(app: *App) bool {
     const v = app.st.settings.ui_scale;
-    return v > 1.2 and v < 1.8 and app.ui_size == v and @abs(app.io.*.DisplayFramebufferScale.x - v) < 0.01;
+    return v > 1.2 and v < 1.8 and app.ui_size == v and @abs(app.io.*.DisplayFramebufferScale.x - expectedFramebufferScale(app)) < 0.01;
 }
 
 /// Antes de um texto pedir, nenhuma fonte de outra escrita foi procurada.
@@ -972,12 +996,18 @@ pub const ops_pages = [_]Op{
     .{ .wait = 150 },
     .{ .run = updateIdle },
     .{ .wait = 100 },
-    expect("o botão de verificar vem antes do interruptor", toggleBelowCheck),
+    if (@import("builtin").os.tag == .macos)
+        expect("macOS mostra reinício e atualização manual", manualMacUpdate)
+    else
+        expect("o botão de verificar vem antes do interruptor", toggleBelowCheck),
     expect("Atualizações: nada se sobrepõe", noOverlap),
     .{ .shot = "73-atualizacoes" },
     .{ .run = updateAvailable },
     .{ .wait = 100 },
-    expect("com versão nova, os dois botões ficam lado a lado", updateBoth),
+    if (@import("builtin").os.tag == .macos)
+        expect("macOS continua com atualização manual", manualMacUpdate)
+    else
+        expect("com versão nova, os dois botões ficam lado a lado", updateBoth),
     expect("Atualizações com versão nova: nada se sobrepõe", noOverlap),
     .{ .shot = "73a-atualizacoes-disponivel" },
     .{ .run = updateReady },

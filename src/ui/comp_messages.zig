@@ -1865,7 +1865,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         const inset: f32 = if (pill) 18 else 0;
         autocomplete.update(ctx, ch_id, active, .{ .x = r.x + inset, .y = top - tray_h, .w = r.w - inset * 2, .h = 0 });
     }
-    // Ctrl+V com imagem copiada (print, imagem do navegador): vira anexo.
+    // Command+V no macOS (Ctrl+V nos demais) com imagem copiada: vira anexo.
     if (active and ctx.io.*.KeyCtrl and c.ImGui_IsKeyPressed(c.ImGuiKey_V)) {
         const has_image = @import("../platform/window.zig").clipboardImage() != null;
         const has_text = c.SDL_HasClipboardText();

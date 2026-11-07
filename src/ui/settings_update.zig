@@ -22,6 +22,14 @@ pub fn draw(p: anytype) void {
     p.title(i18n.tr("Atualizações", "Updates"));
     var vb: [64]u8 = undefined;
     p.line(.semibold, 16, ctx.col(.text), i18n.fmt(&vb, "Versão {s}", "Version {s}", .{updater.current}), 28);
+    if (@import("builtin").os.tag == .macos) {
+        p.note(i18n.tr("Esta versão para macOS é atualizada manualmente. A atualização automática ainda não está disponível.", "This macOS build is updated manually. Automatic updates are not available yet."));
+        p.y += 10;
+        p.heading(i18n.tr("Reiniciar", "Restart"));
+        p.note(i18n.tr("Fecha e abre o larperCord de novo. Se estiver em uma call, ela cai.", "Closes and reopens larperCord. If you're in a call, you'll leave it."));
+        if (p.buttonSoft(i18n.tr("Reiniciar o larperCord", "Restart larperCord"))) ctx.act(.restart);
+        return;
+    }
     var mb: [120]u8 = undefined;
     const line: []const u8 = switch (s.phase) {
         .idle => i18n.tr("Ainda não verificou nesta sessão.", "Not checked yet in this session."),

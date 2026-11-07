@@ -298,6 +298,11 @@ fn listClosed(_: *App) bool {
 fn listAtSecond(_: *App) bool {
     return autocomplete.selected() == 1;
 }
+fn modifiedArrowsPassThrough(_: *App) bool {
+    if (!autocomplete.open()) return false;
+    const mod: u32 = if (@import("builtin").os.tag == .macos) c.SDL_KMOD_GUI else c.SDL_KMOD_CTRL;
+    return !autocomplete.takeSdlKey(c.SDLK_UP, mod) and !autocomplete.takeSdlKey(c.SDLK_DOWN, mod);
+}
 var saved_msgs: usize = 0;
 var saved_searches: u32 = 0;
 fn saveState(app: *App) void {
@@ -487,6 +492,7 @@ pub const ops = [_]Op{
     .{ .wait = 80 },
     .{ .text = "@an" },
     .{ .expect = .{ .name = "@ abre a lista acima da caixa", .check = listOpen, .timeout_ms = 2000 } },
+    expect("setas com modificador principal continuam no campo de texto", modifiedArrowsPassThrough),
     .{ .shot = "67-autocompletar-pessoas" },
     .{ .run = saveState },
     .{ .wait = 150 },

@@ -138,6 +138,13 @@ pub fn build(b: *std.Build) void {
     translate.addIncludePath(b.path("third_party/libdave/includes"));
     translate.defineCMacro("IMGUI_USE_WCHAR32", "1");
     const windows = target.result.os.tag == .windows;
+    const macos = target.result.os.tag == .macos;
+    const macos_sdk = b.option([]const u8, "macos-sdk", "Path from xcrun --sdk macosx --show-sdk-path");
+    if (macos) if (macos_sdk) |sdk| {
+        translate.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
+        translate.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
+        translate.addCFlags(&.{ "-L", b.pathJoin(&.{ sdk, "usr/lib" }) });
+    };
     // Sem pkg-config: as bibliotecas vêm de tools/windows_deps.sh.
     const win_deps = b.path(".deps/windows");
     if (windows) {
@@ -163,6 +170,21 @@ pub fn build(b: *std.Build) void {
         .unwind_tables = if (release and target.result.os.tag != .windows) .none else null,
     });
     mod.addOptions("build_options", build_options);
+    if (macos) {
+        mod.addCSourceFile(.{ .file = b.path("src/platform/macos_runtime.c"), .flags = &.{"-O2"} });
+        mod.addCSourceFile(.{ .file = b.path("src/platform/macos_desktop.m"), .flags = &.{ "-O2", "-fobjc-arc", "-fblocks" } });
+        mod.linkFramework("Foundation", .{});
+        mod.linkFramework("AppKit", .{});
+        mod.linkFramework("UserNotifications", .{});
+        if (macos_sdk) |sdk| {
+            mod.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
+            mod.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
+            mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/lib" }) });
+        }
+        mod.linkFramework("Security", .{});
+        mod.linkFramework("CoreFoundation", .{});
+        mod.addRPathSpecial("@executable_path/../Frameworks");
+    }
     mod.addAnonymousImport("changelog_en", .{ .root_source_file = b.path("CHANGELOG.md") });
     mod.addAnonymousImport("changelog_pt", .{ .root_source_file = b.path("CHANGELOG.pt-BR.md") });
     // Traduções além do português e do inglês: um arquivo por idioma (src/ui/i18n.zig).

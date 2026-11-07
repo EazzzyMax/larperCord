@@ -424,7 +424,10 @@ pub fn frame(app: *App) void {
 
 fn pressed(ctx: *anyopaque, k: *const engine.Keybind) bool {
     const io: *c.ImGuiIO = @ptrCast(@alignCast(ctx));
-    if (io.*.KeyCtrl != k.ctrl or io.*.KeyShift != k.shift or io.*.KeyAlt != k.alt or io.*.KeySuper != k.super) return false;
+    // Os atalhos dos plugins usam Ctrl/Super físicos; o ImGui os troca no macOS.
+    const ctrl = if (sys.macos) io.*.KeySuper else io.*.KeyCtrl;
+    const super = if (sys.macos) io.*.KeyCtrl else io.*.KeySuper;
+    if (ctrl != k.ctrl or io.*.KeyShift != k.shift or io.*.KeyAlt != k.alt or super != k.super) return false;
     return c.ImGui_IsKeyPressedEx(k.key, false);
 }
 

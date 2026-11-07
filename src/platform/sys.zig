@@ -1,4 +1,4 @@
-//! O que muda entre Linux e Windows: sockets, pasta de dados, chaveiro, RAM,
+//! O que muda entre Linux, Windows e macOS: sockets, pasta de dados, chaveiro, RAM,
 //! mapear arquivos, trava de instância, bandeja e avisos do sistema. O resto do
 //! app fala com estas funções.
 const std = @import("std");
@@ -6,6 +6,8 @@ const builtin = @import("builtin");
 const c = @import("c");
 
 pub const windows = builtin.os.tag == .windows;
+pub const linux = builtin.os.tag == .linux;
+pub const macos = builtin.os.tag == .macos;
 /// A demonstração no navegador (src/web_main.zig): sem threads, sem rede e sem as
 /// fontes do sistema. Quem decide é a raiz do build; o app de sempre nunca liga isto.
 pub const web = @hasDecl(@import("root"), "larper_web");
@@ -79,6 +81,8 @@ pub fn init() void {
         _ = OPENSSL_init_crypto(openssl_init_no_load_config, null);
         var data: c.WSADATA = undefined;
         _ = c.WSAStartup(0x0202, &data);
+    } else if (macos) {
+        c.larper_macos_init();
     } else {
         // Um filho (secret-tool) ou pipe fechado vira erro de write, não a morte do app.
         _ = c.signal(c.SIGPIPE, c.SIG_IGN);
@@ -93,6 +97,22 @@ pub fn closeSocket(s: Socket) void {
     if (windows) _ = c.closesocket(s) else _ = c.close(s);
 }
 
+/// Darwin não tem SOCK_CLOEXEC: usa fcntl. No Linux mantém a flag atômica.
+fn socketCloexec(kind: c_int) Socket {
+    const flags = if (macos) kind else kind | c.SOCK_CLOEXEC;
+    const s = c.socket(c.AF_INET, flags, 0);
+    if (!valid(s)) return no_socket;
+    if (macos and c.fcntl(s, c.F_SETFD, c.FD_CLOEXEC) != 0) {
+        closeSocket(s);
+        return no_socket;
+    }
+    return s;
+}
+
+fn setSockaddrLength(sa: *SockAddrIn) void {
+    if (macos) sa.sin_len = @intCast(@sizeOf(SockAddrIn));
+}
+
 /// UDP que nunca bloqueia (`recvNow` volta na hora).
 pub fn udpSocket() ?Socket {
     if (windows) {
@@ -103,8 +123,8 @@ pub fn udpSocket() ?Socket {
         _ = c.ioctlsocket(s, @bitCast(@as(u32, 0x8004667E)), &on);
         return s;
     }
-    const s = c.socket(c.AF_INET, c.SOCK_DGRAM | c.SOCK_CLOEXEC, 0);
-    return if (s < 0) null else s;
+    const s = socketCloexec(c.SOCK_DGRAM);
+    return if (valid(s)) s else null;
 }
 
 pub fn recvNow(s: Socket, buf: []u8) isize {
@@ -119,6 +139,7 @@ pub fn sendTo(s: Socket, data: []const u8, to: *const SockAddrIn) isize {
 
 pub fn bindAny(s: Socket) bool {
     var local = std.mem.zeroes(SockAddrIn);
+    setSockaddrLength(&local);
     local.sin_family = c.AF_INET;
     return c.bind(s, @ptrCast(&local), @sizeOf(SockAddrIn)) == 0;
 }
@@ -126,6 +147,7 @@ pub fn bindAny(s: Socket) bool {
 /// IP e porta -> endereço (porta em ordem de rede).
 pub fn ipv4(ip: [*:0]const u8, port: u16) ?SockAddrIn {
     var sa = std.mem.zeroes(SockAddrIn);
+    setSockaddrLength(&sa);
     sa.sin_family = c.AF_INET;
     sa.sin_port = std.mem.nativeToBig(u16, port);
     if (c.inet_pton(c.AF_INET, ip, &sa.sin_addr) != 1) return null;
@@ -183,7 +205,7 @@ pub fn wakeSignal(write_end: Socket) void {
 /// Escuta em 127.0.0.1, numa porta livre. No Windows, sem isso o socket é
 /// herdado por quem o app abrir (e a porta fica presa depois de sair).
 pub fn tcpListenLocal(port: *u16) ?Socket {
-    const s = if (windows) c.socket(c.AF_INET, c.SOCK_STREAM, 0) else c.socket(c.AF_INET, c.SOCK_STREAM | c.SOCK_CLOEXEC, 0);
+    const s = if (windows) c.socket(c.AF_INET, c.SOCK_STREAM, 0) else socketCloexec(c.SOCK_STREAM);
     if (!valid(s)) return null;
     if (windows) _ = c.SetHandleInformation(@ptrFromInt(s), c.HANDLE_FLAG_INHERIT, 0);
     var addr = ipv4("127.0.0.1", 0) orelse {
@@ -200,7 +222,7 @@ pub fn tcpListenLocal(port: *u16) ?Socket {
 }
 
 pub fn tcpConnectLocal(port: u16) ?Socket {
-    const s = if (windows) c.socket(c.AF_INET, c.SOCK_STREAM, 0) else c.socket(c.AF_INET, c.SOCK_STREAM | c.SOCK_CLOEXEC, 0);
+    const s = if (windows) c.socket(c.AF_INET, c.SOCK_STREAM, 0) else socketCloexec(c.SOCK_STREAM);
     if (!valid(s)) return null;
     const addr = ipv4("127.0.0.1", port) orelse {
         closeSocket(s);
@@ -215,7 +237,12 @@ pub fn tcpConnectLocal(port: u16) ?Socket {
 
 pub fn tcpAccept(s: Socket) ?Socket {
     const client = c.accept(s, null, null);
-    return if (valid(client)) client else null;
+    if (!valid(client)) return null;
+    if (macos and c.fcntl(client, c.F_SETFD, c.FD_CLOEXEC) != 0) {
+        closeSocket(client);
+        return null;
+    }
+    return client;
 }
 
 pub fn tcpSend(s: Socket, data: []const u8) void {
@@ -253,7 +280,7 @@ pub fn lockFile(path: [*:0]const u8) LockResult {
     const fd = c.open(path, c.O_RDWR | c.O_CREAT | c.O_CLOEXEC, @as(c_uint, 0o600));
     if (fd < 0) return .failed;
     if (c.flock(fd, c.LOCK_EX | c.LOCK_NB) == 0) return .{ .got = fd };
-    const held = std.c._errno().* == @intFromEnum(std.c.E.AGAIN);
+    const held = std.c._errno().* == @backingInt(std.c.E.AGAIN);
     _ = c.close(fd);
     return if (held) .held else .failed;
 }
@@ -284,6 +311,8 @@ pub fn closeOnExec() void {
 /// que é o erro seguro.
 pub fn trayHostAvailable() bool {
     if (windows) return true;
+    // A barra de menus do Cocoa não depende de um serviço D-Bus.
+    if (macos) return true;
     // Fica carregada: o próprio SDL já a usa, e a pergunta se repete com a janela escondida.
     const Lib = struct {
         var handle: ?*c.SDL_SharedObject = null;
@@ -415,18 +444,27 @@ fn env(name: [*:0]const u8) ?[]const u8 {
 }
 
 /// Onde ficam as configurações (sem o "larpercord"): $XDG_CONFIG_HOME,
-/// %APPDATA% ou ~/.config.
+/// %APPDATA%, ~/Library/Application Support ou ~/.config.
 pub fn configHome(buf: []u8) ?[]const u8 {
     if (env("XDG_CONFIG_HOME")) |x| return x;
     if (windows) return env("APPDATA");
+    if (macos) {
+        const home = env("HOME") orelse return null;
+        return std.fmt.bufPrint(buf, "{s}/Library/Application Support", .{home}) catch null;
+    }
     const home = env("HOME") orelse return null;
     return std.fmt.bufPrint(buf, "{s}/.config", .{home}) catch null;
 }
 
-/// Onde fica o cache: $XDG_CACHE_HOME, %LOCALAPPDATA% ou ~/.cache.
+/// Onde fica o cache: $XDG_CACHE_HOME, %LOCALAPPDATA%, ~/Library/Caches ou
+/// ~/.cache.
 pub fn cacheHome(buf: []u8) ?[]const u8 {
     if (env("XDG_CACHE_HOME")) |x| return x;
     if (windows) return env("LOCALAPPDATA");
+    if (macos) {
+        const home = env("HOME") orelse return null;
+        return std.fmt.bufPrint(buf, "{s}/Library/Caches", .{home}) catch null;
+    }
     const home = env("HOME") orelse return null;
     return std.fmt.bufPrint(buf, "{s}/.cache", .{home}) catch null;
 }
@@ -434,6 +472,7 @@ pub fn cacheHome(buf: []u8) ?[]const u8 {
 pub fn tempDir() []const u8 {
     if (env("XDG_RUNTIME_DIR")) |x| return x;
     if (windows) return env("TEMP") orelse ".";
+    if (macos) return env("TMPDIR") orelse env("TEMP") orelse "/tmp";
     return "/tmp";
 }
 
@@ -544,15 +583,59 @@ pub fn credDelete(target: [*:0]const u8) void {
     if (windows) _ = c.CredDeleteA(target, c.CRED_TYPE_GENERIC, 0);
 }
 
-/// No Windows confia nos certificados do sistema (não há pacote de CAs junto). No
-/// Linux, cada família de distros guarda o pacote num lugar, e o caminho embutido no
+// --- Chaveiro do macOS ----------------------------------------------------------
+
+const keychain_service = "larperCord";
+
+/// Lê uma senha genérica do Chaveiro de Início de Sessão. `account` identifica
+/// a conta dentro do serviço larperCord; o resultado aponta para `buf`.
+pub fn keychainRead(account: [*:0]const u8, buf: []u8) ?[]u8 {
+    if (comptime !macos) return null;
+    var len: u32 = 0;
+    var data: ?*anyopaque = null;
+    var item: c.SecKeychainItemRef = null;
+    if (c.SecKeychainFindGenericPassword(null, keychain_service.len, keychain_service, @intCast(std.mem.len(account)), account, &len, @ptrCast(&data), &item) != 0) return null;
+    defer {
+        if (data) |p| _ = c.SecKeychainItemFreeContent(null, p);
+        if (item) |i| c.CFRelease(i);
+    }
+    if (len > buf.len) return null;
+    const p = data orelse return null;
+    @memcpy(buf[0..len], @as([*]const u8, @ptrCast(p))[0..len]);
+    return buf[0..len];
+}
+
+/// Armazena ou atualiza uma senha genérica.
+pub fn keychainWrite(account: [*:0]const u8, secret: []const u8) bool {
+    if (comptime !macos) return false;
+    if (secret.len > std.math.maxInt(u32)) return false;
+    var item: c.SecKeychainItemRef = null;
+    const found = c.SecKeychainFindGenericPassword(null, keychain_service.len, keychain_service, @intCast(std.mem.len(account)), account, null, null, &item) == 0;
+    if (found) {
+        defer if (item) |i| c.CFRelease(i);
+        return c.SecKeychainItemModifyAttributesAndData(item, null, @intCast(secret.len), secret.ptr) == 0;
+    }
+    return c.SecKeychainAddGenericPassword(null, keychain_service.len, keychain_service, @intCast(std.mem.len(account)), account, @intCast(secret.len), secret.ptr, null) == 0;
+}
+
+/// Apaga uma senha genérica; não encontrar a entrada já é o estado desejado.
+pub fn keychainDelete(account: [*:0]const u8) void {
+    if (comptime !macos) return;
+    var item: c.SecKeychainItemRef = null;
+    if (c.SecKeychainFindGenericPassword(null, keychain_service.len, keychain_service, @intCast(std.mem.len(account)), account, null, null, &item) != 0) return;
+    defer if (item) |i| c.CFRelease(i);
+    if (item) |i| _ = c.SecKeychainItemDelete(i);
+}
+
+/// No Windows e macOS confia nos certificados do sistema. No Linux, cada
+/// família de distros guarda o pacote num lugar, e o caminho embutido no
 /// OpenSSL do binário portátil só valeria na distro onde ele foi compilado.
 pub fn curlTls(h: *c.CURL) void {
     // O padrão do libcurl já é verificar; explícito para ninguém desligar sem
     // querer (e para o `curl_easy_reset` não pegar ninguém de surpresa).
     _ = c.curl_easy_setopt(h, c.CURLOPT_SSL_VERIFYPEER, @as(c_long, 1));
     _ = c.curl_easy_setopt(h, c.CURLOPT_SSL_VERIFYHOST, @as(c_long, 2));
-    if (windows) {
+    if (windows or macos) {
         _ = c.curl_easy_setopt(h, c.CURLOPT_SSL_OPTIONS, @as(c_long, c.CURLSSLOPT_NATIVE_CA));
     } else {
         const bundles = [_][*:0]const u8{
@@ -600,7 +683,8 @@ pub fn restoreOld(to: [*:0]const u8) void {
 /// O caminho do executável que está rodando, com o nome que ele tiver. No Linux,
 /// o /proc/self/exe já resolvido (links simbólicos seguidos), como o kernel diz:
 /// trocado o arquivo com o app aberto, vem com " (deleted)" no fim (ver
-/// `core/atualizacao.liveExe`). No Windows, o GetModuleFileNameW, em UTF-8.
+/// `core/atualizacao.liveExe`). No Windows, o GetModuleFileNameW, em UTF-8. No
+/// macOS, o _NSGetExecutablePath (dentro do .app, Contents/MacOS/larpercord).
 pub fn selfExe(buf: []u8) ?[]const u8 {
     if (web) return null;
     if (windows) {
@@ -610,6 +694,11 @@ pub fn selfExe(buf: []u8) ?[]const u8 {
         if (n == 0 or n >= wb.len or std.unicode.calcWtf8Len(wb[0..n]) > buf.len) return null;
         const len = std.unicode.utf16LeToUtf8(buf, wb[0..n]) catch return null;
         return buf[0..len];
+    }
+    if (macos) {
+        // O SDL_GetBasePath de um .app aponta para Contents/Resources, não para o executável.
+        if (buf.len == 0 or !c.larper_macos_executable_path(buf.ptr, buf.len)) return null;
+        return std.mem.sliceTo(buf, 0);
     }
     const n = c.readlink("/proc/self/exe", buf.ptr, buf.len);
     if (n <= 0 or n >= buf.len) return null;

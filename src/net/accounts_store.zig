@@ -75,6 +75,11 @@ pub fn tokenFor(acc: *const accounts.Account) ?[:0]u8 {
         var buf: [256]u8 = undefined;
         defer std.crypto.secureZero(u8, &buf);
         if (sys.credRead(target.ptr, &buf)) |s| if (trimmed(s)) |t| return t;
+    } else if (sys.macos) {
+        const target = credTarget(&cbuf, acc.id) orelse return null;
+        var buf: [256]u8 = undefined;
+        defer std.crypto.secureZero(u8, &buf);
+        if (sys.keychainRead(target.ptr, &buf)) |s| if (trimmed(s)) |t| return t;
     } else {
         const cmd = std.fmt.bufPrintSentinel(&cbuf, "secret-tool lookup service larpercord-account account {d} 2>/dev/null", .{acc.id}, 0) catch return null;
         if (c.popen(cmd.ptr, "r")) |f| {
@@ -99,7 +104,7 @@ pub fn tokenFor(acc: *const accounts.Account) ?[:0]u8 {
 
 pub const Saved = enum { keyring, file, failed };
 
-/// Nome da entrada no Gerenciador de Credenciais do Windows.
+/// Nome estável da conta no Gerenciador de Credenciais e no Chaveiro.
 fn credTarget(buf: []u8, id: Id) ?[:0]const u8 {
     return std.fmt.bufPrintSentinel(buf, "larperCord/account/{d}", .{id}, 0) catch null;
 }
@@ -113,6 +118,12 @@ pub fn storeToken(id: Id, token: []const u8) Saved {
     if (sys.windows) {
         const target = credTarget(&cbuf, id) orelse return .failed;
         if (sys.credWrite(target.ptr, "larperCord", token)) {
+            if (path) |p| _ = c.unlink(p.ptr);
+            return .keyring;
+        }
+    } else if (sys.macos) {
+        const target = credTarget(&cbuf, id) orelse return .failed;
+        if (sys.keychainWrite(target.ptr, token)) {
             if (path) |p| _ = c.unlink(p.ptr);
             return .keyring;
         }
@@ -138,6 +149,8 @@ pub fn forgetToken(acc: *const accounts.Account) void {
     var cbuf: [160]u8 = undefined;
     if (sys.windows) {
         if (credTarget(&cbuf, acc.id)) |target| sys.credDelete(target.ptr);
+    } else if (sys.macos) {
+        if (credTarget(&cbuf, acc.id)) |target| sys.keychainDelete(target.ptr);
     } else if (std.fmt.bufPrintSentinel(&cbuf, "secret-tool clear service larpercord-account account {d} 2>/dev/null", .{acc.id}, 0)) |cmd| {
         if (c.popen(cmd.ptr, "r")) |f| _ = c.pclose(f);
     } else |_| {}

@@ -48,8 +48,11 @@ pub fn keys(ctx: *d.Ctx) void {
     if (@import("interact.zig").anyOpen()) return;
     // Só quando nenhum campo de texto está com o foco.
     const io = ctx.io;
-    if (io.*.WantTextInput or c.ImGui_IsAnyItemActive() or io.*.KeyAlt or io.*.KeySuper) return;
-    if (io.*.KeyCtrl) {
+    // O Ctrl físico aparece como KeySuper no macOS, após a troca do ImGui.
+    const physical_ctrl = if (@import("builtin").os.tag == .macos) io.*.KeySuper else io.*.KeyCtrl;
+    const other_mod = if (@import("builtin").os.tag == .macos) io.*.KeyCtrl else io.*.KeySuper;
+    if (io.*.WantTextInput or c.ImGui_IsAnyItemActive() or io.*.KeyAlt or other_mod) return;
+    if (physical_ctrl) {
         // Ctrl+Shift+D é ensurdecer (ui/root.zig).
         if (io.*.KeyShift) return;
         if (pressed(c.ImGuiKey_D)) scroll(ctx, page_h / 2);

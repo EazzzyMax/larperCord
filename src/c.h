@@ -25,16 +25,22 @@
 #include <fontconfig/fontconfig.h>
 #include <fcntl.h>
 #include <sys/mman.h>
-#ifndef __EMSCRIPTEN__
-#include <sys/inotify.h>
-#endif
 #include <sys/file.h>
 #include <unistd.h>
 #include <dirent.h>
 #include <arpa/inet.h>
-#include <malloc.h>
 #include <poll.h>
 #include <signal.h>
+#ifdef __APPLE__
+#include <sys/event.h>
+#include <Security/Security.h>
+#include "platform/macos.h"
+#else
+#ifndef __EMSCRIPTEN__
+#include <sys/inotify.h>
+#endif
+#include <malloc.h>
+#endif
 #endif
 #include <stdio.h>
 #include <sys/stat.h>

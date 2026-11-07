@@ -149,6 +149,7 @@ pub fn takeKey(k: Key) bool {
 pub fn takeSdlKey(key: u32, mod: u32) bool {
     if (!is_open) return false;
     if (mod & (c.SDL_KMOD_CTRL | c.SDL_KMOD_ALT) != 0) return false;
+    if (@import("builtin").os.tag == .macos and mod & c.SDL_KMOD_GUI != 0) return false;
     const shift = mod & c.SDL_KMOD_SHIFT != 0;
     return switch (key) {
         c.SDLK_UP => !shift and takeKey(.up),

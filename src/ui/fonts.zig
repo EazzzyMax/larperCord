@@ -662,6 +662,39 @@ fn resolveWindows(name: []const u8, weight: c_int, slant: c_int) ?Match {
     return null;
 }
 
+/// Fontes do sistema se o fontconfig não encontrar nenhuma. O fontconfig
+/// continua sendo a primeira opção, para respeitar as fontes instaladas.
+fn resolveMacFallback(name: []const u8, weight: c_int, slant: c_int) ?Match {
+    const italic = slant != 0;
+    const bold = weight >= 200;
+    var lower: [64]u8 = undefined;
+    var n: usize = 0;
+    for (name) |ch| {
+        if (ch == ' ' or n == lower.len) continue;
+        lower[n] = std.ascii.toLower(ch);
+        n += 1;
+    }
+    const low = lower[0..n];
+    const has = struct {
+        fn f(s: []const u8, words: []const []const u8) bool {
+            for (words) |w| if (std.mem.indexOf(u8, s, w) != null) return true;
+            return false;
+        }
+    }.f;
+    const path: [:0]const u8 = if (std.mem.eql(u8, low, "emoji"))
+        "/System/Library/Fonts/Apple Color Emoji.ttc"
+    else if (has(low, &.{ "mono", "code", "consol", "courier", "term" }))
+        if (italic) "/System/Library/Fonts/SFNSMonoItalic.ttf" else "/System/Library/Fonts/SFNSMono.ttf"
+    else if (has(low, &.{ "serif", "georgia", "times", "garamond", "playfair" }) and !has(low, &.{"sans"}))
+        if (bold and italic) "/System/Library/Fonts/Supplemental/Times New Roman Bold Italic.ttf" else if (bold) "/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf" else if (italic) "/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf" else "/System/Library/Fonts/Supplemental/Times New Roman.ttf"
+    else if (italic)
+        "/System/Library/Fonts/SFNSItalic.ttf"
+    else
+        "/System/Library/Fonts/SFNS.ttf";
+    if (!sys.exists(path.ptr)) return null;
+    return .{ .path = std.heap.c_allocator.dupeSentinel(u8, path, 0) catch return null, .index = 0 };
+}
+
 /// Navegador: as poucas fontes que a página traz (tools/web/fonts.py), na pasta que a
 /// raiz diz (src/web_main.zig). Toda família vira a do texto ou a monoespaçada, no peso
 /// mais perto que existir; emoji e símbolos só se a pasta tiver.
@@ -823,10 +856,15 @@ fn matchChar(cp: u32) ?Match {
     return null;
 }
 
-/// Pergunta ao fontconfig qual arquivo atende família + peso + inclinação.
 fn resolve(name: []const u8, weight: c_int, slant: c_int) ?Match {
     if (sys.web) return resolveWeb(name, weight, slant);
     if (sys.windows) return resolveWindows(name, weight, slant);
+    if (resolveFontconfig(name, weight, slant)) |m| return m;
+    return if (sys.macos) resolveMacFallback(name, weight, slant) else null;
+}
+
+/// Pergunta ao fontconfig qual arquivo atende família + peso + inclinação.
+fn resolveFontconfig(name: []const u8, weight: c_int, slant: c_int) ?Match {
     var buf: [128]u8 = undefined;
     const zname = std.fmt.bufPrintSentinel(&buf, "{s}", .{name}, 0) catch return null;
     const pat = c.FcPatternCreate() orelse return null;

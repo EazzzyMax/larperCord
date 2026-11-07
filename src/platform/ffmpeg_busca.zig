@@ -8,8 +8,12 @@
 //! SDL; os testes, pastas temporárias com arquivos vazios).
 const std = @import("std");
 
-pub const Os = enum { windows, linux };
-pub const native: Os = if (@import("builtin").os.tag == .windows) .windows else .linux;
+pub const Os = enum { windows, linux, macos };
+pub const native: Os = switch (@import("builtin").os.tag) {
+    .windows => .windows,
+    .macos => .macos,
+    else => .linux,
+};
 
 /// Versões com o layout conferido (FFmpeg 9, 8 e 7; ver platform/ffmpeg.zig).
 pub const Set = struct { lavf: u32, lavc: u32, lavu: u32, sws: u32 };
@@ -41,12 +45,13 @@ pub fn supportedLavf(lavf: u32) bool {
     return false;
 }
 
-/// avcodec-61.dll no Windows, libavcodec.so.61 no Linux (com o zero no fim).
-/// `base` sem o "lib": "avcodec", "swresample".
+/// avcodec-61.dll no Windows, libavcodec.so.61 no Linux, libavcodec.61.dylib no
+/// macOS (com o zero no fim). `base` sem o "lib": "avcodec", "swresample".
 pub fn libFile(buf: []u8, os: Os, base: []const u8, m: u32) ?[:0]const u8 {
     return switch (os) {
         .windows => std.fmt.bufPrintSentinel(buf, "{s}-{d}.dll", .{ base, m }, 0),
         .linux => std.fmt.bufPrintSentinel(buf, "lib{s}.so.{d}", .{ base, m }, 0),
+        .macos => std.fmt.bufPrintSentinel(buf, "lib{s}.{d}.dylib", .{ base, m }, 0),
     } catch null;
 }
 
@@ -151,7 +156,7 @@ pub fn pathDirs(path_env: []const u8, os: Os) PathIter {
 /// sozinho depende do disco atual.
 fn absolute(dir: []const u8, os: Os) bool {
     return switch (os) {
-        .linux => dir[0] == '/',
+        .linux, .macos => dir[0] == '/',
         .windows => (dir.len >= 3 and std.ascii.isAlphabetic(dir[0]) and dir[1] == ':' and (dir[2] == '\\' or dir[2] == '/')) or
             std.mem.startsWith(u8, dir, "\\\\"),
     };
@@ -213,10 +218,18 @@ pub fn searchedNames(buf: []u8, os: Os) []const u8 {
     var w: std.Io.Writer = .fixed(buf);
     for (std.enums.values(Lib), 0..) |lib, i| {
         if (i > 0) w.writeAll(", ") catch break;
-        w.print("{s}{s}", .{ if (os == .linux) "lib" else "", @tagName(lib) }) catch break;
-        w.writeAll(if (os == .linux) ".so." else "-") catch break;
+        w.print("{s}{s}", .{ if (os == .windows) "" else "lib", @tagName(lib) }) catch break;
+        w.writeAll(switch (os) {
+            .linux => ".so.",
+            .windows => "-",
+            .macos => ".",
+        }) catch break;
         for (sets, 0..) |s, k| w.print("{s}{d}", .{ if (k > 0) "/" else "", major(s, lib) }) catch break;
-        if (os == .windows) w.writeAll(".dll") catch break;
+        switch (os) {
+            .windows => w.writeAll(".dll") catch break,
+            .macos => w.writeAll(".dylib") catch break,
+            .linux => {},
+        }
     }
     return w.buffered();
 }
@@ -389,6 +402,8 @@ test "nomes procurados, versões aceitas e o erro do carregamento" {
     var b: [256]u8 = undefined;
     try testing.expectEqualStrings("avutil-61/60/59.dll, swscale-10/9/8.dll, avcodec-63/62/61.dll, avformat-63/62/61.dll", searchedNames(&b, .windows));
     try testing.expectEqualStrings("libavutil.so.61/60/59, libswscale.so.10/9/8, libavcodec.so.63/62/61, libavformat.so.63/62/61", searchedNames(&b, .linux));
+    try testing.expectEqualStrings("libavutil.61/60/59.dylib, libswscale.10/9/8.dylib, libavcodec.63/62/61.dylib, libavformat.63/62/61.dylib", searchedNames(&b, .macos));
+    try testing.expectEqualStrings("libavcodec.61.dylib", libFile(&b, .macos, "avcodec", 61).?);
     try testing.expectEqualStrings("7, 8 e 9", supportedVersions(&b, " e "));
     // Não existe: o nome aparece duas vezes (no "Failed loading" e no motivo).
     try testing.expect(loadErrorIsMissing("Failed loading libavcodec.so.61: libavcodec.so.61: cannot open shared object file: No such file or directory", "libavcodec.so.61"));
