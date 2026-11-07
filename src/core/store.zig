@@ -218,6 +218,9 @@ pub const Store = struct {
     member_lists: std.AutoHashMapUnmanaged(Id, MemberList) = .empty,
     /// (servidor, usuário) -> cor do nome e cargos.
     members: std.AutoHashMapUnmanaged([2]Id, types.MemberInfo) = .empty,
+    /// Alguém já apareceu de castigo nesta sessão: sem isso, a lista de membros
+    /// nem procura o reloginho.
+    algum_castigo: bool = false,
     relationships: std.AutoHashMapUnmanaged(Id, types.Relationship) = .empty,
     /// Pastas e ordem dos servidores (vazio = a ordem em que vieram).
     folders: []types.GuildFolder = &.{},
@@ -881,7 +884,10 @@ pub const Store = struct {
         }
         switch (ev) {
             // Quem cuida é a busca (ver App.afterEvent).
-            .search_results, .invite_joined, .invite_created => {},
+            .search_results, .invite_joined, .invite_created, .bans => {},
+            // O castigo aparece na hora (a lista de membros confirma depois).
+            .moderated => |m| if (m.ok and (m.acao == .timeout or m.acao == .untimeout))
+                s.setTimeout(m.guild, m.user, if (m.acao == .timeout) m.ate_s else 0),
             .ready => |r| {
                 s.me = r.me;
                 s.me_rev +%= 1;
@@ -1508,7 +1514,18 @@ pub const Store = struct {
                 s.rev +%= 1;
             }
         }
+        if (info.timeout_s != 0) s.algum_castigo = true;
         try s.members.put(s.gpa, .{ guild_id, user_id }, info);
+    }
+
+    /// Castigo de alguém (s Unix; 0 tira), no que guardamos e na linha da lista.
+    pub fn setTimeout(s: *Store, guild_id: Id, user_id: Id, until_s: i64) void {
+        const v: u32 = @intCast(std.math.clamp(until_s, 0, std.math.maxInt(u32)));
+        if (v != 0) s.algum_castigo = true;
+        if (s.members.getPtr(.{ guild_id, user_id })) |mi| mi.timeout_s = v;
+        if (s.member_lists.getPtr(guild_id)) |ml| for (ml.items.items) |*it| {
+            if (it.* == .member and it.member.user == user_id) it.member.info.timeout_s = v;
+        };
     }
 
     pub fn memberList(s: *const Store, guild_id: Id) ?*MemberList {

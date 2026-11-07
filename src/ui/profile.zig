@@ -678,6 +678,12 @@ pub fn card(ctx: *d.Ctx, uid: Id, x: f32, y: f32) void {
     const fr: d.Rect = .{ .x = r.right() - 40, .y = r.y + 10, .w = 28, .h = 28 };
     if (cornerButton(ctx, dl, 905, fr, i18n.tr("Ver perfil completo", "View Full Profile"), "profile-full")) ctx.act(.{ .open_full_profile = .{ .user = uid } });
     icons.expand(dl, fr.x + 14, fr.y + 14, d.Rgba.white.alpha(0.9).u());
+    // "⋯": o mesmo menu do botão direito (mencionar, moderar…).
+    if (!hook) {
+        const mr: d.Rect = .{ .x = fr.x - 34, .y = fr.y, .w = 28, .h = 28 };
+        if (cornerButton(ctx, dl, 906, mr, i18n.tr("Mais opções", "More options"), "profile-more")) ctx.st.popup = .{ .menu = .{ .kind = .user, .id = uid, .x = mr.x, .y = mr.bottom() + 4 } };
+        for ([_]f32{ -5, 0, 5 }) |dx| d.circle(dl, mr.x + 14 + dx, mr.y + 14, 1.8, d.Rgba.white.alpha(0.9));
+    }
 
     var col: Col = .{ .ctx = ctx, .dl = dl, .x = r.x + 16, .w = width - 32, .y = top, .ids = 1000 };
     body(&col, uid, pf, gid);

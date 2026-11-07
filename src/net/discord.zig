@@ -23,6 +23,7 @@ const Queue = @import("queue.zig").Queue;
 const Sink = @import("fake_gateway.zig").Sink;
 const nowMs = @import("fake_gateway.zig").nowMs;
 const j = @import("jsonx.zig");
+const moderacao = @import("../core/moderacao.zig");
 const Retry = @import("retry.zig").Retry;
 const timeline = @import("../platform/timeline.zig");
 const i18n = @import("../ui/i18n.zig");
@@ -113,6 +114,8 @@ pub const Gateway = struct {
     /// Rate limit do REST, lido dos cabeçalhos X-RateLimit-*.
     rate_until: i64 = 0,
     global_until: i64 = 0,
+    /// `X-Audit-Log-Reason` do próximo pedido (moderação), já em URL.
+    audit_reason: ?[:0]const u8 = null,
     /// Comandos que chegaram enquanto o gateway estava reconectando ou
     /// esperando rate limit. São enviados quando a conexão volta.
     pending: std.ArrayList(ev.Command) = .empty,
@@ -325,6 +328,8 @@ pub const Gateway = struct {
             .fetch_invite => |code| g.emit(.{ .invite = .{ .code = code, .invite = .{ .state = .failed } } }),
             .join_invite => |code| g.emit(.{ .invite_joined = .{ .code = code, .status = .failed } }),
             .create_invite => |ci| g.emit(.{ .invite_created = .{ .req = ci.req, .status = .failed } }),
+            .moderate => |m| g.emit(.{ .moderated = .{ .req = m.req, .guild = m.guild, .user = m.user, .acao = m.acao, .ok = false } }),
+            .fetch_bans => |fb| g.emit(.{ .bans = .{ .req = fb.req, .guild = fb.guild, .ok = false } }),
             .fetch_threads => |ft| g.emit(.{ .threads_page = .{ .channel = ft.channel, .archived = ft.archived, .failed = true } }),
             else => {},
         }
@@ -843,7 +848,15 @@ pub const Gateway = struct {
             for (j.array(j.get(m, "roles"))) |rv| if (j.id(rv)) |rid| list.append(alloc, rid) catch {};
             if (list.toOwnedSlice(alloc)) |roles| g.emit(.{ .my_roles = .{ .guild = gid, .roles = roles } }) else |_| {}
         }
-        g.emit(.{ .member_info = .{ .guild = gid, .user = uid, .info = g.infoOf(j.array(j.get(m, "roles"))) } });
+        var info = g.infoOf(j.array(j.get(m, "roles")));
+        info.timeout_s = timeoutOf(m);
+        g.emit(.{ .member_info = .{ .guild = gid, .user = uid, .info = info } });
+    }
+
+    /// `communication_disabled_until` de um membro, em s Unix (0 = sem castigo).
+    fn timeoutOf(m: Value) u32 {
+        const iso = j.str(j.get(m, "communication_disabled_until")) orelse return 0;
+        return @intCast(std.math.clamp(j.isoTime(iso), 0, std.math.maxInt(u32)));
     }
 
     /// Passa as pastas para o Store (só se vieram: uma atualização parcial
@@ -883,7 +896,9 @@ pub const Gateway = struct {
         const uid = j.id(j.get(u, "id")) orelse return .none;
         g.upsert(u);
         if (j.get(m, "presence")) |p| g.emit(.{ .presence_update = .{ .user = uid, .status = statusOf(p), .activity = presenceActivity(p), .activities = presenceActivities(p) } });
-        return .{ .member = .{ .user = uid, .info = g.infoOf(j.array(j.get(m, "roles"))) } };
+        var info = g.infoOf(j.array(j.get(m, "roles")));
+        info.timeout_s = timeoutOf(m);
+        return .{ .member = .{ .user = uid, .info = info } };
     }
 
     fn onMemberList(g: *Gateway, d: Value) !void {
@@ -2548,6 +2563,9 @@ pub const Gateway = struct {
 
     /// `mime`: corpo multipart (envio de arquivos) no lugar do JSON.
     fn requestEx(g: *Gateway, method: [:0]const u8, path: []const u8, body: ?[]const u8, mime: ?*c.curl_mime) ?Response {
+        // O motivo é só deste pedido: um pedido feito durante uma espera não o herda.
+        const audit = g.audit_reason;
+        g.audit_reason = null;
         const h = g.rest orelse return null;
         if (!validToken(g.token)) {
             g.notice("token inválido", "invalid token", .{});
@@ -2612,6 +2630,7 @@ pub const Gateway = struct {
                     headers = c.curl_slist_append(headers, line.ptr);
                 } else |_| {}
             }
+            if (audit) |line| headers = c.curl_slist_append(headers, line.ptr);
             if (attempt > 0) {
                 if (std.fmt.bufPrintSentinel(&failed_buf, "X-Failed-Requests: {d}", .{attempt}, 0)) |line| {
                     headers = c.curl_slist_append(headers, line.ptr);
@@ -2705,6 +2724,58 @@ pub const Gateway = struct {
         g.notice("o Discord bloqueou os pedidos por {d} min; tentando de novo depois disso", "Discord blocked requests for {d} min; will try again after that", .{mins});
     }
 
+    /// Moderação (core/moderacao.zig monta o pedido). A resposta volta como
+    /// `moderated`; a saída da lista vem pelo gateway (GUILD_MEMBER_REMOVE).
+    fn moderate(g: *Gateway, m: ev.Moderate) void {
+        var done: ev.Moderated = .{ .req = m.req, .guild = m.guild, .user = m.user, .acao = m.acao, .ok = false, .ate_s = m.ate_s };
+        defer g.emit(.{ .moderated = done });
+        var pb: [96]u8 = undefined;
+        var bb: [96]u8 = undefined;
+        const path = moderacao.caminho(&pb, m.acao, m.guild, m.user) catch return;
+        const body = moderacao.corpo(&bb, m.acao, m.apagar_s, m.ate_s) catch return;
+        var rb: [moderacao.motivo_buf_len]u8 = undefined;
+        g.audit_reason = moderacao.cabecalhoMotivo(&rb, m.motivo);
+        var resp = g.request(moderacao.metodo(m.acao), path, body) orelse return;
+        defer resp.body.deinit(alloc);
+        done.status = @intCast(std.math.clamp(resp.status, 0, std.math.maxInt(u16)));
+        if (resp.status >= 200 and resp.status < 300) {
+            done.ok = true;
+            return;
+        }
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+        if (std.json.parseFromSliceLeaky(Value, arena.allocator(), resp.body.items, .{})) |v| {
+            done.code = @intCast(std.math.clamp(j.int(j.get(v, "code")) orelse 0, 0, std.math.maxInt(u32)));
+        } else |_| {}
+    }
+
+    /// GET /guilds/{id}/bans: quem está banido (até 1000) e por quê.
+    fn fetchBans(g: *Gateway, req: u32, guild: Id) void {
+        var out: ev.Bans = .{ .req = req, .guild = guild, .ok = false };
+        defer g.emit(.{ .bans = out });
+        var pb: [96]u8 = undefined;
+        const path = std.fmt.bufPrint(&pb, "/guilds/{d}/bans?limit=1000", .{guild}) catch return;
+        var resp = g.request("GET", path, null) orelse return;
+        defer resp.body.deinit(alloc);
+        if (resp.status != 200) return;
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+        const v = std.json.parseFromSliceLeaky(Value, arena.allocator(), resp.body.items, .{}) catch return;
+        const src = j.array(v);
+        const list = alloc.alloc(ev.Ban, src.len) catch return;
+        var n: usize = 0;
+        for (src) |bv| {
+            const u = j.get(bv, "user") orelse continue;
+            const uid = j.id(j.get(u, "id")) orelse continue;
+            g.upsert(u);
+            const why = j.str(j.get(bv, "reason")) orelse "";
+            list[n] = .{ .user = uid, .motivo = if (why.len > 0) alloc.dupe(u8, why) catch "" else "" };
+            n += 1;
+        }
+        out.ok = true;
+        out.list = if (n == list.len) list else alloc.realloc(list, n) catch list[0..n];
+    }
+
     fn freeCommand(cmd: ev.Command) void {
         switch (cmd) {
             .search_messages => |s| alloc.free(s.params),
@@ -2719,6 +2790,7 @@ pub const Gateway = struct {
             .forward_message => |f| alloc.free(f.text),
             .ack_bulk => |list| if (list.len > 0) alloc.free(list),
             .create_thread => |m| alloc.free(m.name),
+            .moderate => |m| if (m.motivo.len > 0) alloc.free(m.motivo),
             .edit_place => |e| freeEdit(e),
             .create_post => |m| {
                 alloc.free(m.name);
@@ -3339,6 +3411,8 @@ pub const Gateway = struct {
                 const payload = std.fmt.bufPrint(&buf, "{{\"op\":3,\"d\":{{\"status\":\"{s}\",\"since\":0,\"activities\":[],\"afk\":false}}}}", .{statusName(st)}) catch return;
                 g.send(payload);
             },
+            .moderate => |m| g.moderate(m),
+            .fetch_bans => |fb| g.fetchBans(fb.req, fb.guild),
             .member_role => |mr| {
                 const path = std.fmt.bufPrint(&path_buf, "/guilds/{d}/members/{d}/roles/{d}", .{ mr.guild, mr.user, mr.role }) catch return;
                 var resp = g.request(if (mr.add) "PUT" else "DELETE", path, null) orelse return;
