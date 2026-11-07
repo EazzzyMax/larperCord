@@ -1,5 +1,5 @@
-//! Simula a rede ruim para a recepção de voz: `zig build voz-rede` (sempre em
-//! ReleaseFast). Opus de verdade, 60 s de fala por cenário, um dispositivo que
+//! Simula a rede ruim para a recepção de voz: `zig build voz-rede` (otimizado
+//! como o app). Opus de verdade, 60 s de fala por cenário, um dispositivo que
 //! puxa áudio em ritmo fixo. Compara o jeito antigo de tocar com `voz.Jitter` e
 //! conta buracos e estalos. `LARPER_VOZ_FALA=arquivo.wav` (48 kHz, 16 bits, mono)
 //! usa a fala dele, e `LARPER_VOZ_WAV=pasta` grava o que saiu para ouvir.

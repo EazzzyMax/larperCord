@@ -16,7 +16,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends git ca-certificates curl xz-utils make gcc g++ cmake ninja-build pkg-config binutils \
-            libssl-dev zlib1g-dev libfreetype-dev libfontconfig1-dev libwebp-dev libopus-dev \
+            perl zlib1g-dev libfreetype-dev libfontconfig1-dev libwebp-dev libopus-dev \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev \
             libwayland-dev libwayland-bin libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev \
             libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev
@@ -39,6 +39,8 @@ jobs:
           echo "glibc exigida: $max"
           [ "${max#GLIBC_2.}" -le 35 ]
           if objdump -p "$bin" | grep -qE 'NEEDED +lib(SDL3|curl|ssl|crypto)'; then echo "SDL3, curl e OpenSSL deviam estar dentro"; exit 1; fi
+          # Símbolo exportado não sai do binário: o OpenSSL não pode voltar para a tabela dinâmica.
+          n=$(nm -D --defined-only "$bin" | wc -l); echo "símbolos exportados: $n"; [ "$n" -le 50 ]
       - uses: actions/upload-artifact@v4
         with:
           name: larpercord-linux-x86_64
