@@ -749,6 +749,8 @@ fn page(p: *Page, previews: []const Preview) void {
             p.keyRow(i18n.tr("Paleta com as ações primeiro", "Palette, actions first"), "Ctrl+Shift+P");
             p.keyRow(i18n.tr("Buscar mensagens", "Search messages"), "Ctrl+F");
             p.keyRow(i18n.tr("Configurações", "Settings"), "Ctrl+,");
+            p.keyRow(i18n.tr("Aumentar ou diminuir a interface", "Make the interface bigger or smaller"), "Ctrl + / Ctrl -");
+            p.keyRow(i18n.tr("Interface no tamanho normal", "Interface at normal size"), "Ctrl 0");
             p.keyRow(i18n.tr("Próximo tema", "Next theme"), "F2");
             p.keyRow(i18n.tr("Tema anterior", "Previous theme"), "Shift+F2");
             p.keyRow(i18n.tr("Próxima aba", "Next tab"), "Ctrl+Tab");
@@ -1143,6 +1145,27 @@ fn textSection(p: *Page) void {
             s.text_weight = defaults.text_weight;
             s.text_hinting = defaults.text_hinting;
         }
+    }
+    const missing = @import("fonts.zig").missingLetters();
+    if (missing.len > 0) {
+        const plain_letters = @import("../core/plain_letters.zig");
+        var names: [240]u8 = undefined;
+        var n: usize = 0;
+        var seen: [8]?*const plain_letters.Script = @splat(null);
+        var shown: usize = 0;
+        for (missing) |cp| {
+            const sc = plain_letters.scriptOf(cp);
+            if (sc) |x| {
+                if (std.mem.indexOfScalar(?*const plain_letters.Script, seen[0..shown], x) != null) continue;
+            }
+            if (shown == seen.len) break;
+            seen[shown] = sc;
+            shown += 1;
+            const piece = if (sc) |x| std.fmt.bufPrint(names[n..], "{s}{s}", .{ if (n > 0) ", " else "", i18n.tr(x.pt, x.en) }) else std.fmt.bufPrint(names[n..], "{s}U+{X:0>4}", .{ if (n > 0) ", " else "", cp });
+            n += (piece catch break).len;
+        }
+        var buf: [320]u8 = undefined;
+        p.note(i18n.fmt(&buf, "Ainda sem fonte neste app, e por isso aparecem como ?: {s}.", "No font in this app yet, so these show as ?: {s}.", .{names[0..n]}));
     }
 }
 

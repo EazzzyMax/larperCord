@@ -65,6 +65,41 @@ pub fn of(cp: u32) ?u32 {
     };
 }
 
+/// Não desenha nada de qualquer jeito: não conta como letra sem fonte.
+pub fn invisible(cp: u32) bool {
+    return cp < 0x20 or cp == 0x7F or cp == 0xAD or cp == 0xFFFD or cp == 0xFEFF or
+        (cp >= 0x200B and cp <= 0x200F) or (cp >= 0x2028 and cp <= 0x202E) or (cp >= 0x2060 and cp <= 0x206F) or
+        (cp >= 0xFE00 and cp <= 0xFE0F) or (cp >= 0xE0000 and cp <= 0xE01EF);
+}
+
+pub const Script = struct { first: u32, last: u32, pt: []const u8, en: []const u8 };
+
+const scripts = [_]Script{
+    .{ .first = 0x0370, .last = 0x03FF, .pt = "grego", .en = "Greek" },
+    .{ .first = 0x0400, .last = 0x052F, .pt = "cirílico", .en = "Cyrillic" },
+    .{ .first = 0x0530, .last = 0x058F, .pt = "armênio", .en = "Armenian" },
+    .{ .first = 0x0590, .last = 0x05FF, .pt = "hebraico", .en = "Hebrew" },
+    .{ .first = 0x0600, .last = 0x077F, .pt = "árabe", .en = "Arabic" },
+    .{ .first = 0x0900, .last = 0x097F, .pt = "devanágari", .en = "Devanagari" },
+    .{ .first = 0x0E00, .last = 0x0E7F, .pt = "tailandês", .en = "Thai" },
+    .{ .first = 0x0E80, .last = 0x0EFF, .pt = "laosiano", .en = "Lao" },
+    .{ .first = 0x0F00, .last = 0x0FFF, .pt = "tibetano", .en = "Tibetan" },
+    .{ .first = 0x10A0, .last = 0x10FF, .pt = "georgiano", .en = "Georgian" },
+    .{ .first = 0x1200, .last = 0x137F, .pt = "etíope", .en = "Ethiopic" },
+    .{ .first = 0x13A0, .last = 0x13FF, .pt = "cherokee", .en = "Cherokee" },
+    .{ .first = 0x16A0, .last = 0x16FF, .pt = "rúnico", .en = "Runic" },
+    .{ .first = 0x1780, .last = 0x17FF, .pt = "khmer", .en = "Khmer" },
+    .{ .first = 0x2200, .last = 0x22FF, .pt = "símbolos matemáticos", .en = "math symbols" },
+    .{ .first = 0x2800, .last = 0x28FF, .pt = "braille", .en = "Braille" },
+    .{ .first = 0xA980, .last = 0xA9DF, .pt = "javanês", .en = "Javanese" },
+};
+
+/// A escrita de uma letra, para dizer qual está sem fonte.
+pub fn scriptOf(cp: u32) ?*const Script {
+    for (&scripts) |*s| if (cp >= s.first and cp <= s.last) return s;
+    return null;
+}
+
 fn plain(buf: []u8, text: []const u8) []const u8 {
     var n: usize = 0;
     var it = (std.unicode.Utf8View.init(text) catch unreachable).iterator();
@@ -90,6 +125,14 @@ test "alfabetos estilizados voltam à letra comum" {
     try std.testing.expectEqualStrings("|Memes", plain(&b, "┃𝗠𝗲𝗺𝗲𝘀"));
     try std.testing.expectEqualStrings("|Ajuda", plain(&b, "┃𝑨𝒋𝒖𝒅𝒂"));
     try std.testing.expectEqualStrings("AFK", plain(&b, "𝑨𝑭𝑲"));
+}
+
+test "invisíveis não contam e a escrita tem nome" {
+    try std.testing.expect(invisible(0x200D)); // junta emojis
+    try std.testing.expect(invisible(0xFE0F)); // pede emoji colorido
+    try std.testing.expect(!invisible(0xA9C1));
+    try std.testing.expectEqualStrings("javanês", scriptOf(0xA9C1).?.pt);
+    try std.testing.expect(scriptOf('a') == null);
 }
 
 test "o resto continua igual" {

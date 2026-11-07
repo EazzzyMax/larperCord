@@ -80,10 +80,10 @@ pub fn picture(ctx: *d.Ctx, dl: *c.ImDrawList, url: []const u8, r: d.Rect, radiu
     switch (ctx.images.getStill(url, r.w * scale, r.h * scale)) {
         .ready => |t| {
             // Em pixel inteiro: cada ponto da textura cai num ponto da tela, sem borrar.
-            const x0 = @round(r.x);
-            const y0 = @round(r.y);
-            const x1 = x0 + r.w;
-            const y1 = y0 + r.h;
+            const x0 = @round(r.x * scale) / scale;
+            const y0 = @round(r.y * scale) / scale;
+            const x1 = x0 + @round(r.w * scale) / scale;
+            const y1 = y0 + @round(r.h * scale) / scale;
             if (square_pics) c.ImDrawList_AddImageEx(dl, t.ref, d.v(x0, y0), d.v(x1, y1), d.v(0, 0), d.v(1, 1), d.Rgba.white.col(alpha)) else c.ImDrawList_AddImageRounded(dl, t.ref, d.v(x0, y0), d.v(x1, y1), d.v(0, 0), d.v(1, 1), d.Rgba.white.col(alpha), radius, 0);
             return true;
         },

@@ -4,6 +4,7 @@
 //! (troca de tema), fora do intervalo NewFrame/Render.
 const std = @import("std");
 const sys = @import("../platform/sys.zig");
+const plain_letters = @import("../core/plain_letters.zig");
 const c = @import("c");
 
 pub const Weight = enum(u3) { regular, medium, semibold, bold, italic };
@@ -30,13 +31,36 @@ const match_em: c_uint = 1 << 10; // ImGuiFreeTypeLoaderFlags_LarperMatchEm
 /// não entraram. Fontes não entram no meio do quadro: aqui só marca, e `loadWanted` carrega.
 extern var larper_glyph_missing: ?*const fn (c_uint) callconv(.c) void;
 extern fn larper_font_source_to(font: *c.ImFont, data: *const anyopaque, font_no: c_int, pos: c_int) void;
+extern var larper_glyph_plain: ?*const fn (c_uint) callconv(.c) c_uint;
 var scripts_wanted = false;
+var scripts_tried_once = false;
+var missing_buf: [32]u32 = undefined;
+var missing_n: usize = 0;
 
 fn onGlyphMissing(cp: c_uint) callconv(.c) void {
     var i: usize = 0;
     while (cjk_ranges[i] != 0) : (i += 2) {
-        if (cp >= cjk_ranges[i] and cp <= cjk_ranges[i + 1]) scripts_wanted = true;
+        if (cp >= cjk_ranges[i] and cp <= cjk_ranges[i + 1] and !scripts_tried_once) {
+            scripts_wanted = true;
+            return;
+        }
     }
+    if (plain_letters.invisible(cp)) return;
+    for (missing_buf[0..missing_n]) |m| if (m == cp) return;
+    if (missing_n < missing_buf.len) {
+        missing_buf[missing_n] = cp;
+        missing_n += 1;
+    }
+}
+
+/// Nenhuma fonte tem esta letra: a estilizada (𝐫𝐞𝐠𝐫𝐚𝐬) vira a comum, em vez de "?".
+fn onGlyphPlain(cp: c_uint) callconv(.c) c_uint {
+    return plain_letters.of(cp) orelse 0;
+}
+
+/// As letras que continuam sem fonte, para as Configurações dizerem quais escritas são.
+pub fn missingLetters() []const u32 {
+    return missing_buf[0..missing_n];
 }
 
 /// O quadro que acabou pediu fontes: precisa de outro, mesmo sem evento nenhum.
@@ -69,6 +93,7 @@ pub const Fonts = struct {
     pub fn init(gpa: std.mem.Allocator, atlas: *c.ImFontAtlas) Fonts {
         var f: Fonts = .{ .gpa = gpa, .atlas = atlas };
         larper_glyph_missing = onGlyphMissing;
+        larper_glyph_plain = onGlyphPlain;
         if (resolve("emoji", 80, 0)) |m| {
             defer std.heap.c_allocator.free(m.path);
             f.emoji = f.mapPath(m.path) catch null;
@@ -102,7 +127,7 @@ pub const Fonts = struct {
     pub fn loadWanted(f: *Fonts) bool {
         if (!scripts_wanted) return false;
         scripts_wanted = false;
-        larper_glyph_missing = null;
+        scripts_tried_once = true;
         f.scripts_tried = true;
         for (scriptOrder(f.script_pref)) |i| {
             const m = resolveScript(scripts[i]) orelse continue;

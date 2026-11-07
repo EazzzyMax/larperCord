@@ -150,8 +150,10 @@ test "gif do tenor e do giphy a partir do vídeo" {
     try std.testing.expect(!allowedHost("https://tenor.com.evil.com/x.gif"));
 }
 
-/// Pede ao proxy de mídia a imagem já reduzida (`width`/`height`). WebP
-/// vem como WebP mesmo: o cache de imagens decodifica (inclusive animado).
+/// Pede ao proxy de mídia a imagem já reduzida. Só a largura: com largura e altura juntas, o
+/// proxy segue os dois números, e a caixa arredondada do cache quase nunca tem a proporção
+/// da imagem, que saía esticada e cortada. Se ele ignorar a largura, vem a original, e quem
+/// reduz é o cache. WebP vem como WebP mesmo: o cache decodifica (inclusive animado).
 pub fn proxiedUrl(buf: []u8, url: []const u8, w: u16, h: u16) ?[:0]const u8 {
     const is_media = std.mem.indexOf(u8, url, "media.discordapp.net/") != null or std.mem.indexOf(u8, url, ".discordapp.net/external/") != null;
     if (!is_media) return std.fmt.bufPrintSentinel(buf, "{s}", .{url}, 0) catch null;
@@ -163,17 +165,23 @@ pub fn proxiedUrl(buf: []u8, url: []const u8, w: u16, h: u16) ?[:0]const u8 {
     // WebP/GIF: sem `animated=true` o proxy devolve só o primeiro quadro
     // (é assim que os GIFs do Klipy animam sem sair do Discord).
     const anim = std.ascii.endsWithIgnoreCase(path, ".webp") or std.ascii.endsWithIgnoreCase(path, ".gif");
-    return std.fmt.bufPrintSentinel(buf, "{s}{s}{s}{s}width={d}&height={d}", .{ url, sep, if (video) "format=webp&" else "", if (anim) "animated=true&" else "", w, h }, 0) catch null;
+    _ = h;
+    // Pedido sem limite de verdade (visualizador, copiar imagem): a original.
+    if (w >= 4096 and !video and !anim) return std.fmt.bufPrintSentinel(buf, "{s}", .{url}, 0) catch null;
+    return std.fmt.bufPrintSentinel(buf, "{s}{s}{s}{s}width={d}", .{ url, sep, if (video) "format=webp&" else "", if (anim) "animated=true&" else "", w }, 0) catch null;
 }
 
 test "url do proxy pede o tamanho e mantém o WebP" {
     var b: [512]u8 = undefined;
-    try std.testing.expectEqualStrings("https://media.discordapp.net/attachments/1/2/a.png?ex=1&width=256&height=128", proxiedUrl(&b, "https://media.discordapp.net/attachments/1/2/a.png?ex=1", 256, 128).?);
-    try std.testing.expectEqualStrings("https://media.discordapp.net/a.webp?animated=true&width=128&height=128", proxiedUrl(&b, "https://media.discordapp.net/a.webp", 128, 128).?);
-    try std.testing.expectEqualStrings("https://images-ext-1.discordapp.net/external/x/https/static.klipy.com/a.webp?animated=true&width=232&height=240", proxiedUrl(&b, "https://images-ext-1.discordapp.net/external/x/https/static.klipy.com/a.webp", 232, 240).?);
-    try std.testing.expectEqualStrings("https://media.discordapp.net/stickers/1.webp?size=160&animated=true&width=128&height=128", proxiedUrl(&b, "https://media.discordapp.net/stickers/1.webp?size=160", 128, 128).?);
+    // Sem altura: a imagem mantém a proporção, seja qual for a caixa pedida.
+    try std.testing.expect(std.mem.indexOf(u8, proxiedUrl(&b, "https://media.discordapp.net/attachments/1/2/a.png", 256, 128).?, "height") == null);
+    try std.testing.expectEqualStrings("https://media.discordapp.net/attachments/1/2/a.png", proxiedUrl(&b, "https://media.discordapp.net/attachments/1/2/a.png", 4096, 4096).?);
+    try std.testing.expectEqualStrings("https://media.discordapp.net/attachments/1/2/a.png?ex=1&width=256", proxiedUrl(&b, "https://media.discordapp.net/attachments/1/2/a.png?ex=1", 256, 128).?);
+    try std.testing.expectEqualStrings("https://media.discordapp.net/a.webp?animated=true&width=128", proxiedUrl(&b, "https://media.discordapp.net/a.webp", 128, 128).?);
+    try std.testing.expectEqualStrings("https://images-ext-1.discordapp.net/external/x/https/static.klipy.com/a.webp?animated=true&width=232", proxiedUrl(&b, "https://images-ext-1.discordapp.net/external/x/https/static.klipy.com/a.webp", 232, 240).?);
+    try std.testing.expectEqualStrings("https://media.discordapp.net/stickers/1.webp?size=160&animated=true&width=128", proxiedUrl(&b, "https://media.discordapp.net/stickers/1.webp?size=160", 128, 128).?);
     try std.testing.expectEqualStrings("https://cdn.discordapp.com/avatar-decoration-presets/a.png?size=160&passthrough=true", proxiedUrl(&b, "https://cdn.discordapp.com/avatar-decoration-presets/a.png?size=160&passthrough=true", 128, 128).?);
-    try std.testing.expectEqualStrings("https://media.discordapp.net/attachments/1/2/v.mp4?ex=1&format=webp&width=320&height=180", proxiedUrl(&b, "https://media.discordapp.net/attachments/1/2/v.mp4?ex=1", 320, 180).?);
+    try std.testing.expectEqualStrings("https://media.discordapp.net/attachments/1/2/v.mp4?ex=1&format=webp&width=320", proxiedUrl(&b, "https://media.discordapp.net/attachments/1/2/v.mp4?ex=1", 320, 180).?);
     try std.testing.expect(allowedHost("https://cdn.discordapp.com/x"));
     try std.testing.expect(!allowedHost("https://evil.com/cdn.discordapp.com/x"));
     try std.testing.expect(!allowedHost("http://cdn.discordapp.com/x"));

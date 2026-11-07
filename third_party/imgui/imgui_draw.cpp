@@ -6108,6 +6108,8 @@ static void ImFontAtlas_FontHookRemapCodepoint(ImFontAtlas* atlas, ImFont* font,
 
 // [larperCord] Told when no source has a codepoint: fonts.zig loads the fallback scripts on first need.
 extern "C" { void (*larper_glyph_missing)(unsigned int) = nullptr; }
+// [larperCord] A letra comum por trás de uma estilizada (𝐫𝐞𝐠𝐫𝐚𝐬), ou 0.
+extern "C" { unsigned int (*larper_glyph_plain)(unsigned int) = nullptr; }
 
 static ImFontGlyph* ImFontBaked_BuildLoadGlyph(ImFontBaked* baked, ImWchar codepoint, float* only_load_advance_x)
 {
@@ -6136,6 +6138,7 @@ static ImFontGlyph* ImFontBaked_BuildLoadGlyph(ImFontBaked* baked, ImWchar codep
             return glyph;
 
     // Call backend
+larper_try_plain:
     char* loader_user_data_p = (char*)baked->FontLoaderDatas;
     char* loader_user_data_p_next = NULL;
     for (int src_n = 0; src_n < font->Sources.Size; src_n++, loader_user_data_p = loader_user_data_p_next)
@@ -6179,6 +6182,14 @@ static ImFontGlyph* ImFontBaked_BuildLoadGlyph(ImFontBaked* baked, ImWchar codep
             return NULL;
         }
     }
+
+    // [larperCord] Nenhuma fonte tem esta letra estilizada: desenha a comum no lugar do "?".
+    if (larper_glyph_plain != nullptr && src_codepoint == codepoint)
+        if (unsigned int plain = larper_glyph_plain((unsigned int)codepoint))
+        {
+            src_codepoint = (ImWchar)plain;
+            goto larper_try_plain;
+        }
 
     if (larper_glyph_missing != nullptr)
         larper_glyph_missing((unsigned int)codepoint);
@@ -7361,8 +7372,11 @@ void ImFont::RenderChar(ImDrawList* draw_list, float size, const ImVec2& pos, Im
     float y = pos.y;
     if ((draw_list->Flags & ImDrawFlags_TextNoPixelSnap) == 0)
     {
-        x = IM_TRUNC(x);
-        y = IM_TRUNC(y);
+        // [larperCord] Encaixa em pixels da tela, não em pontos: em 125%, um ponto inteiro cai
+        // no meio de um pixel e o texto inteiro sai borrado.
+        const float snap = CurrentRasterizerDensity > 0.0f ? CurrentRasterizerDensity : 1.0f;
+        x = IM_TRUNC(x * snap) / snap;
+        y = IM_TRUNC(y * snap) / snap;
     }
 
     float x1 = x + glyph->X0 * scale;
@@ -7406,8 +7420,9 @@ begin:
     flags |= draw_list->Flags;
     if ((flags & ImDrawFlags_TextNoPixelSnap) == 0)
     {
-        x = IM_TRUNC(x);
-        y = IM_TRUNC(y);
+        const float snap = CurrentRasterizerDensity > 0.0f ? CurrentRasterizerDensity : 1.0f;
+        x = IM_TRUNC(x * snap) / snap;
+        y = IM_TRUNC(y * snap) / snap;
     }
 
     if (!text_end)

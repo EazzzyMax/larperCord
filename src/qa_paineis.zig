@@ -495,6 +495,21 @@ fn textStyleDefault(app: *App) bool {
     const src = app.fonts.faces.items[0].font.Sources.Data[0];
     return app.st.settings.text_weight == 1 and src.*.RasterizerMultiply == 1 and src.*.FontLoaderFlags & 31 == 8 and textWidth(app) == text_width_before;
 }
+var stylized_w: f32 = 0;
+var question_w: f32 = 0;
+fn probeLetters(app: *App) void {
+    const font = app.fonts.faces.items[0].font;
+    stylized_w = d.width(font, 14, "𝗠𝗲𝗺𝗲𝘀");
+    question_w = d.width(font, 14, "?????");
+    // Javanês: nem a fonte do tema nem as reservas têm.
+    _ = d.width(font, 14, "꧁");
+}
+fn stylizedNotQuestion(_: *App) bool {
+    return stylized_w > 0 and stylized_w != question_w;
+}
+fn lettersNoted(_: *App) bool {
+    return std.mem.indexOfScalar(u32, @import("ui/fonts.zig").missingLetters(), 0xA9C1) != null;
+}
 /// Sem foto de 128 px reduzida na placa de vídeo: a textura tem o tamanho em que aparece.
 fn imageExactSize(app: *App) bool {
     return switch (app.images.get("demo:1", 40, 40)) {
@@ -568,6 +583,12 @@ pub const ops_extras = [_]Op{
     expect("nada se sobrepõe com o texto mudado", noOverlap),
     click("button:Voltar ao padrão"),
     .{ .expect = .{ .name = "e voltar ao padrão restaura tudo", .check = textStyleDefault, .timeout_ms = 2000 } },
+    s("letras sem fonte"),
+    .{ .run = probeLetters },
+    .{ .expect = .{ .name = "letra estilizada não vira ?", .check = stylizedNotQuestion, .timeout_ms = 2000 } },
+    .{ .expect = .{ .name = "e a escrita sem fonte é anotada para as Configurações", .check = lettersNoted, .timeout_ms = 2000 } },
+    .{ .wait = 100 },
+    .{ .shot = "letras-sem-fonte" },
     s("imagem no tamanho em que aparece"),
     .{ .expect = .{ .name = "foto reduzida antes de ir para a placa", .check = imageExactSize, .timeout_ms = 3000 } },
     key(c.ImGuiKey_Escape),
@@ -599,6 +620,12 @@ fn uiBig(app: *App) void {
 }
 fn uiNormal(app: *App) void {
     app.st.settings.ui_scale = 1;
+}
+fn uiFractional(app: *App) void {
+    app.st.settings.ui_scale = 1.25;
+}
+fn uiIs110(app: *App) bool {
+    return @abs(app.st.settings.ui_scale - 1.1) < 0.001 and @abs(app.io.*.DisplayFramebufferScale.x - 1.1) < 0.01;
 }
 /// A janela é a mesma: em pontos ela encolhe, e o desenho sai 1,5 vez maior.
 fn uiIsBig(app: *App) bool {
@@ -650,6 +677,26 @@ pub const ops_ui_size = [_]Op{
     .{ .run = uiNormal },
     .{ .wait = 200 },
     expect("volta ao normal", uiIsNormal),
+    .{ .run = uiFractional },
+    .{ .wait = 250 },
+    .{ .shot = "interface-125" },
+    .{ .run = uiNormal },
+    .{ .wait = 200 },
+    s("Ctrl + , Ctrl - e Ctrl 0"),
+    .{ .key = .{ .key = c.ImGuiKey_Equal, .ctrl = true } },
+    .{ .wait = 150 },
+    expect("Ctrl + aumenta 10%", uiIs110),
+    .{ .shot = "interface-110" },
+    expect("nada se sobrepõe em 110%", noOverlap),
+    .{ .key = .{ .key = c.ImGuiKey_Minus, .ctrl = true } },
+    .{ .wait = 150 },
+    expect("Ctrl - diminui", uiIsNormal),
+    .{ .key = .{ .key = c.ImGuiKey_Equal, .ctrl = true } },
+    .{ .key = .{ .key = c.ImGuiKey_Equal, .ctrl = true } },
+    .{ .wait = 150 },
+    .{ .key = .{ .key = c.ImGuiKey_0, .ctrl = true } },
+    .{ .wait = 150 },
+    expect("Ctrl 0 volta ao normal", uiIsNormal),
     key(c.ImGuiKey_Escape),
     .{ .wait = 350 },
 };

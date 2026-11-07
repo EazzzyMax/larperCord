@@ -223,6 +223,7 @@ fn shortcuts(ctx: *d.Ctx) void {
     const ctrl = io.*.KeyCtrl;
     const shift = io.*.KeyShift;
     if (c.ImGui_IsKeyPressed(c.ImGuiKey_Escape) and ctx.st.popup == .none and !ctx.st.selection.empty()) ctx.st.selection = .{};
+    if (ctrl) zoomKeys(ctx);
     if (ctrl and c.ImGui_IsKeyPressed(c.ImGuiKey_Comma)) ctx.act(if (ctx.st.settings.open) .close_settings else .open_settings);
     if (ctrl and c.ImGui_IsKeyPressed(c.ImGuiKey_K)) {
         palette.commands_first = false;
@@ -246,4 +247,17 @@ fn shortcuts(ctx: *d.Ctx) void {
         const keys = [_]c_int{ c.ImGuiKey_1, c.ImGuiKey_2, c.ImGuiKey_3, c.ImGuiKey_4, c.ImGuiKey_5, c.ImGuiKey_6, c.ImGuiKey_7, c.ImGuiKey_8, c.ImGuiKey_9 };
         for (keys, 0..) |k, i| if (c.ImGui_IsKeyPressed(k)) ctx.act(.{ .focus_tab = i });
     }
+}
+
+/// Ctrl + , Ctrl - e Ctrl 0: a interface inteira, como no navegador e no Discord.
+fn zoomKeys(ctx: *d.Ctx) void {
+    const set = &ctx.st.settings;
+    const before = set.ui_scale;
+    if (c.ImGui_IsKeyPressedEx(c.ImGuiKey_Equal, false) or c.ImGui_IsKeyPressedEx(c.ImGuiKey_KeypadAdd, false)) set.ui_scale += 0.1;
+    if (c.ImGui_IsKeyPressedEx(c.ImGuiKey_Minus, false) or c.ImGui_IsKeyPressedEx(c.ImGuiKey_KeypadSubtract, false)) set.ui_scale -= 0.1;
+    if (c.ImGui_IsKeyPressedEx(c.ImGuiKey_0, false) or c.ImGui_IsKeyPressedEx(c.ImGuiKey_Keypad0, false)) set.ui_scale = 1;
+    if (set.ui_scale == before) return;
+    set.ui_scale = std.math.clamp(@round(set.ui_scale * 20) / 20, 0.75, 2);
+    ctx.st.showToast(ctx.now_ms, false, "interface em {d:.0}%", "interface at {d:.0}%", .{set.ui_scale * 100});
+    ctx.act(.save_settings);
 }

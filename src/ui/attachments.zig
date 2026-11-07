@@ -137,7 +137,8 @@ fn image(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, scale:
     } else switch (look) {
         .ready => |t| {
             playing = t.animated and play;
-            c.ImDrawList_AddImageRounded(dl, t.ref, d.v(r.x, r.y), d.v(r.right(), r.bottom()), d.v(0, 0), d.v(1, 1), d.Rgba.white.col(alpha), radius, 0);
+            // Cortar em vez de esticar: a imagem muito fina tem um tamanho mínimo na conversa.
+            @import("embeds.zig").imageCover(dl, t, r, alpha, radius, 0);
             if (hb.hovered) d.rect(dl, r, d.Rgba.white.alpha(0.06), radius);
         },
         .loading => {
