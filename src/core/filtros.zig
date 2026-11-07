@@ -40,6 +40,8 @@ pub const Filtros = struct {
     alert: std.ArrayList([]u8) = .empty,
     filter: std.ArrayList([]u8) = .empty,
     ignored: std.AutoArrayHashMapUnmanaged(Id, void) = .empty,
+    /// Ignorados pela conta no Discord (vem do READY; não fica gravado aqui).
+    account: std.AutoArrayHashMapUnmanaged(Id, void) = .empty,
     /// Mensagens recolhidas que a pessoa pediu para ver.
     revealed: std.AutoHashMapUnmanaged(Id, void) = .empty,
     /// Menções (e alertas) não lidas por canal.
@@ -62,6 +64,7 @@ pub const Filtros = struct {
         f.alert.deinit(gpa);
         f.filter.deinit(gpa);
         f.ignored.deinit(gpa);
+        f.account.deinit(gpa);
         f.revealed.deinit(gpa);
         f.mentions.deinit(gpa);
         f.focus_quiet.deinit(gpa);
@@ -72,6 +75,10 @@ pub const Filtros = struct {
         f.revealed.clearRetainingCapacity();
         f.mentions.clearRetainingCapacity();
         f.focus_quiet.clearRetainingCapacity();
+        if (f.account.count() > 0) {
+            f.account.clearRetainingCapacity();
+            f.changed(false);
+        }
     }
 
     fn changed(f: *Filtros, persist: bool) void {
@@ -114,8 +121,28 @@ pub const Filtros = struct {
         f.changed(true);
     }
 
+    /// Ignorado aqui (lista local, de antes) ou pela conta.
     pub fn isIgnored(f: *const Filtros, user: Id) bool {
-        return f.ignored.count() > 0 and f.ignored.contains(user);
+        return (f.ignored.count() > 0 and f.ignored.contains(user)) or (f.account.count() > 0 and f.account.contains(user));
+    }
+
+    pub fn anyIgnored(f: *const Filtros) bool {
+        return f.ignored.count() > 0 or f.account.count() > 0;
+    }
+
+    pub fn setAccountIgnored(f: *Filtros, gpa: std.mem.Allocator, user: Id, on: bool) void {
+        if (on) {
+            const gop = f.account.getOrPut(gpa, user) catch return;
+            if (gop.found_existing) return;
+        } else if (!f.account.orderedRemove(user)) return;
+        f.changed(false);
+    }
+
+    /// A lista inteira do READY troca a anterior.
+    pub fn setAccountList(f: *Filtros, gpa: std.mem.Allocator, ids: []const Id) void {
+        f.account.clearRetainingCapacity();
+        for (ids) |id| f.account.put(gpa, id, {}) catch {};
+        f.changed(false);
     }
 
     pub fn setIgnored(f: *Filtros, gpa: std.mem.Allocator, user: Id, on: bool) void {
@@ -153,7 +180,7 @@ pub const Filtros = struct {
     /// A mensagem fica recolhida? (ignorado ou filtro, e ainda não mostrada)
     pub fn hides(f: *const Filtros, m: *store_mod.StoredMessage, me: Id) bool {
         if (m.msg.author == me or m.msg.system != .none or m.msg.id == 0) return false;
-        if (f.ignored.count() == 0 and f.filter.items.len == 0) return false;
+        if (!f.anyIgnored() and f.filter.items.len == 0) return false;
         if (f.revealed.contains(m.msg.id)) return false;
         return f.isIgnored(m.msg.author) or (f.flags(m) & bit_filter != 0);
     }
@@ -390,4 +417,26 @@ test "filtros vão e voltam pelo KDL" {
     try std.testing.expectEqual(Verdict.important, back.judge(1, "quero PIZZA hoje", false, false));
     try std.testing.expectEqual(Verdict.normal, back.judge(1, "pizzaria", false, false));
     try std.testing.expectEqual(Verdict.hidden, back.judge(1234567890123456789, "oi", true, false));
+}
+
+test "ignorado pela conta: esconde, mas não vai para o arquivo local" {
+    const gpa = std.testing.allocator;
+    var f: Filtros = .{};
+    defer f.deinit(gpa);
+    f.setIgnored(gpa, 5, true);
+    const g0 = f.gen;
+    f.setAccountList(gpa, &.{ 7, 8 });
+    try std.testing.expect(f.gen != g0);
+    try std.testing.expect(f.isIgnored(5) and f.isIgnored(7) and !f.isIgnored(9));
+    try std.testing.expectEqual(Verdict.hidden, f.judge(8, "oi", true, true));
+    f.setAccountIgnored(gpa, 7, false);
+    try std.testing.expect(!f.isIgnored(7));
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(gpa);
+    try f.write(&out, gpa);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"5\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\"8\"") == null);
+    // Trocar de conta esquece os da conta, não os locais.
+    f.resetSession();
+    try std.testing.expect(f.isIgnored(5) and !f.isIgnored(8));
 }

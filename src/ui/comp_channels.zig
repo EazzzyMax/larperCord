@@ -419,6 +419,15 @@ fn voiceFlagsTip(f: ev.VoiceFlags) ?[]const u8 {
 
 // --- Painel do usuário ---------------------------------------------------
 
+/// "🎧 no ar": o status personalizado, se vale agora.
+fn customLine(ctx: *d.Ctx, buf: []u8) ?[]const u8 {
+    const cs = ctx.st.conta.custom;
+    if (!cs.active(ctx.now_ms)) return null;
+    if (cs.expires_ms > 0) @import("anim.zig").at(cs.expires_ms);
+    if (cs.emoji_name.len > 0 and cs.text.len > 0) return std.fmt.bufPrint(buf, "{s} {s}", .{ d.utf8Prefix(cs.emoji_name, 32), d.utf8Prefix(cs.text, 512) }) catch cs.text;
+    return if (cs.text.len > 0) cs.text else cs.emoji_name;
+}
+
 pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     const fam = ctx.familyFor(n);
     const tty = d.is(n, "variant", "tty", "discord");
@@ -435,10 +444,15 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     var mb: [80]u8 = undefined;
     const modes = modeLine(ctx, &mb);
     if (modes != null) qa.mark(pr, "mode-line", .{});
+    // Status personalizado (vale até vencer), no lugar do texto do status.
+    var cb: [600]u8 = undefined;
+    const custom = customLine(ctx, &cb);
     if (tty) {
         var buf: [160]u8 = undefined;
         const t = if (modes) |ml|
             std.fmt.bufPrint(&buf, "{s} {s} [{s}]", .{ w.statusGlyph(me.status), me.name, ml }) catch ""
+        else if (custom) |cl|
+            std.fmt.bufPrint(&buf, "{s} {s} · {s}", .{ w.statusGlyph(me.status), me.name, d.utf8Prefix(cl, 100) }) catch ""
         else
             std.fmt.bufPrint(&buf, "{s} {s}", .{ w.statusGlyph(me.status), me.name }) catch "";
         const tr: d.Rect = .{ .x = pr.x + 4, .y = pr.y + 2, .w = pr.w - 80, .h = pr.h - 4 };
@@ -459,6 +473,10 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         // Foco/economia ligados aparecem no lugar do status (o menu tem como sair).
         if (modes) |ml| {
             _ = d.textClipped(ctx.dl, fam.get(.semibold), 12, card.x + 44, card.y + 19, ctx.col(.accent), ml, card.w - 48);
+        } else if (custom) |cl| {
+            const cr: d.Rect = .{ .x = card.x + 44, .y = card.y + 19, .w = card.w - 48, .h = 15 };
+            _ = d.textClipped(ctx.dl, fam.get(.regular), 12, cr.x, cr.y, ctx.col(.muted), cl, cr.w);
+            qa.mark(cr, "me-custom-status", .{});
         } else _ = d.textClipped(ctx.dl, fam.get(.regular), 12, card.x + 44, card.y + 19, ctx.col(.muted), switch (me.status) {
             .online => "Online",
             .idle => i18n.tr3("Ausente", "Idle", "退席中"),

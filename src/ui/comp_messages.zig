@@ -378,7 +378,7 @@ pub fn history(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect, ch_id: Id, region: [*
     var n_new: u32 = 0;
     const filt = &st.filtros;
     // Sem ignorados nem filtro (o comum), nada fica recolhido: nem pergunta.
-    const any_hide = filt.ignored.count() > 0 or filt.filter.items.len > 0;
+    const any_hide = filt.anyIgnored() or filt.filter.items.len > 0;
     const dx = decoIndex(true);
     var prev_hidden = false;
     for (msgs, 0..) |*m, i| {

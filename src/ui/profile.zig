@@ -678,6 +678,12 @@ pub fn card(ctx: *d.Ctx, uid: Id, x: f32, y: f32) void {
     const fr: d.Rect = .{ .x = r.right() - 40, .y = r.y + 10, .w = 28, .h = 28 };
     if (cornerButton(ctx, dl, 905, fr, i18n.tr("Ver perfil completo", "View Full Profile"), "profile-full")) ctx.act(.{ .open_full_profile = .{ .user = uid } });
     icons.expand(dl, fr.x + 14, fr.y + 14, d.Rgba.white.alpha(0.9).u());
+    // "Mais": o menu da pessoa (amizade, ignorar, bloquear…).
+    if (uid != ctx.store.me and !hook) {
+        const mr: d.Rect = .{ .x = fr.x - 34, .y = fr.y, .w = 28, .h = 28 };
+        if (cornerButton(ctx, dl, 906, mr, i18n.tr("Mais", "More"), "profile-more")) return ctx.popup(.{ .menu = .{ .kind = .user, .id = uid, .x = mr.x, .y = mr.bottom() + 4 } });
+        for (0..3) |i| d.circle(dl, mr.x + 8 + @as(f32, @floatFromInt(i)) * 6, mr.y + 14, 1.8, d.Rgba.white.alpha(0.9));
+    }
 
     var col: Col = .{ .ctx = ctx, .dl = dl, .x = r.x + 16, .w = width - 32, .y = top, .ids = 1000 };
     body(&col, uid, pf, gid);
@@ -845,38 +851,67 @@ pub fn full(ctx: *d.Ctx, uid: Id) void {
     if (xb.clicked) popup.close(ctx);
 }
 
-/// Mensagem / aceitar pedido, no perfil grande.
+/// Mensagem, amizade e bloquear, no perfil grande.
 fn buttons(col: *Col, uid: Id) void {
     const ctx = col.ctx;
     if (uid == ctx.store.me or isWebhook(ctx, uid)) return;
     const rel = ctx.store.relationship(uid);
-    const Btn = struct { label: []const u8, mark: []const u8, accent: bool };
-    var list: [2]Btn = undefined;
+    const Do = enum { dm, accept, add, none, block, unblock };
+    const Btn = struct { label: []const u8, mark: []const u8, accent: bool, do: Do, danger: bool = false };
+    var list: [3]Btn = undefined;
     var n: usize = 0;
-    list[n] = .{ .label = i18n.tr("Mensagem", "Message"), .mark = "profile-btn:dm", .accent = true };
+    list[n] = .{ .label = i18n.tr("Mensagem", "Message"), .mark = "profile-btn:dm", .accent = true, .do = .dm };
     n += 1;
+    const bot = if (ctx.store.user(uid)) |u| u.bot else false;
+    const fs = ctx.st.conta.friends.get(uid);
     if (rel == .incoming) {
-        list[n] = .{ .label = i18n.tr("Aceitar pedido", "Accept Request"), .mark = "profile-btn:accept", .accent = false };
+        list[n] = .{ .label = i18n.tr("Aceitar pedido", "Accept Request"), .mark = "profile-btn:accept", .accent = false, .do = .accept };
+        n += 1;
+    } else if (rel == .outgoing or (rel == .none and fs != null and fs.? == .sent)) {
+        // Um pedido por clique: depois de mandar, o botão fica desligado.
+        list[n] = .{ .label = i18n.tr("Pedido enviado", "Request Sent"), .mark = "profile-btn:sent", .accent = false, .do = .none };
+        n += 1;
+    } else if (rel == .none and !bot) {
+        const sending = fs != null and fs.? == .sending;
+        list[n] = .{ .label = if (sending) i18n.tr("Enviando…", "Sending…") else i18n.tr("Adicionar amigo", "Add Friend"), .mark = "profile-btn:add", .accent = false, .do = if (sending) .none else .add };
         n += 1;
     }
+    list[n] = if (rel == .blocked)
+        .{ .label = i18n.tr("Desbloquear", "Unblock"), .mark = "profile-btn:unblock", .accent = false, .do = .unblock }
+    else
+        .{ .label = i18n.tr("Bloquear", "Block"), .mark = "profile-btn:block", .accent = false, .do = .block, .danger = true };
+    n += 1;
     var x = col.x;
     const font = ctx.ui.get(.semibold);
     for (list[0..n], 0..) |b, i| {
         const bw = d.width(font, 13.5, b.label) + 28;
+        // Coluna estreita: o botão que não cabe desce.
+        if (x > col.x and x + bw > col.x + col.w) {
+            x = col.x;
+            col.y += 40;
+        }
         const br: d.Rect = .{ .x = x, .y = col.y, .w = bw, .h = 32 };
         const hb = col.hit(180 + i, br);
         if (col.dl) |dl| {
             qa.mark(br, "{s}", .{b.mark});
+            const off = b.do == .none;
             const bg = if (b.accent) ctx.col(.accent) else ctx.col(.elevated);
-            d.rect(dl, br, if (hb.hovered) bg.mix(ctx.col(.text), 0.1) else bg, 6);
-            d.text(dl, font, 13.5, br.x + 14, d.centerY(br, 13.5), if (b.accent) ctx.col(.accent_text) else ctx.col(.text), b.label);
+            d.rect(dl, br, if (hb.hovered and !off) bg.mix(ctx.col(.text), 0.1) else bg, 6);
+            const ink = if (b.accent) ctx.col(.accent_text) else if (off) ctx.col(.faint) else if (b.danger and hb.hovered) ctx.col(.danger) else ctx.col(.text);
+            d.text(dl, font, 13.5, br.x + 14, d.centerY(br, 13.5), ink, b.label);
         }
-        if (hb.clicked) {
-            if (i == 0) {
+        if (hb.clicked) switch (b.do) {
+            .dm => {
                 ctx.act(.{ .open_dm = uid });
                 popup.close(ctx);
-            } else ctx.act(.{ .accept_friend = uid });
-        }
+            },
+            .accept => ctx.act(.{ .accept_friend = uid }),
+            .add => ctx.act(.{ .conta = .{ .friend_request = uid } }),
+            .unblock => ctx.act(.{ .remove_relationship = uid }),
+            // Pede confirmação no lugar do botão.
+            .block => ctx.popup(.{ .menu = .{ .kind = .block_confirm, .id = uid, .x = br.x, .y = br.bottom() + 4 } }),
+            .none => {},
+        };
         x += bw + 8;
     }
     col.y += 46;

@@ -64,7 +64,7 @@ pub fn page(ctx: *d.Ctx, dl: *c.ImDrawList, x: f32, y: *f32, wd: f32) void {
     defer y.* = p.y;
     d.text(dl, ctx.ui.get(.bold), 22, p.x, p.y, ctx.col(.text), i18n.tr("Alertas e filtros", "Alerts & Filters"));
     p.y += 44;
-    p.note(i18n.tr("Tudo aqui fica só neste computador: ninguém fica sabendo.", "Everything here stays on this computer: nobody is told."));
+    p.note(i18n.tr("Palavras e modo foco ficam só neste computador: ninguém fica sabendo.", "Words and focus mode stay on this computer: nobody is told."));
 
     p.heading(i18n.tr("Palavras de alerta", "Alert words"));
     p.note(i18n.tr("Mensagem com a palavra inteira (sem diferenciar maiúsculas) conta como menção.", "A message with the whole word (any case) counts as a mention."));
@@ -77,7 +77,8 @@ pub fn page(ctx: *d.Ctx, dl: *c.ImDrawList, x: f32, y: *f32, wd: f32) void {
     p.divider();
 
     p.heading(i18n.tr("Pessoas ignoradas", "Ignored people"));
-    p.note(i18n.tr("Ignorar não bloqueia: as mensagens só ficam recolhidas aqui. Botão direito numa pessoa → Ignorar.", "Ignoring isn't blocking: messages are just collapsed here. Right-click someone → Ignore."));
+    p.note(i18n.tr("Ignorar não bloqueia: vale na conta, como no app oficial, e as mensagens ficam recolhidas.", "Ignoring isn't blocking: it's saved to your account, like in the official app, and messages are collapsed."));
+    p.note(i18n.tr("Botão direito numa pessoa → Ignorar. Quem foi ignorado antes fica só neste computador.", "Right-click someone → Ignore. People ignored before stay on this computer only."));
     ignoredList(&p);
     p.divider();
 
@@ -168,19 +169,26 @@ fn drawChip(p: *P, chip: d.Rect, word: []const u8, id: usize, which: filtros.Whi
 fn ignoredList(p: *P) void {
     const ctx = p.ctx;
     const f = &ctx.st.filtros;
-    const ids = f.ignored.keys();
-    if (ids.len == 0) {
+    if (!f.anyIgnored()) {
         p.note(i18n.tr("Ninguém ignorado.", "Nobody ignored."));
         return;
     }
     var drop: ?Id = null;
-    for (ids, 0..) |uid, i| {
+    // Primeiro os da conta, depois os que ficaram só aqui (de antes).
+    const lists = [_][]const Id{ f.account.keys(), f.ignored.keys() };
+    var i: usize = 0;
+    for (lists, 0..) |ids, li| for (ids) |uid| {
+        if (li == 1 and f.account.contains(uid)) continue;
+        defer i += 1;
         const row: d.Rect = .{ .x = p.x, .y = p.y, .w = p.w, .h = 48 };
         d.rect(p.dl, row, ctx.col(.rail).alpha(0.5), ctx.th.radius);
         w.avatar(ctx, p.dl, row.x + 26, row.y + 24, 32, uid, .circle, null, 1);
         var nb: [48]u8 = undefined;
         const name = if (ctx.store.user(uid)) |u| u.name else std.fmt.bufPrint(&nb, "ID {d}", .{uid}) catch "?";
-        _ = d.textClipped(p.dl, ctx.ui.get(.semibold), 15, row.x + 52, d.centerY(row, 15), ctx.col(.text), name, row.w - 240);
+        const nw = d.textClipped(p.dl, ctx.ui.get(.semibold), 15, row.x + 52, d.centerY(row, 15), ctx.col(.text), name, row.w - 330);
+        // Onde vale: na conta ou só neste computador.
+        const where = if (li == 0) i18n.tr("na conta", "account") else i18n.tr("neste computador", "this computer");
+        d.text(p.dl, ctx.ui.get(.medium), 12, row.x + 52 + nw + 10, d.centerY(row, 12), ctx.col(.faint), where);
         const label = i18n.tr("Deixar de ignorar", "Unignore");
         const bw = d.width(ctx.ui.get(.semibold), 14, label) + 28;
         const br: d.Rect = .{ .x = row.right() - bw - 8, .y = row.y + 7, .w = bw, .h = 34 };
@@ -191,8 +199,8 @@ fn ignoredList(p: *P) void {
         d.text(p.dl, ctx.ui.get(.semibold), 14, br.x + 14, d.centerY(br, 14), ctx.col(.text), label);
         if (hb.clicked) drop = uid;
         p.y += 56;
-    }
-    if (drop) |uid| f.setIgnored(ctx.st.gpa, uid, false);
+    };
+    if (drop) |uid| ctx.act(.{ .conta = .{ .ignore = .{ .user = uid, .on = false } } });
 }
 
 fn focus(p: *P) void {

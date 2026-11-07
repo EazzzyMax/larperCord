@@ -244,7 +244,7 @@ pub const Gateway = struct {
         } });
     }
 
-    fn emit(g: *Gateway, e: ev.Event) void {
+    pub fn emit(g: *Gateway, e: ev.Event) void {
         g.sink.push(g.sink.ctx, e);
     }
 
@@ -634,6 +634,7 @@ pub const Gateway = struct {
                     // Sem servidor novo na demonstração: "entra" num que já está na barra.
                     g.emit(.{ .invite_joined = .{ .code = code, .status = status, .guild = if (status == .ok) guildId(2) else 0 } });
                 },
+                .conta => |cc| @import("fake_conta.zig").execute(g, cc),
                 .fetch_invite => |code| {
                     _ = sent.invite_fetches.fetchAdd(1, .monotonic);
                     g.emit(.{ .invite = .{ .code = code, .invite = try demoInvite(code.slice()) } });

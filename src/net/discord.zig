@@ -41,6 +41,7 @@ const envio = @import("../core/envio.zig");
 const gw_budget = @import("gw_budget.zig");
 const limits_json = @import("limits_json.zig");
 const debug_log = @import("../platform/debug_log.zig");
+const conta_net = @import("conta_net.zig");
 const Id = types.Id;
 const Value = std.json.Value;
 
@@ -101,6 +102,10 @@ pub const Gateway = struct {
     voice_wait_until: i64 = 0,
     /// Status escolhido (também vai no IDENTIFY de uma sessão nova).
     status: types.Status = .online,
+    /// Status personalizado e o resto da conta (net/conta_net.zig).
+    conta: conta_net.NetState = .{},
+    /// O próximo pedido não repete sozinho nem com rate limit (pedido de amizade).
+    no_retry: bool = false,
     /// Cargo -> cor e posição, para a cor do nome de cada membro.
     role_info: std.AutoHashMapUnmanaged(Id, RoleInfo) = .empty,
     /// Última lista de membros pedida (op 14): repetida depois de um READY.
@@ -187,6 +192,7 @@ pub const Gateway = struct {
         g.role_info.deinit(alloc);
         g.voice_volumes.deinit(alloc);
         g.acks.deinit(alloc);
+        g.conta.deinit();
     }
 
     const RoleInfo = struct { color: u32, pos: i64 };
@@ -203,12 +209,12 @@ pub const Gateway = struct {
         g.seq = null;
     }
 
-    fn emit(g: *Gateway, e: ev.Event) void {
+    pub fn emit(g: *Gateway, e: ev.Event) void {
         g.sink.push(g.sink.ctx, e);
     }
 
     /// Aviso para a interface, nos dois idiomas.
-    fn notice(g: *Gateway, comptime pt: []const u8, comptime en: []const u8, args: anytype) void {
+    pub fn notice(g: *Gateway, comptime pt: []const u8, comptime en: []const u8, args: anytype) void {
         const s = i18n.allocPrint(alloc, pt, en, args) catch return;
         g.emit(.{ .notice = s });
     }
@@ -587,7 +593,7 @@ pub const Gateway = struct {
 
     /// Op 3, 4 e 14: entram na fila do teto e saem assim que houver vez
     /// (presença e lista de membros se juntam; voz sai na ordem, sem perder nenhum).
-    fn queueOp(g: *Gateway, it: gw_budget.Item) void {
+    pub fn queueOp(g: *Gateway, it: gw_budget.Item) void {
         switch (g.outbox.push(it)) {
             .queued, .coalesced => {},
             .merged => if (debug_log.isOn()) std.log.info("gateway: fila do op 4 cheia; o último estado de voz ficou no lugar do anterior", .{}),
@@ -613,11 +619,8 @@ pub const Gateway = struct {
 
     fn writeItem(g: *Gateway, it: gw_budget.Item) void {
         switch (it) {
-            .presence => {
-                var buf: [128]u8 = undefined;
-                const payload = std.fmt.bufPrint(&buf, "{{\"op\":3,\"d\":{{\"status\":\"{s}\",\"since\":0,\"activities\":[],\"afk\":false}}}}", .{statusName(g.status)}) catch return;
-                g.writeWs(payload);
-            },
+            // Com o status personalizado, se vale agora (net/conta_net.zig).
+            .presence => conta_net.writePresence(g, statusName(g.status)),
             .lazy => |l| {
                 var tb: [32]u8 = undefined;
                 const lists = if (l.thread != 0) std.fmt.bufPrint(&tb, "\"{d}\"", .{l.thread}) catch "" else "";
@@ -635,7 +638,7 @@ pub const Gateway = struct {
         }
     }
 
-    fn writeWs(g: *Gateway, payload: []const u8) void {
+    pub fn writeWs(g: *Gateway, payload: []const u8) void {
         const h = g.ws orelse return;
         if (!g.ws_live) return;
         var off: usize = 0;
@@ -669,6 +672,7 @@ pub const Gateway = struct {
         g.acked = false;
         g.hb_sent_at = nowMs();
         g.next_hb = g.hb_sent_at + g.hb_interval;
+        conta_net.tick(g);
     }
 
     /// Primeiro heartbeat com atraso aleatório, como manda a documentação.
@@ -1227,9 +1231,12 @@ pub const Gateway = struct {
             const st = j.get(d, "settings") orelse return;
             if ((j.int(j.get(st, "type")) orelse 0) != 1) return;
             const b64 = j.str(j.get(st, "proto")) orelse return;
+            const partial = if (j.get(d, "partial")) |pv| pv == .bool and pv.bool else false;
+            conta_net.onProtoUpdate(g, b64, partial);
             if (settings_proto.fromProtoBase64(alloc, b64)) |layout| g.emitFolders(layout) else |_| {}
             return;
         }
+        if (std.mem.eql(u8, t, "USER_GUILD_SETTINGS_UPDATE")) return conta_net.onGuildSettingsUpdate(g, d);
         if (std.mem.eql(u8, t, "GUILD_ROLE_DELETE")) {
             if (j.id(j.get(d, "role_id"))) |rid| g.emit(.{ .role_delete = rid });
             return;
@@ -1246,11 +1253,13 @@ pub const Gateway = struct {
         }
         if (std.mem.eql(u8, t, "RELATIONSHIP_ADD") or std.mem.eql(u8, t, "RELATIONSHIP_UPDATE")) {
             if (j.get(d, "user")) |u| g.upsert(u);
+            conta_net.onRelationship(g, d, false);
             const uid = j.id(j.get(d, "id")) orelse return;
             g.emit(.{ .relationship = .{ .user = uid, .kind = relationshipKind(j.get(d, "type")), .since_ms = sinceMs(d) } });
             return;
         }
         if (std.mem.eql(u8, t, "RELATIONSHIP_REMOVE")) {
+            conta_net.onRelationship(g, d, true);
             const uid = j.id(j.get(d, "id")) orelse return;
             g.emit(.{ .relationship = .{ .user = uid, .kind = .none } });
             return;
@@ -2434,6 +2443,7 @@ pub const Gateway = struct {
         } else if (j.get(d, "user_settings")) |us| if (j.get(us, "guild_folders")) |gf| {
             if (settings_proto.fromJson(alloc, gf)) |layout| g.emitFolders(layout) else |_| {}
         };
+        conta_net.onReady(g, d);
         g.emit(.{ .status = .ready });
         g.gatewayReady();
         // Sessão nova: a lista de membros que estava aberta precisa ser pedida de novo.
@@ -2623,7 +2633,7 @@ pub const Gateway = struct {
     }
 
     /// Mostra o erro que o Discord mandou ("Missing Access", "Unknown Message"...).
-    fn noticeHttp(g: *Gateway, what: []const u8, resp: *const Response) void {
+    pub fn noticeHttp(g: *Gateway, what: []const u8, resp: *const Response) void {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         var detail: []const u8 = "";
@@ -2639,7 +2649,7 @@ pub const Gateway = struct {
         }
     }
 
-    fn request(g: *Gateway, method: [:0]const u8, path: []const u8, body: ?[]const u8) ?Response {
+    pub fn request(g: *Gateway, method: [:0]const u8, path: []const u8, body: ?[]const u8) ?Response {
         return g.requestEx(method, path, body, null);
     }
 
@@ -2822,6 +2832,8 @@ pub const Gateway = struct {
                 } else {
                     g.rate_until = @max(g.rate_until, retry_at);
                 }
+                // Quem pediu não quer repetição: devolve o 429 para ele explicar.
+                if (g.no_retry) return resp;
                 resp.body.deinit(alloc);
                 if (wait_ms > long_block_ms) {
                     g.noticeBlocked(retry_at);
@@ -2869,6 +2881,7 @@ pub const Gateway = struct {
             .ack_bulk => |list| if (list.len > 0) alloc.free(list),
             .create_thread => |m| alloc.free(m.name),
             .edit_place => |e| freeEdit(e),
+            .conta => |cc| cc.deinit(alloc),
             .create_post => |m| {
                 alloc.free(m.name);
                 alloc.free(m.content);
@@ -3527,8 +3540,9 @@ pub const Gateway = struct {
                 if (st == g.status) return;
                 g.status = st;
                 // Sai com o status do momento em que tiver vez (só o último vale).
-                g.queueOp(.presence);
+                conta_net.sendPresence(g);
             },
+            .conta => |cc| conta_net.execute(g, cc),
             .member_role => |mr| {
                 const path = std.fmt.bufPrint(&path_buf, "/guilds/{d}/members/{d}/roles/{d}", .{ mr.guild, mr.user, mr.role }) catch return;
                 var resp = g.request(if (mr.add) "PUT" else "DELETE", path, null) orelse return;

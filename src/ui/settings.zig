@@ -997,8 +997,9 @@ fn account(p: *Page) void {
         d.text(p.dl, p.font(.semibold), 13, br.x + 2, d.centerY(br, 13), if (hb.hovered) ctx.col(.text) else ctx.col(.link), lbl);
         if (hb.clicked) show_email = !show_email;
     }
-    d.text(p.dl, p.font(.regular), 12.5, er.x + 14, er.y + 54, ctx.col(.faint), i18n.tr("Nome, foto e senha se mudam pelo app oficial ou pelo site.", "Name, picture and password are changed in the official app or website."));
+    d.text(p.dl, p.font(.regular), 12.5, er.x + 14, er.y + 54, ctx.col(.faint), i18n.tr("Foto, banner e senha se mudam pelo app oficial ou pelo site.", "Picture, banner and password are changed in the official app or website."));
     p.y += card.h + 24;
+    @import("settings_conta.zig").profile(ctx, p.dl, p.x, &p.y, p.w);
     p.heading(i18n.tr("Sessão", "Session"));
     p.note(if (ctx.store.demo) i18n.tr("Você está no modo demonstração. Sair leva à tela de login.", "You're in demo mode. Logging out takes you to the sign-in screen.") else i18n.tr("Sair desconecta e apaga o token desta conta neste computador (as outras contas guardadas continuam).", "Logging out disconnects and deletes this account's token from this computer (other saved accounts stay)."));
     if (p.button(i18n.tr("Sair", "Log Out"), true)) ctx.act(.logout);
