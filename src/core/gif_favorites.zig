@@ -211,7 +211,7 @@ fn putInt(out: *std.ArrayList(u8), gpa: std.mem.Allocator, num: u64, value: u64)
 fn putEntry(out: *std.ArrayList(u8), gpa: std.mem.Allocator, g: NewGif, order: u64) !void {
     var gif: std.ArrayList(u8) = .empty;
     defer gif.deinit(gpa);
-    try putInt(&gif, gpa, gif_format, @intFromEnum(g.format));
+    try putInt(&gif, gpa, gif_format, @backingInt(g.format));
     try putBytes(&gif, gpa, gif_src, g.src);
     // Zero é o padrão do proto3: não vai.
     if (g.width > 0) try putInt(&gif, gpa, gif_width, g.width);
