@@ -661,6 +661,44 @@ fn viewerOpen(app: *App) bool {
 fn viewerClosed(app: *App) bool {
     return app.st.viewer == null;
 }
+fn imageCopied(_: *App) bool {
+    return c.SDL_HasClipboardData(@import("ui/images.zig").clip_mime);
+}
+/// Uma mensagem com embed (link com prévia) da conversa aberta.
+fn demoEmbedMessage(app: *App) Id {
+    const cs = active(app) orelse return 0;
+    var k = cs.messages.items.len;
+    while (k > 0) {
+        k -= 1;
+        if (cs.messages.items[k].msg.embeds.len > 0) return cs.messages.items[k].msg.id;
+    }
+    return 0;
+}
+fn pinDemoImage(app: *App) void {
+    const f = findAttachment(app, "demo:1") orelse return;
+    const found = app.store.findAny(f.id) orelse return;
+    const channel = found.cs.info.id;
+    const with_embed = demoEmbedMessage(app);
+    if (with_embed != 0) app.handle(.{ .pin_message = .{ .channel = channel, .id = with_embed, .add = true } });
+    app.handle(.{ .pin_message = .{ .channel = channel, .id = f.id, .add = true } });
+    app.handle(.{ .open_pins = channel });
+}
+fn unpinDemoImage(app: *App) void {
+    const f = findAttachment(app, "demo:1") orelse return;
+    const found = app.store.findAny(f.id) orelse return;
+    const with_embed = demoEmbedMessage(app);
+    if (with_embed != 0) app.handle(.{ .pin_message = .{ .channel = found.cs.info.id, .id = with_embed, .add = false } });
+    app.handle(.{ .pin_message = .{ .channel = found.cs.info.id, .id = f.id, .add = false } });
+}
+fn pinnedImageShown(app: *App) bool {
+    if (app.st.popup != .pins) return false;
+    const f = findAttachment(app, "demo:1") orelse return false;
+    // Com nome próprio: a mesma imagem também está na conversa, atrás do painel.
+    var b: [64]u8 = undefined;
+    if (qa.find(std.fmt.bufPrint(&b, "pin-media:{d}", .{f.id}) catch return false) == null) return false;
+    // E o link com prévia.
+    return qa.find(std.fmt.bufPrint(&b, "pin-media:{d}", .{demoEmbedMessage(app)}) catch return false) != null;
+}
 fn toastDemoFile(app: *App) bool {
     return std.mem.indexOf(u8, app.st.toast.text(), "arquivo") != null;
 }
@@ -2272,12 +2310,24 @@ const ops = [_]Op{
     .{ .wait = 300 },
     .{ .expect = .{ .name = "tela cheia carrega a imagem grande", .check = noImageLoading, .timeout_ms = 4000 } },
     .{ .shot = "27-imagem-tela-cheia" },
+    click("viewer:Copiar imagem"),
+    .{ .expect = .{ .name = "copiar imagem põe a imagem na área de transferência", .check = imageCopied, .timeout_ms = 5000 } },
     key(c.ImGuiKey_Escape),
     expect("Esc fecha a tela cheia", viewerClosed),
     .{ .click = .{ .dyn = tDemoImage } },
     expect("abrir de novo", viewerOpen),
     click("viewer:fechar"),
     expect("o X fecha a tela cheia", viewerClosed),
+    .{ .run = pinDemoImage },
+    .{ .expect = .{ .name = "a imagem aparece na aba de fixadas", .check = pinnedImageShown, .timeout_ms = 4000 } },
+    .{ .shot = "27b-fixadas-imagem" },
+    .{ .click = .{ .dyn = tDemoImage } },
+    expect("clicar nela abre em tela cheia", viewerOpen),
+    key(c.ImGuiKey_Escape),
+    expect("Esc fecha a imagem", viewerClosed),
+    key(c.ImGuiKey_Escape),
+    .{ .run = unpinDemoImage },
+    .{ .wait = 200 },
     .{ .run = clearToast },
     .{ .run = jumpToFile },
     .{ .wait = 500 },
@@ -3046,6 +3096,8 @@ const ops_login = [_]Op{
 
 const ops_plugins_only = [_]Op{expect("carrega e mostra a conversa", ready)} ++ ops_plugin_section;
 const ops_plugins_tls = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_tls;
+const ops_extras = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_paineis.zig").ops_extras;
+const ops_ffmpeg = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_paineis.zig").ops_ffmpeg;
 const ops_plugins_real = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_real;
 const ops_vitrine = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_vitrine;
 const ops_plugins_a = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_persist_a;
@@ -3068,6 +3120,8 @@ fn script() []const Op {
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "quadros")) return &ops_quadros;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins")) return &ops_plugins_only;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-tls")) return &ops_plugins_tls;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "extras")) return &ops_extras;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "ffmpeg")) return &ops_ffmpeg;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-real")) return &ops_plugins_real;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "vitrine")) return &ops_vitrine;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-a")) return &ops_plugins_a;
@@ -3237,6 +3291,7 @@ pub const Runner = struct {
         const st = &app.st;
         var h = std.hash.Wyhash.init(0);
         h.update(std.mem.asBytes(&st.settings));
+        h.update(&.{@intFromBool(@import("platform/debug_log.zig").ui_on)});
         h.update(std.mem.asBytes(&st.popup));
         h.update(std.mem.asBytes(&st.guild));
         h.update(std.mem.asBytes(&st.tab));

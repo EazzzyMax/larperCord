@@ -40,6 +40,20 @@ pub const sent = struct {
     pub var invite_fetches: A = .init(0);
 };
 
+const demo_gifs = [_][]const u8{ "dancing cat", "thumbs up", "good morning", "laughing", "confused", "applause", "typing fast", "shrug" };
+
+fn demoGifItem(name: []const u8, i: usize) !types.Gif {
+    var slug_buf: [32]u8 = undefined;
+    const slug = slug_buf[0..name.len];
+    for (name, slug) |ch, *o| o.* = if (ch == ' ') '-' else ch;
+    return .{
+        .url = try std.fmt.allocPrint(alloc, "https://tenor.com/view/{s}-gif-{d}", .{ slug, 1000 + i }),
+        .src = try alloc.dupe(u8, "demo:gif"),
+        .preview = try std.fmt.allocPrint(alloc, "demo:{d}", .{i % 3 + 1}),
+        .title = try alloc.dupe(u8, name),
+    };
+}
+
 pub const Gateway = struct {
     commands: Queue(ev.Command),
     sink: Sink,
@@ -229,6 +243,27 @@ pub const Gateway = struct {
                         .reply_to = m.reply_to,
                     } });
                 },
+                .gif_search => |q| {
+                    defer alloc.free(q.query);
+                    var items: std.ArrayList(types.Gif) = .empty;
+                    for (demo_gifs, 0..) |name, i| {
+                        if (q.query.len > 0 and std.ascii.findIgnoreCase(name, q.query) == null) continue;
+                        try items.append(alloc, try demoGifItem(name, i));
+                    }
+                    g.emit(.{ .gifs = .{ .req = q.req, .items = try items.toOwnedSlice(alloc) } });
+                },
+                .gif_favorites => |req| {
+                    const items = try alloc.alloc(types.Gif, 3);
+                    for (items, demo_gifs[0..3], 0..) |*it, name, i| {
+                        it.* = try demoGifItem(name, i);
+                        // Favoritos só trazem a mídia, sem imagem parada à parte.
+                        alloc.free(it.preview);
+                        it.preview = "";
+                        alloc.free(it.title);
+                        it.title = "";
+                    }
+                    g.emit(.{ .gifs = .{ .req = req, .favorites = true, .items = items } });
+                },
                 .edit_message => |m| {
                     const shown = try jsonx.simplifyContent(alloc, m.content);
                     var raw: ?[]const u8 = null;
@@ -237,6 +272,7 @@ pub const Gateway = struct {
                 },
                 .delete_message => |m| g.emit(.{ .message_delete = .{ .channel = m.channel, .id = m.id } }),
                 .delete_thread => |id| g.emit(.{ .channel_delete = id }),
+                .leave_guild => |id| g.emit(.{ .guild_delete = id }),
                 .edit_place => |e| try g.editPlace(e),
                 .react => |r| g.emit(.{ .reaction = .{ .channel = r.channel, .id = r.id, .emoji = r.emoji, .user = me_id, .add = r.add } }),
                 .fetch_history => |ch| {
@@ -672,11 +708,14 @@ pub const Gateway = struct {
             i -= 1;
             const p = g.pins.items[i];
             if (p.channel != channel) continue;
-            const from = for (latest) |m| {
+            const from = for (latest) |*m| {
                 if (m.id == p.id) break m;
             } else null;
             if (from) |m| {
-                try out.append(alloc, .{ .id = m.id, .channel = channel, .author = m.author, .timestamp = m.timestamp, .content = try alloc.dupe(u8, m.content), .pinned = true });
+                // Os anexos passam para a cópia, como na API de verdade.
+                try out.append(alloc, .{ .id = m.id, .channel = channel, .author = m.author, .timestamp = m.timestamp, .content = try alloc.dupe(u8, m.content), .pinned = true, .attachments = m.attachments, .embeds = m.embeds });
+                m.attachments = &.{};
+                m.embeds = &.{};
             } else {
                 var m = try syntheticAt(channel, p.id, g.epoch_ms);
                 m.pinned = true;

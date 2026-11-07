@@ -87,7 +87,7 @@ fn build(ctx: *const d.Ctx, tx: *const tfx.TextFx, out: *[max_runs]Run, advs: *A
             .color = if (sp.color) |e| e.eval(toks) else base_color,
             .tracking = tracking * d.text_scale,
             .width = trackedWidth(font, size, text, tracking, advs),
-            .ascent = larper_font_ascent(font, size * d.text_scale),
+            .ascent = larper_font_ascent(font, d.fontPx(size)),
             .first_adv = first_adv,
         };
     }
@@ -103,7 +103,7 @@ fn rawText(dl: *c.ImDrawList, font: *c.ImFont, sz: f32, x: f32, y: f32, col: u32
 fn pass(dl: *c.ImDrawList, runs: []const Run, advs: *const Advances, x0: f32, base: f32, gap: f32, over: ?d.Rgba) void {
     var x = x0;
     for (runs) |run| {
-        const sz = run.size * d.text_scale;
+        const sz = d.fontPx(run.size);
         const y = base - run.ascent;
         const col = (over orelse run.color).u();
         if (run.tracking == 0) {

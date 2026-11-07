@@ -81,6 +81,25 @@ pub fn gifFromVideo(buf: []u8, video: []const u8) ?[]const u8 {
     return null;
 }
 
+/// O tamanho guardado de uma imagem pedida com `v` pixels. Pequenas ficam no tamanho exato,
+/// porque a placa de vídeo só reduz bem até umas 2 vezes. Nas maiores, passos largos para
+/// redimensionar a janela não baixar tudo de novo.
+pub fn sizeBucket(v: f32) u16 {
+    const clamped = @max(v, 16);
+    const step: f32 = if (clamped <= 128) 2 else if (clamped <= 512) 32 else 128;
+    return @intFromFloat(@min(@ceil(clamped / step) * step, 4096));
+}
+
+test "imagem pequena fica no tamanho exato, grande anda em passos" {
+    try std.testing.expectEqual(40, sizeBucket(40));
+    try std.testing.expectEqual(32, sizeBucket(31.5));
+    try std.testing.expectEqual(16, sizeBucket(4));
+    try std.testing.expectEqual(50, sizeBucket(50));
+    try std.testing.expectEqual(416, sizeBucket(400));
+    try std.testing.expectEqual(640, sizeBucket(600));
+    try std.testing.expectEqual(4096, sizeBucket(9000));
+}
+
 test "vídeo do tenor a partir da página" {
     const html = "<meta property=\"og:image\" content=\"https://media.tenor.com/abcAAAAM/x.gif\"><meta property=\"og:video\" content=\"https://media.tenor.com/XhYqu5fu4LgAAAPo/cat.mp4\">";
     try std.testing.expectEqualStrings("https://media.tenor.com/XhYqu5fu4LgAAAPo/cat.mp4", tenorVideoFromPage(html).?);

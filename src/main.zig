@@ -6,6 +6,7 @@ const c = @import("c");
 // Os avisos do app (--stats, conexão) usam info: valem também no build otimizado.
 pub const std_options: std.Options = .{
     .log_level = .info,
+    .logFn = @import("platform/debug_log.zig").logFn,
     // A pilha de sinal só serve para imprimir o rastro de um travamento, e é
     // TLS: custava 256 KB em cada thread, inclusive as do SDL e do driver.
     .signal_stack_size = if (builtin.mode == .debug) 1 << 18 else null,

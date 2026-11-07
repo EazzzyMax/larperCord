@@ -7,7 +7,7 @@ pub const Settings = @import("settings_state.zig").Settings;
 
 /// `voice_move`: os canais de voz para onde dá para mover alguém (id = a pessoa).
 /// `plugin_choices`: a segunda lista de uma entrada de plugin (id = a mensagem ou a pessoa).
-pub const MenuKind = enum { message, user, channel, guild, status, voice_move, thread_delete, plugin_choices };
+pub const MenuKind = enum { message, user, channel, guild, status, voice_move, thread_delete, guild_leave, plugin_choices };
 
 pub const Popup = union(enum) {
     none,
@@ -17,6 +17,8 @@ pub const Popup = union(enum) {
     profile_full: struct { user: Id },
     /// `target` = mensagem que vai receber a reação (0 = caixa de texto).
     emoji: struct { target: Id, x: f32, y: f32 },
+    /// Seletor de GIFs da caixa de texto.
+    gif: struct { x: f32, y: f32 },
     /// Mixer da call: volume individual de cada pessoa.
     mixer: struct { x: f32, y: f32 },
     /// Caixa de entrada (aba 0 = não lidas, 1 = menções) e mensagens salvas.

@@ -1534,7 +1534,14 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         const fs = ctx.th.font_size;
         d.text(dl, fam.get(.bold), fs, r.x + 10, d.centerY(r, fs), ctx.col(.accent), p);
         input_x = r.x + 10 + d.width(fam.get(.bold), fs, p);
-        input_r = r.right() - 78;
+        const gw = d.width(fam.get(.bold), fs, "[gif]") + 8;
+        input_r = r.right() - 80 - gw;
+        const gr: d.Rect = .{ .x = r.right() - 72 - gw, .y = r.y + r.h / 2 - 13, .w = gw, .h = 26 };
+        const gh = d.hit(ctx, 40, gr);
+        qa.mark(gr, "composer-gif", .{});
+        d.text(dl, fam.get(.bold), fs, gr.x + 4, d.centerY(gr, fs), if (gh.hovered) ctx.col(.accent) else ctx.col(.muted), "[gif]");
+        if (gh.clicked) ctx.popup(.{ .gif = .{ .x = gr.right(), .y = r.y } });
+        d.tip(ctx, gr, i18n.tr("GIFs", "GIFs"), gh.hovered);
         const pr: d.Rect = .{ .x = r.right() - 70, .y = r.y + r.h / 2 - 13, .w = 30, .h = 26 };
         const ph = d.hit(ctx, 1, pr);
         qa.mark(pr, "composer-attach", .{});
@@ -1559,6 +1566,14 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         if (ah.clicked) ctx.act(.pick_files);
         d.tip(ctx, ar, i18n.tr("Anexar arquivo", "Attach File"), ah.hovered);
         const ex = r.right() - (if (pill) @as(f32, 84) else 40);
+        const gr: d.Rect = .{ .x = ex - 36, .y = r.y + r.h / 2 - 11, .w = 32, .h = 22 };
+        const gh = d.hit(ctx, 40, gr);
+        qa.mark(gr, "composer-gif", .{});
+        const gif_ink = if (gh.hovered) ctx.col(.text) else ctx.col(.muted);
+        d.border(dl, gr, gif_ink, 5, 1.5);
+        d.text(dl, fam.get(.bold), 11, gr.x + (gr.w - d.width(fam.get(.bold), 11, "GIF")) / 2, d.centerY(gr, 11), gif_ink, "GIF");
+        if (gh.clicked) ctx.popup(.{ .gif = .{ .x = gr.right(), .y = r.y } });
+        d.tip(ctx, gr, i18n.tr("GIFs", "GIFs"), gh.hovered);
         const er: d.Rect = .{ .x = ex, .y = r.y + r.h / 2 - 14, .w = 28, .h = 28 };
         const eh = d.hit(ctx, 2, er);
         qa.mark(er, "composer-emoji", .{});
@@ -1578,11 +1593,11 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
             if (sh.clicked) submit(ctx);
             d.tip(ctx, sr, i18n.tr("Enviar  (Enter)", "Send  (Enter)"), sh.hovered);
         }
-        input_r = ex - 8;
+        input_r = gr.x - 6;
     }
 
     const fs = ctx.th.font_size;
-    const font_px = fs * d.text_scale;
+    const font_px = d.fontPx(fs);
     const input_w = @max(40, input_r - input_x);
     const frame_h = font_px + 8 + grown;
     // Quantas linhas o texto ocupa: a caixa cresce até `composer_max_lines`

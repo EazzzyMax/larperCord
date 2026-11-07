@@ -52,8 +52,12 @@ fn queuedMs(st: *c.SDL_AudioStream) u32 {
 
 var debug_on = false;
 
+fn debugOn() bool {
+    return debug_on or @import("../platform/debug_log.zig").isOn();
+}
+
 fn dbg(comptime fmt: []const u8, args: anytype) void {
-    if (debug_on) std.log.info("voz: " ++ fmt, args);
+    if (debugOn()) std.log.info("voz: " ++ fmt, args);
 }
 
 /// Como a thread terminou (o gateway principal decide o que fazer).
@@ -888,7 +892,7 @@ const Worker = struct {
             .key = key,
             .blocked = blocked or w.mic.stream == null,
         });
-        if (debug_on and now - w.stats_ms >= 3000) {
+        if (debugOn() and now - w.stats_ms >= 3000) {
             dbg("recebido: {d} pacotes de {d} pessoas, fora de ordem {d}, perdidos refeitos {d}, inventados {d}, fila vazia {d}, pausas de quem fala {d}, maior vão {d} ms, descartados {d}, recomeços {d}, sem decifrar {d}; thread: acordou atrasada até {d} ms, ocupada até {d} ms", .{ w.stats.packets, w.n_sources, w.stats.late, w.stats.rebuilt, w.stats.concealed, w.stats.starved, w.stats.paused, w.stats.gap_max_ms, w.stats.skipped, w.stats.cleared, w.stats.undecrypted, w.stats.wake_late_ms, w.stats.busy_ms });
             w.stats = .{};
             dbg("mic: {s}, rms máx {d:.0}, {d} quadros enviados, DAVE {s}", .{ if (w.mic.stream == null) "sem microfone" else if (blocked) "mudo" else "ligado", w.mic_peak_rms, w.sent_frames, if (w.dave) |dv| (if (dv.enabled) "cifrando" else "esperando") else "não" });
@@ -1347,7 +1351,7 @@ const Dave = struct {
     /// O libdave escreve cada falha e os pacotes do MLS no stderr, e essa escrita
     /// para a thread de voz se o terminal estiver lento.
     fn logSink(_: c.DAVELoggingSeverity, file: [*c]const u8, line: c_int, message: [*c]const u8) callconv(.c) void {
-        if (debug_on) std.debug.print("[dave] {s}:{d} {s}\n", .{ std.mem.span(file), line, std.mem.span(message) });
+        if (debugOn()) std.log.info("[dave] {s}:{d} {s}", .{ std.mem.span(file), line, std.mem.span(message) });
     }
 
     fn mlsFailure(source: [*c]const u8, reason: [*c]const u8, _: ?*anyopaque) callconv(.c) void {

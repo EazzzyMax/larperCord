@@ -95,6 +95,7 @@ fn popupKey(p: state.Popup) u64 {
         .new_thread => |t| 9 +% t.message *% 31,
         .new_post => |t| 10 +% t.forum *% 31,
         .edit_place => |t| 11 +% t.id *% 31,
+        .gif => 12,
     };
 }
 
@@ -153,6 +154,7 @@ pub fn draw(ctx: *d.Ctx) void {
         .profile => |p| profile.card(ctx, p.user, p.x, p.y),
         .profile_full => |p| profile.full(ctx, p.user),
         .emoji => |e| @import("emoji_picker.zig").draw(ctx, e.target, e.x, e.y),
+        .gif => |g| @import("gif_picker.zig").draw(ctx, g.x, g.y),
         .mixer => |m| mixer(ctx, m.x, m.y),
         .inbox => |ib| @import("inbox.zig").draw(ctx, ib.tab),
         .saved => saved_ui.draw(ctx),
@@ -343,6 +345,12 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
             add(&items, &n, .{ .label = delete_label, .en = delete_label, .id = 51, .danger = true });
             add(&items, &n, .{ .label = "Cancelar", .en = "Cancel", .id = 52 });
         },
+        .guild_leave => {
+            const name = if (ctx.store.guild(id)) |g| g.name else "?";
+            delete_label = i18n.fmt(&delete_buf, "Sair de «{s}»", "Leave “{s}”", .{d.utf8Prefix(name, 40)});
+            add(&items, &n, .{ .label = delete_label, .en = delete_label, .id = 68, .danger = true });
+            add(&items, &n, .{ .label = "Cancelar", .en = "Cancel", .id = 52 });
+        },
         .status => {
             add(&items, &n, .{ .label = "●  Online", .en = "●  Online", .id = 80 });
             add(&items, &n, .{ .label = "◐  Ausente", .en = "◐  Idle", .id = 81 });
@@ -386,6 +394,8 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
                 if (vg.banner != null) add(&items, &n, .{ .label = "Ver banner", .en = "View Banner", .id = 66 });
             }
             if (dev) add(&items, &n, .{ .label = "Copiar ID do servidor", .en = "Copy Server ID", .id = 63 });
+            // Quem é dono não pode sair: precisa passar o servidor antes.
+            if (ctx.store.guild(id)) |vg| if (vg.owner != ctx.store.me) add(&items, &n, .{ .label = "Sair do servidor", .en = "Leave Server", .id = 67, .danger = true, .sep = true });
         },
     }
 
@@ -536,6 +546,9 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
         // Apagar não tem volta: abre a confirmação no mesmo lugar.
         50 => st.popup = .{ .menu = .{ .kind = .thread_delete, .id = id, .x = r.x, .y = r.y } },
         51 => ctx.act(.{ .delete_thread = id }),
+        // Sair também pede confirmação: voltar pode precisar de convite.
+        67 => st.popup = .{ .menu = .{ .kind = .guild_leave, .id = id, .x = r.x, .y = r.y } },
+        68 => ctx.act(.{ .leave_guild = id }),
         52 => {},
         53 => @import("edit_place.zig").open(ctx, id, true),
         64 => @import("edit_place.zig").open(ctx, id, false),

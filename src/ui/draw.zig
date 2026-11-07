@@ -181,16 +181,24 @@ pub fn drawStyle(ctx: *Ctx, dl: *c.ImDrawList, st: theme_mod.Style, r: Rect, key
 /// Escala global do texto (configuração "Tamanho do texto").
 pub var text_scale: f32 = 1.0;
 
+/// O tamanho em que o texto é medido e desenhado. O ImGui gera as letras no tamanho
+/// arredondado e encolhe o resultado até o tamanho pedido: em 13,5 ele gera 14 e reduz como
+/// uma imagem, e é isso que borrava o texto pequeno. Pedindo inteiro, cada pixel da letra
+/// cai num pixel da tela.
+pub fn fontPx(size: f32) f32 {
+    return @max(1, @round(size * text_scale));
+}
+
 pub fn width(font: *c.ImFont, size: f32, s: []const u8) f32 {
     if (s.len == 0) return 0;
     const b: [*]const u8 = s.ptr;
-    return c.ImFont_CalcTextSizeAEx(font, size * text_scale, std.math.floatMax(f32), 0, b, b + s.len, null).x;
+    return c.ImFont_CalcTextSizeAEx(font, fontPx(size), std.math.floatMax(f32), 0, b, b + s.len, null).x;
 }
 
 pub fn text(dl: *c.ImDrawList, font: *c.ImFont, size: f32, x: f32, y: f32, color: Rgba, s: []const u8) void {
     if (s.len == 0 or color.a <= 0.001) return;
     const b: [*]const u8 = s.ptr;
-    const sz = size * text_scale;
+    const sz = fontPx(size);
     // Mantém o texto centrado na linha quando a escala muda.
     const dy = (size - sz) * 0.6;
     c.ImDrawList_AddTextImFontPtrEx(dl, font, sz, v(@round(x), @round(y + dy)), color.u(), b, b + s.len, 0, null);

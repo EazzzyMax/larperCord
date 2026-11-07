@@ -40,6 +40,23 @@ pub const Rgba = struct {
         return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     }
 
+    /// Luminância relativa da WCAG (a `luma` acima não lineariza os canais).
+    pub fn luminance(c: Rgba) f32 {
+        const q = struct {
+            fn f(x: f32) f32 {
+                return if (x <= 0.03928) x / 12.92 else std.math.pow(f32, (x + 0.055) / 1.055, 2.4);
+            }
+        };
+        return 0.2126 * q.f(c.r) + 0.7152 * q.f(c.g) + 0.0722 * q.f(c.b);
+    }
+
+    /// Razão de contraste da WCAG, de 1 a 21.
+    pub fn contrast(a: Rgba, b: Rgba) f32 {
+        const la = a.luminance();
+        const lb = b.luminance();
+        return (@max(la, lb) + 0.05) / (@min(la, lb) + 0.05);
+    }
+
     /// Cor empacotada como IM_COL32 (ABGR), com alpha extra opcional.
     pub fn col(c: Rgba, extra_alpha: f32) u32 {
         const q = struct {

@@ -63,6 +63,8 @@ pub const Event = union(enum) {
     read_states: struct { entries: []types.ReadEntry, muted: []Id = &.{} },
     /// GET /channels/{id}/pins (`ok` = false: não deu para buscar).
     pins: struct { channel: Id, messages: []types.Message, ok: bool = true },
+    /// GIFs em alta, de uma busca ou favoritos (`req` = o pedido que isto responde).
+    gifs: struct { req: u32, favorites: bool = false, items: []types.Gif = &.{}, ok: bool = true },
     /// CHANNEL_PINS_UPDATE: a lista guardada ficou velha.
     pins_changed: Id,
     /// Resposta de GET /invites/{code}.
@@ -186,6 +188,7 @@ pub const Command = union(enum) {
     /// `files`: caminhos dos arquivos a enviar (alocados, terminados em 0).
     send_message: struct { channel: Id, content: []const u8, nonce: u64, reply_to: Id = 0, files: []const [:0]const u8 = &.{} },
     edit_message: struct { channel: Id, id: Id, content: []const u8 },
+    leave_guild: Id,
     delete_message: struct { channel: Id, id: Id },
     delete_thread: Id,
     /// Editar servidor ou grupo: só o que mudou (null/keep = deixa como está).
@@ -236,6 +239,9 @@ pub const Command = union(enum) {
     /// Mais 50 depois de `after`, voltando para o presente.
     fetch_newer: struct { channel: Id, after: Id },
     fetch_pins: Id,
+    /// GET /gifs/search (`query` vazio = em alta).
+    gif_search: struct { req: u32, query: []const u8 },
+    gif_favorites: u32,
     pin: struct { channel: Id, id: Id, add: bool },
     fetch_invite: InviteCode,
     /// Uma página de threads de um canal. Ativas: por `offset`; arquivadas:
@@ -311,8 +317,12 @@ pub const Action = union(enum) {
     jump_first_unread: Id,
     /// Painel de mensagens fixadas do canal.
     open_pins: Id,
+    /// Busca GIFs (texto alocado em `st.gpa`; vazio = em alta).
+    gif_search: []const u8,
+    gif_favorites,
     want_pins: Id,
     pin_message: struct { channel: Id, id: Id, add: bool },
+    leave_guild: Id,
     /// Link de convite na tela: busca o cartão (uma vez por código).
     want_invite: InviteCode,
     /// Liga/desliga uma opção do tema atual (índice em `Theme.options`).

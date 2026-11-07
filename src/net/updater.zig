@@ -138,19 +138,33 @@ fn errorOf(e: anyerror) Error {
 const Sink = struct {
     out: *std.ArrayList(u8),
     max: usize,
+    progress: ?*std.atomic.Value(usize) = null,
+    last_wake: usize = 0,
     fn write(ptr: [*c]u8, size: usize, n: usize, ud: ?*anyopaque) callconv(.c) usize {
         const s: *Sink = @ptrCast(@alignCast(ud.?));
         const total = size * n;
         if (s.out.items.len + total > s.max) return 0;
         s.out.appendSlice(alloc, ptr[0..total]) catch return 0;
+        if (s.progress) |p| {
+            p.store(s.out.items.len, .monotonic);
+            // Uma atualização de tela a cada MB, não uma por pacote.
+            if (s.out.items.len - s.last_wake >= 1024 * 1024) {
+                s.last_wake = s.out.items.len;
+                wakeUi();
+            }
+        }
         return total;
     }
 };
 
-fn fetch(url: [:0]const u8, out: *std.ArrayList(u8), max: usize) !void {
+pub fn wakeUi() void {
+    if (wake_fn) |w| w();
+}
+
+pub fn fetch(url: [:0]const u8, out: *std.ArrayList(u8), max: usize, progress: ?*std.atomic.Value(usize)) !void {
     const h = c.curl_easy_init() orelse return error.Network;
     defer c.curl_easy_cleanup(h);
-    var sink: Sink = .{ .out = out, .max = max };
+    var sink: Sink = .{ .out = out, .max = max, .progress = progress };
     var ua_buf: [48]u8 = undefined;
     const ua = std.fmt.bufPrintSentinel(&ua_buf, "larperCord/{s}", .{current}, 0) catch "larperCord";
     _ = c.curl_easy_setopt(h, c.CURLOPT_URL, url.ptr);
@@ -178,7 +192,7 @@ fn fetch(url: [:0]const u8, out: *std.ArrayList(u8), max: usize) !void {
 fn runCheck() !void {
     var body: std.ArrayList(u8) = .empty;
     defer body.deinit(alloc);
-    try fetch(latest_url, &body, 2 * 1024 * 1024);
+    try fetch(latest_url, &body, 2 * 1024 * 1024, null);
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const v = try std.json.parseFromSliceLeaky(std.json.Value, arena.allocator(), body.items, .{});
@@ -228,8 +242,8 @@ fn runInstall() !void {
     defer sums.deinit(alloc);
     var sig: std.ArrayList(u8) = .empty;
     defer sig.deinit(alloc);
-    try fetch(try assetUrl(&ub, "SHA256SUMS"), &sums, 64 * 1024);
-    try fetch(try assetUrl(&ub, "SHA256SUMS.sig"), &sig, 4096);
+    try fetch(try assetUrl(&ub, "SHA256SUMS"), &sums, 64 * 1024, null);
+    try fetch(try assetUrl(&ub, "SHA256SUMS.sig"), &sig, 4096, null);
     if (!version.signatureOk(sums.items, sig.items, version.release_key_hex)) return error.BadSignature;
 
     var dir_buf: [1024]u8 = undefined;
@@ -242,7 +256,7 @@ fn runInstall() !void {
         const want = version.sumFor(sums.items, f.asset) orelse return error.BadHash;
         var data: std.ArrayList(u8) = .empty;
         defer data.deinit(alloc);
-        try fetch(try assetUrl(&ub, f.asset), &data, 128 * 1024 * 1024);
+        try fetch(try assetUrl(&ub, f.asset), &data, 128 * 1024 * 1024, null);
         var got: [32]u8 = undefined;
         std.crypto.hash.sha2.Sha256.hash(data.items, &got, .{});
         if (!std.mem.eql(u8, &got, &want)) return error.BadHash;

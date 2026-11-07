@@ -20,6 +20,10 @@ pub const Family = struct {
 const load_color: c_uint = 1 << 8; // ImGuiFreeTypeLoaderFlags_LoadColor
 const load_bitmap: c_uint = 1 << 9; // ImGuiFreeTypeLoaderFlags_Bitmap (emoji CBDT)
 const light_hinting: c_uint = 1 << 3; // ImGuiFreeTypeLoaderFlags_LightHinting
+/// Natural, hastes alinhadas (ForceAutoHint) e encaixe total (ForceAutoHint + MonoHinting).
+const hint_modes = [_]c_uint{ light_hinting, 1 << 2, (1 << 2) | (1 << 4) };
+
+extern fn larper_font_style(font: *c.ImFont, multiply: f32, hint_flags: c_uint) void;
 
 pub const Fonts = struct {
     gpa: std.mem.Allocator,
@@ -28,6 +32,9 @@ pub const Fonts = struct {
     maps: std.StringHashMapUnmanaged([]u8) = .empty,
     faces: std.ArrayList(struct { data: [*]u8, index: c_int, font: *c.ImFont }) = .empty,
     emoji: ?[]u8 = null,
+    text_weight: f32 = 1.35,
+    text_mode: u8 = 0,
+    text_hint: c_uint = light_hinting,
     /// Fonte reserva para símbolos que a fonte principal não tem (⌁ ▣ ◐ ♪ …).
     symbols: ?struct { data: []u8, index: c_int } = null,
 
@@ -44,6 +51,14 @@ pub const Fonts = struct {
             } else |_| {}
         }
         return f;
+    }
+
+    /// Peso e encaixe do texto em todas as fontes. Fora do intervalo NewFrame/Render.
+    pub fn setStyle(f: *Fonts, weight: f32, mode: u8) void {
+        f.text_weight = weight;
+        f.text_mode = mode;
+        f.text_hint = hint_modes[@min(mode, hint_modes.len - 1)];
+        for (f.faces.items) |e| larper_font_style(e.font, f.text_weight, f.text_hint);
     }
 
     /// Família já carregada (não carrega nada: seguro no meio do quadro).
@@ -88,12 +103,11 @@ pub const Fonts = struct {
         var cfg = defaultConfig();
         cfg.FontNo = @intCast(index);
         cfg.PixelSnapH = true;
-        // Hinting leve: encaixa só na vertical (como o ClearType), sem o
-        // serrilhado do hinting completo nas letras pequenas; e um traço um
-        // pouco mais cheio, porque o SDL mistura em sRGB e o texto claro no
-        // fundo escuro sai fino demais.
-        cfg.FontLoaderFlags = light_hinting;
-        cfg.RasterizerMultiply = 1.15;
+        // Por padrão, hinting leve: encaixa só na vertical (como o ClearType), sem mudar o desenho
+        // da letra. E um traço mais cheio, porque o SDL mistura em sRGB e o texto claro no fundo
+        // escuro sai fino demais. Configurações → Avançado muda os dois.
+        cfg.FontLoaderFlags = f.text_hint;
+        cfg.RasterizerMultiply = f.text_weight;
         cfg.FontDataOwnedByAtlas = false;
         if (f.emoji != null) cfg.GlyphExcludeRanges = &emoji_ranges;
         const font = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, data.ptr, @intCast(data.len), 16, &cfg, null) orelse return error.FontLoad;
@@ -109,6 +123,8 @@ pub const Fonts = struct {
             scfg.MergeMode = true;
             scfg.FontNo = @intCast(sym.index);
             scfg.FontDataOwnedByAtlas = false;
+            scfg.FontLoaderFlags = f.text_hint;
+            scfg.RasterizerMultiply = f.text_weight;
             _ = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, sym.data.ptr, @intCast(sym.data.len), 16, &scfg, null);
         }
         return font;

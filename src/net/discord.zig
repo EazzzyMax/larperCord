@@ -314,6 +314,8 @@ pub const Gateway = struct {
             .fetch_around => |o| g.emit(.{ .history = .{ .channel = o.channel, .messages = &.{}, .around = true } }),
             .fetch_newer => |o| g.emit(.{ .history = .{ .channel = o.channel, .messages = &.{}, .newer = true } }),
             .fetch_pins => |ch| g.emit(.{ .pins = .{ .channel = ch, .messages = &.{}, .ok = false } }),
+            .gif_search => |q| g.emit(.{ .gifs = .{ .req = q.req, .ok = false } }),
+            .gif_favorites => |req| g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } }),
             .fetch_invite => |code| g.emit(.{ .invite = .{ .code = code, .invite = .{ .state = .failed } } }),
             .fetch_threads => |ft| g.emit(.{ .threads_page = .{ .channel = ft.channel, .archived = ft.archived, .failed = true } }),
             else => {},
@@ -2620,6 +2622,7 @@ pub const Gateway = struct {
                 if (m.files.len > 0) alloc.free(m.files);
             },
             .edit_message => |m| alloc.free(m.content),
+            .gif_search => |q| alloc.free(q.query),
             .ack_bulk => |list| if (list.len > 0) alloc.free(list),
             .create_thread => |m| alloc.free(m.name),
             .edit_place => |e| freeEdit(e),
@@ -2630,6 +2633,11 @@ pub const Gateway = struct {
             },
             else => {},
         }
+    }
+
+    fn shrinkGifs(items: []types.Gif, n: usize) []types.Gif {
+        if (n == items.len) return items;
+        return alloc.realloc(items, n) catch items[0..n];
     }
 
     fn freeEdit(e: ev.EditPlace) void {
@@ -2944,6 +2952,55 @@ pub const Gateway = struct {
                 g.noticeHttp(if (p.add) i18n.tr("não deu para fixar", "couldn't pin") else i18n.tr("não deu para desafixar", "couldn't unpin"), &resp);
                 g.pinFailed(p.channel, p.id, p.add);
             },
+            .gif_search => |q| {
+                const failed: ev.Event = .{ .gifs = .{ .req = q.req, .ok = false } };
+                var enc: [300]u8 = undefined;
+                var url_buf: [420]u8 = undefined;
+                const locale = i18n.tr("pt-BR", "en-US");
+                const path = (if (q.query.len == 0)
+                    std.fmt.bufPrint(&url_buf, "/gifs/trending-gifs?media_format=tinywebp&limit=50&locale={s}", .{locale})
+                else
+                    std.fmt.bufPrint(&url_buf, "/gifs/search?q={s}&media_format=tinywebp&limit=50&locale={s}", .{ j.urlEncode(&enc, q.query), locale })) catch return g.emit(failed);
+                var resp = g.request("GET", path, null) orelse return g.emit(failed);
+                defer resp.body.deinit(alloc);
+                if (resp.status != 200) return g.emit(failed);
+                var arena = std.heap.ArenaAllocator.init(alloc);
+                defer arena.deinit();
+                const v = std.json.parseFromSliceLeaky(Value, arena.allocator(), resp.body.items, .{}) catch return g.emit(failed);
+                const found = j.array(v);
+                const items = alloc.alloc(types.Gif, found.len) catch return g.emit(failed);
+                var n: usize = 0;
+                for (found) |it| {
+                    const url = j.str(j.get(it, "url")) orelse continue;
+                    const src = j.str(j.get(it, "src")) orelse continue;
+                    items[n] = .{ .url = dupe(url), .src = dupe(src), .preview = dupe(j.str(j.get(it, "preview"))), .title = dupe(j.str(j.get(it, "title"))) };
+                    n += 1;
+                }
+                g.emit(.{ .gifs = .{ .req = q.req, .items = shrinkGifs(items, n) } });
+            },
+            .gif_favorites => |req| {
+                const failed: ev.Event = .{ .gifs = .{ .req = req, .favorites = true, .ok = false } };
+                // Só leitura: este arquivo também guarda os emojis recentes da conta.
+                var resp = g.request("GET", "/users/@me/settings-proto/2", null) orelse return g.emit(failed);
+                defer resp.body.deinit(alloc);
+                if (resp.status != 200) return g.emit(failed);
+                var arena = std.heap.ArenaAllocator.init(alloc);
+                defer arena.deinit();
+                const a = arena.allocator();
+                const v = std.json.parseFromSliceLeaky(Value, a, resp.body.items, .{}) catch return g.emit(failed);
+                const b64 = j.str(j.get(v, "settings")) orelse return g.emit(failed);
+                const dec = std.base64.standard.Decoder;
+                const raw = a.alloc(u8, dec.calcSizeForSlice(b64) catch return g.emit(failed)) catch return g.emit(failed);
+                dec.decode(raw, b64) catch return g.emit(failed);
+                const favs = @import("../core/gif_favorites.zig").parse(a, raw) catch return g.emit(failed);
+                const items = alloc.alloc(types.Gif, favs.len) catch return g.emit(failed);
+                for (favs, items) |f, *it| {
+                    // Vídeo do Tenor: o app desenha a versão WebP dele.
+                    var wb: [512]u8 = undefined;
+                    it.* = .{ .url = dupe(f.url), .src = dupe(media_url.gifFromVideo(&wb, f.src) orelse f.src) };
+                }
+                g.emit(.{ .gifs = .{ .req = req, .favorites = true, .items = items } });
+            },
             .fetch_invite => |code| {
                 const failed: ev.Event = .{ .invite = .{ .code = code, .invite = .{ .state = .failed } } };
                 const path = std.fmt.bufPrint(&path_buf, "/invites/{s}?with_counts=true&with_expiration=true", .{code.slice()}) catch return;
@@ -3030,6 +3087,13 @@ pub const Gateway = struct {
             .edit_place => |e| {
                 defer freeEdit(e);
                 g.editPlace(e);
+            },
+            .leave_guild => |id| {
+                const path = std.fmt.bufPrint(&path_buf, "/users/@me/guilds/{d}", .{id}) catch return;
+                var resp = g.request("DELETE", path, "{\"lease\":false}") orelse return g.notice("sem conexão: você não saiu do servidor", "no connection: you didn't leave the server", .{});
+                defer resp.body.deinit(alloc);
+                // Quem tira o servidor da lista é o GUILD_DELETE que o gateway manda.
+                if (resp.status >= 300) g.noticeHttp(i18n.tr("não deu para sair do servidor", "couldn't leave the server"), &resp);
             },
             .delete_thread => |id| {
                 const path = std.fmt.bufPrint(&path_buf, "/channels/{d}", .{id}) catch return;

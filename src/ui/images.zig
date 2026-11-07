@@ -78,6 +78,36 @@ const Entry = struct {
     }
 };
 
+/// Pedido de cópia: anda pela mesma fila, mas não entra no cache.
+const clip_prefix = "clip:";
+
+/// Uma cópia só, porque ela fica na memória enquanto estiver na área de transferência:
+/// BMP no Windows, que é o formato de imagem dele, e PNG no resto.
+const clip_is_bmp = @import("builtin").os.tag == .windows;
+pub const clip_mime = if (clip_is_bmp) "image/bmp" else "image/png";
+
+fn encoded(surface: *c.SDL_Surface) []u8 {
+    const io = c.SDL_IOFromDynamicMem() orelse return &.{};
+    defer _ = c.SDL_CloseIO(io);
+    const ok = if (clip_is_bmp) c.SDL_SaveBMP_IO(surface, io, false) else c.SDL_SavePNG_IO(surface, io, false);
+    if (!ok) return &.{};
+    const size: usize = @intCast(@max(c.SDL_GetIOSize(io), 0));
+    const data = c.SDL_GetPointerProperty(c.SDL_GetIOProperties(io), c.SDL_PROP_IOSTREAM_DYNAMIC_MEMORY_POINTER, null) orelse return &.{};
+    return alloc.dupe(u8, @as([*]const u8, @ptrCast(data))[0..size]) catch &.{};
+}
+
+fn clipData(user: ?*anyopaque, _: [*c]const u8, size: [*c]usize) callconv(.c) ?*const anyopaque {
+    const clip: *[]u8 = @ptrCast(@alignCast(user.?));
+    size.* = clip.len;
+    return clip.ptr;
+}
+
+fn clipCleanup(user: ?*anyopaque) callconv(.c) void {
+    const clip: *[]u8 = @ptrCast(@alignCast(user.?));
+    alloc.free(clip.*);
+    alloc.destroy(clip);
+}
+
 const Job = struct {
     key: []u8,
     url: []u8,
@@ -154,11 +184,14 @@ pub const Cache = struct {
     freed_bytes: usize = 0,
     /// O app olha isto depois de `pump` e pede a devolução.
     trim_due: bool = false,
+    copying: bool = false,
+    copied: ?bool = null,
     /// Limite de memória das imagens (Configurações → Desempenho).
     budget_bytes: usize = 32 * 1024 * 1024,
 
     pub fn init(renderer: *c.SDL_Renderer, wake_type: u32) !Cache {
         if (curl_mutex == null) curl_mutex = c.SDL_CreateMutex() orelse return error.SdlMutex;
+        if (recent_mutex == null) recent_mutex = c.SDL_CreateMutex() orelse return error.SdlMutex;
         if (decode_slots == null) decode_slots = c.SDL_CreateSemaphore(2) orelse return error.SdlSemaphore;
         return .{
             .renderer = renderer,
@@ -236,8 +269,8 @@ pub const Cache = struct {
 
     pub fn getEx(cache: *Cache, url: []const u8, max_w: f32, max_h: f32, play: bool) Lookup {
         // Tamanhos arredondados: quem pede 301 ou 330 de largura usa a mesma.
-        const bw = bucket(max_w);
-        const bh = bucket(max_h);
+        const bw = media_url.sizeBucket(max_w);
+        const bh = media_url.sizeBucket(max_h);
         var kbuf: [2200]u8 = undefined;
         const key = std.fmt.bufPrint(&kbuf, "{d}x{d} {s}", .{ bw, bh, url }) catch return .failed;
         if (cache.map.getPtr(key)) |e| {
@@ -279,6 +312,43 @@ pub const Cache = struct {
         return e.frames[0].tex;
     }
 
+    /// Copia a imagem para a área de transferência: baixa e decodifica fora da thread da
+    /// interface, e o resultado sai em `takeCopied`.
+    pub fn copyImage(cache: *Cache, url: []const u8) void {
+        if (cache.copying) return;
+        const key = std.fmt.allocPrint(alloc, clip_prefix ++ "{s}", .{url}) catch return;
+        const owned_url = alloc.dupe(u8, url) catch {
+            alloc.free(key);
+            return;
+        };
+        cache.copying = true;
+        cache.startWorkers();
+        cache.jobs.push(.{ .key = key, .url = owned_url, .max_w = 4096, .max_h = 4096 });
+    }
+
+    /// true/false quando uma cópia acabou de dar certo ou falhar.
+    pub fn takeCopied(cache: *Cache) ?bool {
+        const r = cache.copied;
+        cache.copied = null;
+        return r;
+    }
+
+    fn finishCopy(cache: *Cache, r: Result) void {
+        defer freeResult(r);
+        cache.copying = false;
+        cache.copied = false;
+        if (r.px.frames.len == 0) return;
+        const first = r.px.frames[0];
+        const surface = c.SDL_CreateSurfaceFrom(r.px.w, r.px.h, c.SDL_PIXELFORMAT_RGBA32, first.data.ptr, @as(c_int, r.px.w) * 4) orelse return;
+        defer c.SDL_DestroySurface(surface);
+        const data = encoded(surface);
+        if (data.len == 0) return;
+        const clip = alloc.create([]u8) catch return alloc.free(data);
+        clip.* = data;
+        var mimes = [_][*c]const u8{clip_mime};
+        cache.copied = c.SDL_SetClipboardData(clipData, clipCleanup, @ptrCast(clip), &mimes, mimes.len);
+    }
+
     /// Alguma imagem ainda está baixando (os prints esperam por isso).
     pub fn busy(cache: *const Cache) bool {
         var it = cache.map.valueIterator();
@@ -294,9 +364,11 @@ pub const Cache = struct {
         var batch: std.ArrayList(Result) = .empty;
         defer batch.deinit(alloc);
         cache.results.drain(&batch);
-        cache.backlog.appendSlice(alloc, batch.items) catch {
-            for (batch.items) |r| freeResult(r);
-        };
+        for (batch.items) |r| {
+            if (std.mem.startsWith(u8, r.key, clip_prefix)) {
+                cache.finishCopy(r);
+            } else cache.backlog.append(alloc, r) catch freeResult(r);
+        }
         const worked = cache.backlog.items.len > 0 or cache.uploading != null;
         // Passou a rajada: bastante memória foi solta nas arenas das threads.
         if (!worked and cache.freed_bytes >= trim_after_bytes) {
@@ -469,10 +541,44 @@ pub const Cache = struct {
     }
 };
 
-fn bucket(v: f32) u16 {
-    const step: f32 = 128;
-    const x = @ceil(@max(v, 16) / step) * step;
-    return @intFromFloat(@min(x, 4096));
+/// Os últimos arquivos pequenos baixados: a mesma foto em dois tamanhos (conversa e lista de
+/// membros) não baixa duas vezes. 48 arquivos de até 96 KB; solta junto com as imagens.
+const Recent = struct { url_hash: u64 = 0, data: []u8 = &.{} };
+var recent: [48]Recent = @splat(.{});
+var recent_next: usize = 0;
+var recent_mutex: ?*c.SDL_Mutex = null;
+
+fn recentGet(url: []const u8, out: *std.ArrayList(u8)) bool {
+    const h = std.hash.Wyhash.hash(0, url);
+    c.SDL_LockMutex(recent_mutex);
+    defer c.SDL_UnlockMutex(recent_mutex);
+    for (recent) |e| {
+        if (e.url_hash == h and e.data.len > 0) {
+            out.appendSlice(alloc, e.data) catch return false;
+            return true;
+        }
+    }
+    return false;
+}
+
+fn recentPut(url: []const u8, data: []const u8) void {
+    if (data.len == 0 or data.len > 96 * 1024) return;
+    const copy = alloc.dupe(u8, data) catch return;
+    c.SDL_LockMutex(recent_mutex);
+    defer c.SDL_UnlockMutex(recent_mutex);
+    const slot = &recent[recent_next];
+    if (slot.data.len > 0) alloc.free(slot.data);
+    slot.* = .{ .url_hash = std.hash.Wyhash.hash(0, url), .data = copy };
+    recent_next = (recent_next + 1) % recent.len;
+}
+
+pub fn recentClear() void {
+    c.SDL_LockMutex(recent_mutex);
+    defer c.SDL_UnlockMutex(recent_mutex);
+    for (&recent) |*e| {
+        if (e.data.len > 0) alloc.free(e.data);
+        e.* = .{};
+    }
 }
 
 fn load(curl: *?*c.CURL, jb: Job, stop: *std.atomic.Value(bool)) Pixels {
@@ -524,8 +630,9 @@ fn load(curl: *?*c.CURL, jb: Job, stop: *std.atomic.Value(bool)) Pixels {
             if (!download(curl, pj, &bytes, stop)) return .{};
             allow_video = true;
         }
-    } else {
+    } else if (!recentGet(jb.url, &bytes)) {
         if (!download(curl, jb, &bytes, stop)) return .{};
+        recentPut(jb.url, bytes.items);
     }
     // Vaga de decodificação (no máximo 2 ao mesmo tempo).
     c.SDL_WaitSemaphore(decode_slots);
@@ -538,7 +645,7 @@ fn load(curl: *?*c.CURL, jb: Job, stop: *std.atomic.Value(bool)) Pixels {
 /// Com LARPER_DEBUG_MEDIA, diz no log por que uma imagem falhou. Só host e
 /// caminho: a query das URLs do Discord leva assinaturas.
 fn logFail(url: []const u8, comptime fmt: []const u8, args: anytype) void {
-    if (c.SDL_getenv("LARPER_DEBUG_MEDIA") == null) return;
+    if (c.SDL_getenv("LARPER_DEBUG_MEDIA") == null and !@import("../platform/debug_log.zig").isOn()) return;
     std.log.info("mídia {s}: " ++ fmt, .{media_url.logPart(url)} ++ args);
 }
 
@@ -739,7 +846,12 @@ fn still(px: [*]const u8, w: c_int, h: c_int, max_w: u16, max_h: u16) Pixels {
     const src = px[0 .. sw * sh * 4];
     if (dims[0] == sw and dims[1] == sh) {
         @memcpy(out, src);
-    } else resize(src, sw, sh, out, dims[0], dims[1]);
+    } else if (sw * sh > 4 * 1024 * 1024) {
+        // Foto enorme: o filtro melhor custaria caro e a redução já esconde a diferença.
+        resize(src, sw, sh, out, dims[0], dims[1]);
+    } else {
+        @import("../core/resample.zig").bicubic(alloc, src, sw, sh, out, dims[0], dims[1]) catch resize(src, sw, sh, out, dims[0], dims[1]);
+    }
     return Pixels.single(out, dims[0], dims[1]);
 }
 

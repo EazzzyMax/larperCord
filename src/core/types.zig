@@ -204,6 +204,15 @@ pub const MemberOp = struct {
     items: []const MemberItem = &.{},
 };
 
+/// Um GIF do seletor (ev_alloc). `url` é o que vai na mensagem; `preview`, a imagem
+/// parada (pode vir vazia); `src`, a animada.
+pub const Gif = struct {
+    url: []const u8,
+    src: []const u8,
+    preview: []const u8 = "",
+    title: []const u8 = "",
+};
+
 pub const Guild = struct {
     id: Id,
     name: []const u8,

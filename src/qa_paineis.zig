@@ -7,6 +7,7 @@ const App = @import("app.zig").App;
 const R = @import("qa_runner.zig");
 const Op = R.Op;
 const qa = @import("ui/qa.zig");
+const d = @import("ui/draw.zig");
 const anim = @import("ui/anim.zig");
 const resize = @import("ui/resize.zig");
 const mosaic = @import("ui/mosaic.zig");
@@ -384,6 +385,213 @@ fn scaleUp(app: *App) void {
 fn scaleDown(app: *App) void {
     app.st.settings.font_scale = 1.0;
 }
+
+// --- Em bateria própria: sair de um servidor muda a lista para o resto do QA -------------
+
+var leaving: Id = 0;
+fn tLeaveGuild(_: *App, b: []u8) []const u8 {
+    // Fora das pastas (fechadas, não aparecem na barra).
+    leaving = gw.guildId(5);
+    return std.fmt.bufPrint(b, "guild:{d}", .{leaving}) catch "";
+}
+fn tLeaveConfirm(app: *App, b: []u8) []const u8 {
+    const g = app.store.guild(leaving) orelse return "";
+    return std.fmt.bufPrint(b, "menu:Sair de «{s}»", .{g.name}) catch "";
+}
+fn leaveAsks(app: *App) bool {
+    return app.st.popup == .menu and app.st.popup.menu.kind == .guild_leave and app.store.guild(leaving) != null;
+}
+fn guildGone(app: *App) bool {
+    return leaving != 0 and app.store.guild(leaving) == null and app.st.popup != .menu and app.st.guild != leaving;
+}
+fn guildOpen(app: *App) bool {
+    return leaving != 0 and app.st.guild == leaving;
+}
+fn debugFileHasLine(_: *App) bool {
+    const debug_log = @import("platform/debug_log.zig");
+    if (!debug_log.isOn()) return false;
+    var size: usize = 0;
+    const data = c.SDL_LoadFile((debug_log.path() orelse return false).ptr, &size) orelse return false;
+    defer c.SDL_free(data);
+    return std.mem.indexOf(u8, @as([*]const u8, @ptrCast(data))[0..size], "registro ligado: larperCord") != null;
+}
+fn debugOff(_: *App) bool {
+    return !@import("platform/debug_log.zig").isOn();
+}
+
+fn gifsTrending(app: *App) bool {
+    const l = app.store.gif_results;
+    return app.st.popup == .gif and l.state == .ready and l.items.len == 8 and qa.find("gif:7") != null;
+}
+fn gifsFound(app: *App) bool {
+    const l = app.store.gif_results;
+    return l.state == .ready and l.items.len == 1 and std.mem.eql(u8, l.items[0].title, "shrug") and qa.find("gif:0") != null;
+}
+fn gifsFavorites(app: *App) bool {
+    const l = app.store.gif_favorites;
+    return l.state == .ready and l.items.len == 3 and qa.find("gif:2") != null;
+}
+fn gifSent(app: *App) bool {
+    if (app.st.popup == .gif) return false;
+    const ch = app.st.activeChannel() orelse return false;
+    const cs = app.store.channel(ch) orelse return false;
+    if (cs.messages.items.len == 0) return false;
+    const last = cs.messages.items[cs.messages.items.len - 1];
+    return std.mem.startsWith(u8, last.msg.content, "https://tenor.com/view/") and std.mem.eql(u8, std.mem.sliceTo(&app.st.input, 0), "ainda escrevendo");
+}
+/// Prévia de outro site, num endereço que o app nunca baixa: testa o aviso sem usar a rede.
+fn gifExternal(app: *App) void {
+    const l = app.store.gif_favorites;
+    if (l.items.len == 0) return;
+    std.heap.c_allocator.free(l.items[0].src);
+    l.items[0].src = std.heap.c_allocator.dupe(u8, "https://example.invalid/x.webp") catch "";
+}
+fn gifAsksPreviews(_: *App) bool {
+    return qa.find("gif-previews-on") != null;
+}
+fn gifPreviewsOn(app: *App) bool {
+    return app.st.settings.gif_hosts and qa.find("gif-previews-on") == null;
+}
+fn gifPreviewsReset(app: *App) void {
+    app.st.settings.gif_hosts = false;
+}
+
+const ffmpeg_mod = @import("platform/ffmpeg.zig");
+const ffmpeg_get = @import("net/ffmpeg_get.zig");
+
+fn ffmpegMissing(_: *App) void {
+    // A bateria roda com LARPER_NO_FFMPEG, para isto não depender da máquina.
+    ffmpeg_get.qa_no_network = true;
+    _ = ffmpeg_mod.get();
+}
+fn ffmpegNotFound(_: *App) bool {
+    return ffmpeg_mod.known() == false and qa.find("button:Baixar FFmpeg") != null;
+}
+fn ffmpegWarns(_: *App) bool {
+    return qa.find("button:Baixar agora") != null and ffmpeg_get.phase() == .idle;
+}
+fn ffmpegDone(_: *App) bool {
+    return ffmpeg_get.phase() == .done;
+}
+
+var text_width_before: f32 = 0;
+const text_sample = "Mostra o ID das mensagens e põe Copiar ID nos menus";
+fn textWidth(app: *App) f32 {
+    return d.width(app.fonts.faces.items[0].font, 14, text_sample);
+}
+fn textStyleSet(app: *App) void {
+    text_width_before = textWidth(app);
+    app.st.settings.text_weight = 1.5;
+    app.st.settings.text_hinting = 1;
+}
+fn textStyleApplied(app: *App) bool {
+    const src = app.fonts.faces.items[0].font.Sources.Data[0];
+    if (app.fonts.text_weight != 1.5 or src.*.RasterizerMultiply != 1.5 or src.*.FontLoaderFlags & 31 != 4) return false;
+    // Prova de que as letras foram geradas de novo: com as hastes alinhadas, o texto muda de largura.
+    return textWidth(app) != text_width_before;
+}
+fn textStyleDefault(app: *App) bool {
+    const src = app.fonts.faces.items[0].font.Sources.Data[0];
+    return app.st.settings.text_weight == 1.35 and src.*.RasterizerMultiply == 1.35 and src.*.FontLoaderFlags & 31 == 8 and textWidth(app) == text_width_before;
+}
+/// Sem foto de 128 px reduzida na placa de vídeo: a textura tem o tamanho em que aparece.
+fn imageExactSize(app: *App) bool {
+    return switch (app.images.get("demo:1", 40, 40)) {
+        .ready => |t| t.w == 40 and t.h == 25,
+        else => false,
+    };
+}
+
+pub const ops_extras = [_]Op{
+    s("botão do FFmpeg, sem rede"),
+    .{ .key = .{ .key = c.ImGuiKey_Comma, .ctrl = true } },
+    click("settings:Chat"),
+    .{ .run = ffmpegMissing },
+    .{ .expect = .{ .name = "sem FFmpeg, oferece baixar", .check = ffmpegNotFound, .timeout_ms = 3000 } },
+    click("button:Baixar FFmpeg"),
+    .{ .expect = .{ .name = "avisa antes de baixar qualquer coisa", .check = ffmpegWarns, .timeout_ms = 2000 } },
+    .{ .shot = "ffmpeg-aviso" },
+    expect("nada se sobrepõe", noOverlap),
+    click("button:Baixar agora"),
+    .{ .expect = .{ .name = "e só baixa depois de confirmar", .check = ffmpegDone, .timeout_ms = 2000 } },
+    key(c.ImGuiKey_Escape),
+    s("seletor de GIFs"),
+    click("composer"),
+    .{ .text = "ainda escrevendo" },
+    click("composer-gif"),
+    .{ .expect = .{ .name = "abre com os GIFs em alta", .check = gifsTrending, .timeout_ms = 3000 } },
+    .{ .wait = 300 },
+    .{ .shot = "gifs-em-alta" },
+    expect("nada se sobrepõe", noOverlap),
+    .{ .text = "SHRUG" },
+    .{ .expect = .{ .name = "a busca filtra", .check = gifsFound, .timeout_ms = 3000 } },
+    .{ .key = .{ .key = c.ImGuiKey_A, .ctrl = true } },
+    key(c.ImGuiKey_Backspace),
+    .{ .expect = .{ .name = "apagar a busca volta aos em alta", .check = gifsTrending, .timeout_ms = 3000 } },
+    click("gif-tab:1"),
+    .{ .expect = .{ .name = "a aba de favoritos traz os da conta", .check = gifsFavorites, .timeout_ms = 3000 } },
+    .{ .shot = "gifs-favoritos" },
+    .{ .run = gifExternal },
+    .{ .expect = .{ .name = "prévia de fora pede permissão antes de baixar", .check = gifAsksPreviews, .timeout_ms = 2000 } },
+    .{ .shot = "gifs-aviso" },
+    click("gif-previews-on"),
+    .{ .expect = .{ .name = "e o botão liga a opção de verdade", .check = gifPreviewsOn, .timeout_ms = 2000 } },
+    .{ .run = gifPreviewsReset },
+    click("gif:1"),
+    .{ .expect = .{ .name = "clicar manda o link e não mexe no que estava escrito", .check = gifSent, .timeout_ms = 3000 } },
+    .{ .key = .{ .key = c.ImGuiKey_A, .ctrl = true } },
+    key(c.ImGuiKey_Backspace),
+    s("sair do servidor (o que está aberto)"),
+    .{ .click = .{ .dyn = tLeaveGuild } },
+    expect("o servidor está aberto", guildOpen),
+    .{ .rclick = .{ .dyn = tLeaveGuild } },
+    click("menu:Sair do servidor"),
+    expect("pede confirmação antes de sair", leaveAsks),
+    .{ .shot = "sair-confirma" },
+    .{ .click = .{ .dyn = tLeaveConfirm } },
+    .{ .expect = .{ .name = "o servidor some da lista", .check = guildGone, .timeout_ms = 4000 } },
+    s("registro de depuração"),
+    .{ .key = .{ .key = c.ImGuiKey_Comma, .ctrl = true } },
+    click("settings:Avançado"),
+    .{ .wait = 150 },
+    .{ .shot = "avancado-depuracao" },
+    click("toggle:Salvar registro de depuração"),
+    .{ .expect = .{ .name = "ligado, o arquivo começa com a versão e o sistema", .check = debugFileHasLine, .timeout_ms = 3000 } },
+    expect("nada se sobrepõe", noOverlap),
+    click("toggle:Salvar registro de depuração"),
+    .{ .expect = .{ .name = "e desliga", .check = debugOff, .timeout_ms = 2000 } },
+    s("opção de texto, ao vivo"),
+    .{ .run = textStyleSet },
+    .{ .expect = .{ .name = "peso e encaixe mudam sem reiniciar", .check = textStyleApplied, .timeout_ms = 2000 } },
+    .{ .shot = "texto-opcao" },
+    expect("nada se sobrepõe com o texto mudado", noOverlap),
+    click("button:Voltar ao padrão"),
+    .{ .expect = .{ .name = "e voltar ao padrão restaura tudo", .check = textStyleDefault, .timeout_ms = 2000 } },
+    s("imagem no tamanho em que aparece"),
+    .{ .expect = .{ .name = "foto reduzida antes de ir para a placa", .check = imageExactSize, .timeout_ms = 3000 } },
+    key(c.ImGuiKey_Escape),
+};
+
+// --- Só no CI do Windows (QA_SUITE=ffmpeg): baixa e carrega o FFmpeg de verdade ---------
+
+fn ffmpegRealLoads(_: *App) bool {
+    if (ffmpeg_get.phase() == .failed) return true;
+    if (ffmpeg_get.phase() != .done) return false;
+    return ffmpeg_mod.get() != null;
+}
+fn ffmpegRealOk(_: *App) bool {
+    return ffmpeg_get.phase() == .done and ffmpeg_mod.known() == true;
+}
+fn ffmpegRealStart(_: *App) void {
+    ffmpeg_get.start();
+}
+
+pub const ops_ffmpeg = [_]Op{
+    s("baixar, conferir e carregar o FFmpeg de verdade"),
+    .{ .run = ffmpegRealStart },
+    .{ .expect = .{ .name = "o download termina", .check = ffmpegRealLoads, .timeout_ms = 300_000 } },
+    expect("as bibliotecas carregam e a versão bate", ffmpegRealOk),
+};
 
 const check = expect("nada se sobrepõe na página", noOverlap);
 

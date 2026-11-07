@@ -5,6 +5,10 @@ const theme = @import("theme/theme.zig");
 const layout = @import("theme/layout.zig");
 
 test {
+    _ = @import("core/resample.zig");
+    _ = @import("core/plain_letters.zig");
+    _ = @import("core/gif_favorites.zig");
+    _ = @import("platform/debug_log.zig");
     _ = @import("core/types.zig");
     _ = @import("core/ritmo.zig");
     _ = @import("core/mem_use.zig");

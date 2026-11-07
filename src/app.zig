@@ -23,6 +23,7 @@ const d = @import("ui/draw.zig");
 const anim = @import("ui/anim.zig");
 const root = @import("ui/root.zig");
 const login_mod = @import("ui/login.zig");
+const debug_log = @import("platform/debug_log.zig");
 const qa_mod = @import("ui/qa.zig");
 const images = @import("ui/images.zig");
 const i18n = @import("ui/i18n.zig");
@@ -1190,6 +1191,18 @@ pub const App = struct {
                     sc.target = 0;
                 }
             },
+            .gif_search => |q| {
+                defer st.gpa.free(q);
+                const copy = std.heap.c_allocator.dupe(u8, q) catch return;
+                app.store.gif_results.req +%= 1;
+                app.store.gif_results.state = .loading;
+                app.cmd(.{ .gif_search = .{ .req = app.store.gif_results.req, .query = copy } });
+            },
+            .gif_favorites => {
+                app.store.gif_favorites.req +%= 1;
+                app.store.gif_favorites.state = .loading;
+                app.cmd(.{ .gif_favorites = app.store.gif_favorites.req });
+            },
             .open_pins => |id| {
                 st.popup = .{ .pins = .{ .channel = id } };
                 app.handle(.{ .want_pins = id });
@@ -1201,6 +1214,7 @@ pub const App = struct {
                 gop.value_ptr.state = .loading;
                 app.cmd(.{ .fetch_pins = id });
             },
+            .leave_guild => |id| app.cmd(.{ .leave_guild = id }),
             .pin_message => |p| {
                 if (app.store.channel(p.channel)) |cs| if (app.store.find(cs, p.id)) |m| {
                     m.msg.pinned = p.add;
@@ -2240,8 +2254,12 @@ pub const App = struct {
 
             app.images.now_ms = now();
             if (app.images.pump()) bg_dirty = true;
+            if (app.images.takeCopied()) |ok| {
+                if (ok) app.st.showToast(now(), false, "imagem copiada", "image copied", .{}) else app.st.showToast(now(), true, "não deu para copiar a imagem", "couldn't copy the image", .{});
+            }
             if (app.images.trim_due) {
                 app.images.trim_due = false;
+                @import("ui/images.zig").recentClear();
                 app.trim_wanted.store(true, .release);
             }
             {
@@ -2317,9 +2335,16 @@ pub const App = struct {
                 if (app.themes.setMode(mode)) app.applyThemeStyle();
             }
             d.text_scale = std.math.clamp(set.font_scale, 0.5, 3);
+            const text_weight = @round(std.math.clamp(set.text_weight, 1, 1.6) * 20) / 20;
+            if (text_weight != app.fonts.text_weight or set.text_hinting != app.fonts.text_mode) app.fonts.setStyle(text_weight, set.text_hinting);
             app.images.budget_bytes = @as(usize, @intFromFloat(std.math.clamp(set.image_cache_mb, 16, 128))) * 1024 * 1024;
             @import("ui/images.zig").gif_limit_bytes.store(@as(usize, @intFromFloat(std.math.clamp(set.gif_limit_mb, 4, 32))) * 1024 * 1024, .monotonic);
             app.store.message_budget = @intFromFloat(std.math.clamp(set.message_budget, 500, 5000));
+            if (debug_log.ui_on != debug_log.isOn()) {
+                debug_log.set(debug_log.ui_on);
+                store_mod.read_debug = debug_log.isOn() or c.SDL_getenv("LARPER_READ_DEBUG") != null;
+                if (debug_log.isOn()) std.log.info("registro ligado: larperCord {s}, {s} {s}, vídeo {s}, renderizador {s}", .{ @import("core/version.zig").number, @tagName(@import("builtin").os.tag), @tagName(@import("builtin").cpu.arch), if (c.SDL_GetCurrentVideoDriver()) |v| std.mem.span(v) else "?", if (c.SDL_GetRendererName(app.win.renderer)) |v| std.mem.span(v) else "?" });
+            }
             // Idioma: o QA roda em português (as marcações usam os rótulos), salvo com --lang.
             if (set.language != lang_setting) {
                 lang_setting = set.language;

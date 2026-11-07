@@ -120,6 +120,33 @@ pub fn get() ?*const Api {
     return if (state.load(.acquire) == 2) &api else null;
 }
 
+/// Onde o botão "Baixar FFmpeg" do Windows deixa as bibliotecas.
+pub fn localDir(buf: []u8) ?[]const u8 {
+    var hb: [400]u8 = undefined;
+    const base = @import("sys.zig").cacheHome(&hb) orelse return null;
+    return std.fmt.bufPrint(buf, "{s}/larpercord/ffmpeg", .{base}) catch null;
+}
+
+/// O Windows também procura as bibliotecas (e as que elas pedem) nesta pasta.
+fn useLocalDir() void {
+    if (@import("builtin").os.tag != .windows) return;
+    const SetDllDirectoryW = @extern(*const fn ([*:0]const u16) callconv(.winapi) c_int, .{ .name = "SetDllDirectoryW", .library_name = "kernel32" });
+    var ub: [512]u8 = undefined;
+    const dir = localDir(&ub) orelse return;
+    var wb: [512:0]u16 = undefined;
+    const n = std.unicode.utf8ToUtf16Le(&wb, dir) catch return;
+    for (wb[0..n]) |*ch| {
+        if (ch.* == '/') ch.* = '\\';
+    }
+    wb[n] = 0;
+    _ = SetDllDirectoryW(&wb);
+}
+
+/// Depois de instalar: se não tinha achado, procura de novo no próximo uso.
+pub fn forget() void {
+    _ = state.cmpxchgStrong(3, 0, .acq_rel, .acquire);
+}
+
 /// Já se sabe se tem FFmpeg? (null = ainda não tentou carregar).
 pub fn known() ?bool {
     return switch (state.load(.acquire)) {
@@ -132,11 +159,12 @@ pub fn known() ?bool {
 fn loadAll() bool {
     // LARPER_NO_FFMPEG=1 finge que não tem (para testar o caminho do navegador).
     if (c.SDL_getenv("LARPER_NO_FFMPEG") != null) return false;
+    useLocalDir();
     for (sets) |s| if (loadSet(s)) {
         loaded = s;
         rgba_fmt = api.av_get_pix_fmt("rgba");
         if (rgba_fmt < 0) return false;
-        if (c.SDL_getenv("LARPER_DEBUG_MEDIA") == null) {
+        if (c.SDL_getenv("LARPER_DEBUG_MEDIA") == null and !@import("debug_log.zig").isOn()) {
             api.av_log_set_level(log_quiet);
         } else std.log.info("ffmpeg: libavformat {d}", .{s.lavf});
         return true;

@@ -131,6 +131,28 @@ pub const Theme = struct {
     }
 };
 
+/// Texto secundário legível em qualquer tema, inclusive os de outras pessoas: o traço fino das
+/// letras pequenas já perde contraste, e abaixo disto ele some no fundo. Sobe em direção à cor
+/// do texto só o quanto precisa, então a hierarquia texto > muted > faint continua.
+fn legibleText(t: *Theme) void {
+    const wanted = [_]struct { tok: Token, min: f32 }{ .{ .tok = .muted, .min = 5.5 }, .{ .tok = .faint, .min = 4.5 } };
+    const backs = [_]Token{ .bg, .surface, .sidebar, .elevated };
+    const text = t.colors.get(.text);
+    for (wanted) |w| {
+        const base = t.colors.get(w.tok);
+        var k: f32 = 0;
+        while (k <= 1) : (k += 0.05) {
+            const col = base.mix(text, k);
+            for (backs) |b| {
+                if (col.contrast(t.colors.get(b)) < w.min) break;
+            } else {
+                t.colors.set(w.tok, col);
+                break;
+            }
+        } else t.colors.set(w.tok, text);
+    }
+}
+
 pub const fallback_palette = [16]u32{
     0x15161b, 0xe06c75, 0x98c379, 0xe5c07b, 0x7aa2f7, 0xc678dd, 0x56b6c2, 0xd7dae0,
     0x5c6370, 0xe06c75, 0x98c379, 0xe5c07b, 0x7aa2f7, 0xc678dd, 0x56b6c2, 0xf0f2f5,
@@ -298,6 +320,7 @@ pub fn loadWith(gpa: std.mem.Allocator, src: []const u8, lo: LoadOptions, diag: 
             t.layout = n;
         }
     }
+    legibleText(&t);
     if (t.layout == null) return fail(diag, null, "o tema precisa de um nó `layout`");
     try collectOverrides(&t, a, t.layout.?, &.{}, resolver, lo.mode, diag);
     collectFx(&t, a, t.layout.?, &fcx) catch |err| return fxFail(err, fcx, diag);

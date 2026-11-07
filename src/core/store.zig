@@ -159,6 +159,22 @@ pub const MemberList = struct {
     synced: bool = false,
 };
 
+pub const GifList = struct {
+    req: u32 = 0,
+    state: enum { none, loading, ready, failed } = .none,
+    items: []types.Gif = &.{},
+};
+
+fn freeGifs(items: []types.Gif) void {
+    for (items) |g| {
+        ev_alloc.free(g.url);
+        ev_alloc.free(g.src);
+        ev_alloc.free(g.preview);
+        ev_alloc.free(g.title);
+    }
+    if (items.len > 0) ev_alloc.free(items);
+}
+
 pub const Store = struct {
     gpa: std.mem.Allocator,
     me: Id = 0,
@@ -234,6 +250,9 @@ pub const Store = struct {
     /// usa também).
     read_index: std.AutoHashMapUnmanaged(Id, types.ReadEntry) = .empty,
     pins: std.AutoHashMapUnmanaged(Id, PinList) = .empty,
+    /// O que o seletor de GIFs mostra.
+    gif_results: GifList = .{},
+    gif_favorites: GifList = .{},
     /// Cartões de convite já pedidos, por código (chave alocada).
     invites: std.StringHashMapUnmanaged(types.Invite) = .empty,
     /// Canais silenciados aqui: não acendem o servidor na barra.
@@ -272,6 +291,8 @@ pub const Store = struct {
         var pli = s.pins.valueIterator();
         while (pli.next()) |pl| s.freePins(pl);
         s.pins.deinit(s.gpa);
+        freeGifs(s.gif_results.items);
+        freeGifs(s.gif_favorites.items);
         s.clearInvites();
         s.invites.deinit(s.gpa);
         var thi = s.threads.valueIterator();
@@ -1097,6 +1118,14 @@ pub const Store = struct {
                 defer ev_alloc.free(rs.entries);
                 s.read_index.clearRetainingCapacity();
                 for (rs.entries) |e| try s.read_index.put(s.gpa, e.channel, e);
+            },
+            .gifs => |g| {
+                const list = if (g.favorites) &s.gif_favorites else &s.gif_results;
+                // A pessoa continuou digitando: esta resposta já é velha.
+                if (g.req != list.req) return freeGifs(g.items);
+                freeGifs(list.items);
+                list.items = g.items;
+                list.state = if (g.ok) .ready else .failed;
             },
             .pins => |p| {
                 defer ev_alloc.free(p.messages);

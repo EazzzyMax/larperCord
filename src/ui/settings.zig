@@ -669,6 +669,7 @@ fn page(p: *Page, previews: []const Preview) void {
             p.toggle(i18n.tr("Reproduzir GIFs automaticamente", "Automatically play GIFs"), i18n.tr("Desligado, o GIF anda quando o mouse passa por cima.", "When off, a GIF plays while you hover it."), &s.autoplay_gifs);
             p.toggle(i18n.tr("Mostrar imagens de links", "Show images from links"), i18n.tr("Imagens e GIFs de links mandados na conversa.", "Images and GIFs from links posted in chat."), &s.show_embeds);
             p.toggle(i18n.tr("Modo economia", "Data saver"), i18n.tr("Imagens, fotos de perfil e anexos só baixam quando você clica. Bom em rede ruim.", "Images, profile pictures and attachments only download when you click. Good on bad networks."), &s.data_saver);
+            videoSection(p);
             p.heading(i18n.tr("Conteúdo", "Content"));
             p.toggle(i18n.tr("Sempre mostrar spoilers", "Always show spoilers"), i18n.tr("Revela o texto ||escondido|| sem precisar clicar.", "Reveals ||hidden|| text without clicking."), &s.show_spoilers);
             p.heading(i18n.tr("Leitura", "Reading"));
@@ -742,6 +743,8 @@ fn page(p: *Page, previews: []const Preview) void {
             p.toggle(i18n.tr("Recarregar temas ao salvar", "Reload themes on save"), i18n.tr("Salvar um .kdl em themes/ ou ~/.config/larpercord/themes aplica na hora.", "Saving a .kdl in themes/ or ~/.config/larpercord/themes applies it right away."), &s.hot_reload);
             p.toggle(i18n.tr("Fechar para a bandeja", "Close to tray"), i18n.tr("Fechar a janela deixa o app conectado, com um ícone na bandeja do sistema.", "Closing the window keeps the app connected, with an icon in the system tray."), &s.close_to_tray);
             if (s.close_to_tray and !tray.hostSeen(ctx.now_ms)) p.note(i18n.tr("Este sistema não tem bandeja agora: fechar a janela encerra o app.", "This system has no tray right now: closing the window quits the app."));
+            textSection(p);
+            debugSection(p);
         },
         .filtros => @import("settings_filtros.zig").page(ctx, p.dl, p.x, &p.y, p.w),
         .voz => @import("settings_voz.zig").draw(p),
@@ -1018,6 +1021,91 @@ fn performance(p: *Page) void {
     p.slider(i18n.tr("Cada GIF", "Each GIF"), &s.gif_limit_mb, 4, 32, "{d:.0} MB", 1);
     p.slider(i18n.tr("Mensagens na memória", "Messages in memory"), &s.message_budget, 500, 5000, "{d:.0}", 1);
     p.note(i18n.tr("Menos memória custa um pouco de rede e CPU: o que saiu é buscado de novo ao voltar para a tela, e GIFs grandes pulam quadros.", "Less memory costs a little network and CPU: what left is fetched again when it comes back on screen, and big GIFs skip frames."));
+}
+
+var ffmpeg_confirming = false;
+
+fn videoSection(p: *Page) void {
+    const ffmpeg = @import("../platform/ffmpeg.zig");
+    const get = @import("../net/ffmpeg_get.zig");
+    const sys = @import("../platform/sys.zig");
+    p.heading(i18n.tr("Vídeos", "Videos"));
+    var buf: [420]u8 = undefined;
+    // Sem carregar o FFmpeg só por abrir a página: ele fica na memória depois.
+    switch (get.phase()) {
+        .downloading, .installing => {
+            p.note(if (get.phase() == .downloading) i18n.fmt(&buf, "Baixando o FFmpeg: {d}%", "Downloading FFmpeg: {d}%", .{get.percent()}) else i18n.tr("Instalando o FFmpeg…", "Installing FFmpeg…"));
+            return;
+        },
+        .done => p.note(i18n.tr("FFmpeg instalado. Os vídeos já tocam aqui no app.", "FFmpeg installed. Videos now play in the app.")),
+        .failed => p.note(switch (get.failure()) {
+            .network => i18n.tr("Não deu para baixar o FFmpeg. Confira a internet e tente de novo.", "Couldn't download FFmpeg. Check your connection and try again."),
+            .hash => i18n.tr("O arquivo baixado não bate com o esperado, então nada foi instalado.", "The downloaded file doesn't match what was expected, so nothing was installed."),
+            else => i18n.tr("Não deu para gravar o FFmpeg no disco.", "Couldn't write FFmpeg to disk."),
+        }),
+        .idle => {},
+    }
+    if (get.phase() == .done) return;
+    const known = ffmpeg.known();
+    if (known == true) {
+        p.note(i18n.tr("FFmpeg encontrado: os vídeos tocam aqui no app.", "FFmpeg found: videos play in the app."));
+        return;
+    }
+    if (known == null) {
+        p.note(i18n.tr("Com o FFmpeg, os vídeos tocam aqui no app. Sem ele, abrem no navegador.", "With FFmpeg, videos play in the app. Without it, they open in the browser."));
+        if (p.buttonSoft(i18n.tr("Verificar se tem FFmpeg", "Check for FFmpeg"))) _ = ffmpeg.get();
+        return;
+    }
+    p.note(i18n.tr("FFmpeg não encontrado: os vídeos abrem no navegador.", "FFmpeg not found: videos open in the browser."));
+    if (!sys.windows and !get.qa_no_network) {
+        p.note(i18n.tr("Instale o pacote ffmpeg do seu sistema (pacman -S ffmpeg, apt install ffmpeg ou dnf install ffmpeg).", "Install your system's ffmpeg package (pacman -S ffmpeg, apt install ffmpeg or dnf install ffmpeg)."));
+    } else if (ffmpeg_confirming) {
+        p.note(i18n.fmt(&buf, "Vai baixar {d} MB de {s}, um projeto de terceiros sem relação com o larperCord. O app confere o SHA-256 do arquivo e guarda só o necessário, cerca de {d} MB em disco. Depois de instalado, o FFmpeg roda dentro do app sempre que um vídeo tocar.", "This downloads {d} MB from {s}, a third-party project unrelated to larperCord. The app checks the file's SHA-256 and keeps only what it needs, about {d} MB on disk. Once installed, FFmpeg runs inside the app whenever a video plays.", .{ get.download_mb, get.source, get.disk_mb }));
+        if (p.button(i18n.tr("Baixar agora", "Download now"), false)) {
+            ffmpeg_confirming = false;
+            // O QA clica em tudo: aqui ele nunca baixa de verdade.
+            get.qa_no_network = qa.on();
+            get.start();
+        }
+        if (p.buttonSoft(i18n.tr("Cancelar", "Cancel"))) ffmpeg_confirming = false;
+        return;
+    } else if (p.button(i18n.tr("Baixar FFmpeg", "Download FFmpeg"), false)) ffmpeg_confirming = true;
+    if (p.buttonSoft(i18n.tr("Procurar de novo", "Check again"))) {
+        ffmpeg.forget();
+        _ = ffmpeg.get();
+    }
+}
+
+fn textSection(p: *Page) void {
+    const s = &p.ctx.st.settings;
+    const defaults: @TypeOf(s.*) = .{};
+    p.divider();
+    p.heading(i18n.tr("Texto", "Text"));
+    p.slider(i18n.tr("Peso do texto", "Text weight"), &s.text_weight, 1, 1.6, "{d:.2}", 1);
+    p.note(i18n.tr("Como as letras encaixam nos pixels. Natural mantém o desenho da fonte. As outras opções deixam o traço mais duro, e o texto pode ficar mais largo.", "How letters fit the pixel grid. Natural keeps the font's design. The others make strokes harder, and text may get wider."));
+    const modes = [_][]const u8{ i18n.tr("Natural", "Natural"), i18n.tr("Hastes alinhadas", "Aligned stems"), i18n.tr("Encaixe total", "Full fit") };
+    p.segmented(&modes, &s.text_hinting);
+    if (s.text_weight != defaults.text_weight or s.text_hinting != defaults.text_hinting) {
+        if (p.buttonSoft(i18n.tr("Voltar ao padrão", "Reset to default"))) {
+            s.text_weight = defaults.text_weight;
+            s.text_hinting = defaults.text_hinting;
+        }
+    }
+}
+
+fn debugSection(p: *Page) void {
+    const debug_log = @import("../platform/debug_log.zig");
+    const ctx = p.ctx;
+    p.divider();
+    p.heading(i18n.tr("Depuração", "Debugging"));
+    p.toggle(i18n.tr("Salvar registro de depuração", "Save debug log"), i18n.tr("Para relatar um problema: ligue, faça o problema acontecer e mande o arquivo. Fica ligado até você desligar ou fechar o app.", "To report a problem: turn it on, make the problem happen and send the file. Stays on until you turn it off or close the app."), &debug_log.ui_on);
+    if (debug_log.path()) |path| {
+        if (p.buttonSoft(i18n.tr("Abrir a pasta do registro", "Open the log folder")) and !qa.on()) debug_log.openFolder();
+        if (p.buttonSoft(i18n.tr("Copiar o caminho do arquivo", "Copy the file path"))) {
+            if (ctx.st.gpa.dupe(u8, path)) |owned| ctx.act(.{ .copy = owned }) else |_| {}
+        }
+    }
+    p.note(i18n.tr("O token nunca entra no arquivo. Ele traz IDs de canais e servidores, nomes de arquivos de mídia e dados da chamada, então dê uma olhada antes de mandar.", "Your token never goes in the file. It has channel and server IDs, media file names and call data, so take a look before you send it."));
 }
 
 fn about(p: *Page) void {

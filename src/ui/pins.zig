@@ -8,6 +8,8 @@ const w = @import("widgets.zig");
 const icons = @import("icons.zig");
 const i18n = @import("i18n.zig");
 const popup = @import("popup.zig");
+const att = @import("attachments.zig");
+const emb = @import("embeds.zig");
 const inbox = @import("inbox.zig");
 const types = @import("../core/types.zig");
 const StoredMessage = @import("../core/store.zig").StoredMessage;
@@ -105,7 +107,9 @@ fn card(ctx: *d.Ctx, dl: *c.ImDrawList, body: d.Rect, y0: f32, m: *const StoredM
     var pb: [600]u8 = undefined;
     const text = inbox.previewText(ctx, &pb, m);
     const text_h = inbox.wrapText(null, fam.get(.regular), 14, tx, 0, tw, text, 4, ctx.col(.text));
-    const h = 36 + text_h + 10;
+    const media_h = att.blockHeight(m.msg.attachments, tw, m.msg.content.len > 0);
+    const embed_h = emb.block(ctx, null, m, tx, 0, tw, 1, .{});
+    const h = 36 + text_h + media_h + embed_h + 10;
     const r: d.Rect = .{ .x = x, .y = y0, .w = wd, .h = h };
     // Por baixo do X de desafixar: quem está em cima ganha o clique.
     const hb = d.hitUnder(ctx, @truncate(m.msg.id), r);
@@ -120,6 +124,10 @@ fn card(ctx: *d.Ctx, dl: *c.ImDrawList, body: d.Rect, y0: f32, m: *const StoredM
     var tb: [48]u8 = undefined;
     d.text(dl, fam.get(.regular), 11.5, tx + nw + tag_w + 8, y0 + 11.5, ctx.col(.faint), w.stamp(&tb, m.msg.timestamp, @divTrunc(ctx.now_ms, 1000)));
     _ = inbox.wrapText(dl, fam.get(.regular), 14, tx, y0 + 30, tw, text, 4, ctx.col(.text).mix(ctx.col(.muted), 0.15));
+    // Por cima do cartão: clicar na imagem abre ela, e no resto vai até a mensagem.
+    if (media_h + embed_h > 0) qa.mark(.{ .x = tx, .y = y0 + 30 + text_h, .w = tw, .h = media_h + embed_h }, "pin-media:{d}", .{m.msg.id});
+    if (media_h > 0) att.draw(ctx, dl, m, tx, y0 + 30 + text_h, tw, 1);
+    if (embed_h > 0) _ = emb.block(ctx, dl, m, tx, y0 + 30 + text_h + media_h, tw, 1, .{});
     if (can_pin) {
         const xr: d.Rect = .{ .x = r.right() - 32, .y = y0 + 6, .w = 26, .h = 26 };
         const xh = d.hit(ctx, @truncate(m.msg.id ^ 0x71A), xr);

@@ -175,6 +175,7 @@ pub fn click(ctx: *d.Ctx, key: u64, link: []const u8, page: []const u8, r: d.Rec
     if (ok) return;
     if (std.mem.startsWith(u8, page, "https://")) {
         @import("attachments.zig").openUrl(page);
+        if (ffmpeg.known() == false) ctx.st.showToast(ctx.now_ms, false, "sem FFmpeg, abriu no navegador. Para tocar aqui: Configurações → Chat → Vídeos", "no FFmpeg, opened in the browser. To play here: Settings → Chat → Videos", .{});
     } else ctx.st.showToast(ctx.now_ms, false, "vídeo de demonstração (sem FFmpeg)", "demo video (no FFmpeg)", .{});
 }
 

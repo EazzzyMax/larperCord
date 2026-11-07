@@ -5199,6 +5199,25 @@ void ImFontAtlasFontRebuildOutput(ImFontAtlas* atlas, ImFont* font)
     ImFontAtlasFontInitOutput(atlas, font);
 }
 
+// [larperCord] Peso e encaixe do texto, ao vivo (Configurações → Avançado). O emoji colorido fica
+// de fora. As letras voltam a ser geradas conforme aparecem na tela.
+extern "C" void larper_font_style(ImFont* font, float multiply, unsigned int hint_flags)
+{
+    const unsigned int hint_mask = 31u; // NoHinting, NoAutoHint, ForceAutoHint, LightHinting, MonoHinting
+    const unsigned int color = 1u << 8; // LoadColor
+    ImFontAtlas* atlas = font->OwnerAtlas;
+    ImFontAtlasFontDiscardBakes(atlas, font, 0);
+    ImFontAtlasFontDestroyOutput(atlas, font);
+    for (ImFontConfig* src : font->Sources)
+    {
+        if (src->FontLoaderFlags & color)
+            continue;
+        src->RasterizerMultiply = multiply;
+        src->FontLoaderFlags = (src->FontLoaderFlags & ~hint_mask) | hint_flags;
+    }
+    ImFontAtlasFontInitOutput(atlas, font);
+}
+
 //-----------------------------------------------------------------------------------------------------------------------------
 
 bool ImFontAtlasFontSourceInit(ImFontAtlas* atlas, ImFontConfig* src)
