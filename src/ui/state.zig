@@ -27,7 +27,10 @@ pub const Popup = union(enum) {
     /// Mensagens fixadas de um canal.
     pins: struct { channel: Id },
     /// Threads de um canal de texto, ativas ou arquivadas (ui/forum.zig).
-    threads: struct { parent: Id, archived: bool = false },
+    /// `private`: a aba das privadas arquivadas.
+    threads: struct { parent: Id, archived: bool = false, private: bool = false },
+    /// "Editar thread": nome, tags e auto-arquivar (ui/thread_settings.zig).
+    edit_thread: struct { thread: Id },
     /// "Criar thread" a partir de uma mensagem e "Novo post" num fórum.
     new_thread: struct { message: Id },
     new_post: struct { forum: Id },

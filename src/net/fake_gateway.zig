@@ -11,6 +11,7 @@ const Queue = @import("queue.zig").Queue;
 const i18n = @import("../ui/i18n.zig");
 const leitura = @import("../core/leitura.zig");
 const jsonx = @import("jsonx.zig");
+const thread_json = @import("thread_json.zig");
 const Id = types.Id;
 
 const alloc = std.heap.c_allocator;
@@ -308,7 +309,18 @@ pub const Gateway = struct {
                     g.hot_channel = ch;
                     try g.history_replies.append(alloc, .{ .at_ms = nowMs() + 140, .channel = ch });
                 },
-                .fetch_threads => |ft| try g.threadsPage(ft.channel, ft.guild, ft.archived, ft.offset),
+                .fetch_threads => |ft| if (ft.private) try g.privatePage(ft.channel, ft.guild, ft.manage) else try g.threadsPage(ft.channel, ft.guild, ft.archived, ft.offset),
+                .edit_thread => |et| {
+                    // O corpo que iria para o Discord fica para o QA conferir.
+                    var b: std.ArrayList(u8) = .empty;
+                    defer b.deinit(alloc);
+                    try thread_json.editBody(&b, alloc, et);
+                    const n = @min(b.items.len, sent_threads.edit_body.len);
+                    @memcpy(sent_threads.edit_body[0..n], b.items[0..n]);
+                    sent_threads.edit_len.store(n, .release);
+                    _ = sent_threads.edits.fetchAdd(1, .release);
+                    g.emit(.{ .thread_edited = et });
+                },
                 .create_thread => |ct| {
                     // Como no Discord: a thread tem o ID da mensagem que a abriu.
                     try g.threads.put(alloc, ct.message, .{ .count = 0, .members = 1 });
@@ -638,6 +650,36 @@ pub const Gateway = struct {
             if (!archived and i % 9 == 4) try joined.append(alloc, id);
         }
         g.emit(.{ .threads_page = .{ .channel = channel, .archived = archived, .threads = threads, .previews = previews, .joined = try joined.toOwnedSlice(alloc), .more = last < total } });
+    }
+
+    /// Privadas arquivadas do #zig: duas em que estamos e uma que só quem
+    /// gerencia threads vê (como os dois caminhos do Discord).
+    fn privatePage(g: *Gateway, channel: Id, guild: Id, manage: bool) !void {
+        _ = sent_threads.private_fetches.fetchAdd(1, .monotonic);
+        sent_threads.private_manage.store(@intFromBool(manage), .monotonic);
+        const specs = [_]struct { name: []const u8, en: []const u8, joined: bool }{
+            .{ .name = "planejamento secreto", .en = "secret planning", .joined = true },
+            .{ .name = "presente da ana", .en = "gift for ana", .joined = true },
+            .{ .name = "conversa da moderação", .en = "moderation talk", .joined = false },
+        };
+        var list: std.ArrayList(types.Channel) = .empty;
+        var joined: std.ArrayList(Id) = .empty;
+        if (channel == channelId(thread_guild, 9)) for (specs, 0..) |t, i| {
+            if (!manage and !t.joined) continue;
+            const t_ms = g.epoch_ms - @as(i64, @intCast(i * 9 + 600)) * 3_600_000;
+            const id = types.makeSnowflake(t_ms, 0x3d0000 + i);
+            try g.threads.put(alloc, id, .{ .count = 3, .members = 2 });
+            try list.append(alloc, .{
+                .id = id,
+                .guild = guild,
+                .parent = channel,
+                .name = try alloc.dupe(u8, pick(t.name, t.en)),
+                .topic = try alloc.dupe(u8, ""),
+                .thread = .{ .owner = if (i == 0) me_id else 1002, .archived = true, .private = true, .joined = t.joined, .joined_known = true, .message_count = 3, .member_count = 2, .archive_ts = @divTrunc(t_ms, 1000) + 3600, .auto_archive = 1440, .last_message = types.makeSnowflake(t_ms + 60_000, 0x3d1000 + i) },
+            });
+            if (t.joined) try joined.append(alloc, id);
+        };
+        g.emit(.{ .threads_page = .{ .channel = channel, .archived = true, .private = true, .threads = try list.toOwnedSlice(alloc), .joined = try joined.toOwnedSlice(alloc) } });
     }
 
     /// Jogos da demonstração (com tempo de jogo, para o cartão de perfil).
@@ -1014,6 +1056,18 @@ const guilds = [_]GuildSeed{
 };
 
 const ChannelSeed = struct { name: []const u8, kind: types.ChannelKind = .text, topic: []const u8 = "", name_en: ?[]const u8 = null, topic_en: ?[]const u8 = null };
+
+/// O que a demonstração recebeu das threads (o QA confere o que iria ao Discord).
+pub const sent_threads = struct {
+    const A = std.atomic.Value(u64);
+    pub var edits: A = .init(0);
+    pub var edit_len: A = .init(0);
+    /// Corpo do último PATCH /channels/{thread}.
+    pub var edit_body: [512]u8 = undefined;
+    pub var private_fetches: A = .init(0);
+    /// O último pedido de privadas usou o caminho de quem gerencia threads.
+    pub var private_manage: A = .init(0);
+};
 
 /// O que o gateway falso sabe de uma thread para montar a conversa dela.
 const DemoThread = struct {

@@ -3209,6 +3209,7 @@ const ops_ffmpeg = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @impor
 const ops_scripts = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_scripts;
 const ops_ime = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_paineis.zig").ops_ime;
 const ops_busca = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_busca.zig").ops;
+const ops_threads = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_threads.zig").ops;
 const ops_convites = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_convites.zig").ops;
 const ops_plugins_real = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_real;
 const ops_vitrine = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_vitrine;
@@ -3237,6 +3238,7 @@ fn script() []const Op {
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "escritas")) return &ops_scripts;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "ime")) return &ops_ime;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "busca")) return &ops_busca;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "threads")) return &ops_threads;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "convites")) return &ops_convites;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-real")) return &ops_plugins_real;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "vitrine")) return &ops_vitrine;

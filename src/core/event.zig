@@ -6,6 +6,7 @@
 //! passam a pertencer ao Store.
 const types = @import("types.zig");
 const InviteCode = @import("links.zig").InviteCode;
+const ThreadEdit = @import("thread_edit.zig").Edit;
 const Id = types.Id;
 
 pub const Ready = struct {
@@ -157,13 +158,17 @@ pub const Event = union(enum) {
     thread_list_sync: struct { guild: Id, parents: ?[]Id = null, threads: []types.Channel, joined: []Id = &.{} },
     /// Uma página de threads de um canal, sob demanda (fórum ou arquivadas).
     /// `failed`: não veio; nada do que já há na lista se perde.
-    threads_page: struct { channel: Id, archived: bool, threads: []types.Channel = &.{}, previews: []types.ThreadPreview = &.{}, joined: []Id = &.{}, more: bool = false, failed: bool = false },
+    /// `private`: as privadas arquivadas (a terceira aba do painel).
+    threads_page: struct { channel: Id, archived: bool, private: bool = false, threads: []types.Channel = &.{}, previews: []types.ThreadPreview = &.{}, joined: []Id = &.{}, more: bool = false, failed: bool = false },
     /// Entramos ou saímos de uma thread (THREAD_MEMBER_UPDATE, ou o REST confirmou).
     thread_joined: struct { thread: Id, joined: bool },
     /// Quem está numa thread. `replace`: `added` é a lista inteira.
     thread_members: struct { thread: Id, replace: bool = false, count: ?u32 = null, added: []Id = &.{}, removed: []Id = &.{} },
     /// A thread que acabamos de criar existe: abre ela.
     thread_open: Id,
+    /// A edição de uma thread valeu (o Store assume o `name`). O Discord
+    /// confirma com a thread inteira (`channel_upsert`); a demonstração, com isto.
+    thread_edited: ThreadEdit,
 };
 
 /// `rejected`: o Discord recusou o token (4004). Vem logo antes de `failed`.
@@ -277,7 +282,9 @@ pub const Command = union(enum) {
     create_invite: CreateInvite,
     /// Uma página de threads de um canal. Ativas: por `offset`; arquivadas:
     /// as de antes de `before` (s; 0 = as mais recentes).
-    fetch_threads: struct { channel: Id, guild: Id, archived: bool, offset: u32 = 0, before: i64 = 0 },
+    /// `private`: as privadas arquivadas; com `manage` (gerenciar threads),
+    /// todas, senão só aquelas em que estamos (paginam por `before_id`).
+    fetch_threads: struct { channel: Id, guild: Id, archived: bool, offset: u32 = 0, before: i64 = 0, private: bool = false, manage: bool = false, before_id: Id = 0 },
     /// Thread a partir de uma mensagem (nome alocado).
     create_thread: struct { channel: Id, message: Id, name: []const u8 },
     /// Post novo num fórum (textos e tags alocados).
@@ -286,6 +293,8 @@ pub const Command = union(enum) {
     join_thread: struct { thread: Id, join: bool },
     /// Quem está na thread, pelo REST (a lista do op 14 pode não vir).
     fetch_thread_members: Id,
+    /// PATCH /channels/{thread}: só o que muda (nome alocado com o c_allocator).
+    edit_thread: ThreadEdit,
     shutdown,
 };
 
@@ -426,5 +435,7 @@ pub const Action = union(enum) {
     create_post: struct { forum: Id, name: []const u8, content: []const u8, tags: []const Id },
     join_thread: struct { thread: Id, join: bool },
     /// A primeira página (se ainda não veio ou falhou) ou a próxima.
-    fetch_threads: struct { channel: Id, archived: bool },
+    fetch_threads: struct { channel: Id, archived: bool, private: bool = false },
+    /// Editar uma thread (nome alocado com o gpa da interface).
+    edit_thread: ThreadEdit,
 };

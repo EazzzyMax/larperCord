@@ -13,6 +13,7 @@ const w = @import("widgets.zig");
 const icons = @import("icons.zig");
 const i18n = @import("i18n.zig");
 const plugin_panel = @import("plugin_panel.zig");
+const thread_settings = @import("thread_settings.zig");
 const engine = @import("../plugins/engine.zig");
 const types = @import("../core/types.zig");
 const Id = types.Id;
@@ -58,6 +59,7 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         d.text(dl, fam.get(.bold), fs, pr.x + 2, d.centerY(r, fs), if (ph.hovered) ctx.col(.text) else ctx.col(.muted), pl);
         d.tip(ctx, pr, i18n.tr("Mensagens fixadas", "Pinned messages"), ph.hovered);
         const tw = d.textClipped(dl, fam.get(.bold), fs, r.x + 6, d.centerY(r, fs), ctx.col(.accent), t, right_x - r.x - 14);
+        thread_settings.headerTitle(ctx, dl, ch, .{ .x = r.x + 6, .y = r.y + 2, .w = tw, .h = r.h - 4 });
         const ly = r.y + r.h / 2;
         d.line(dl, r.x + 6 + tw + 4, ly, right_x - 4, ly, ctx.col(.border), 1);
         return;
@@ -67,6 +69,7 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         var buf: [128]u8 = undefined;
         const t = std.fmt.bufPrint(&buf, "{s}", .{ch.name}) catch "";
         d.text(dl, fam.get(.bold), 22, r.x + 4, r.y + r.h / 2 - 22, ctx.col(.text), t);
+        thread_settings.headerTitle(ctx, dl, ch, .{ .x = r.x + 4, .y = r.y + r.h / 2 - 24, .w = d.width(fam.get(.bold), 22, t), .h = 28 });
         _ = w.botTag(ctx, dl, r.x + 4 + d.width(fam.get(.bold), 22, t), r.y + r.h / 2 - 9, dm_user, false, 1);
         const sub = if (ch.guild == 0) i18n.tr("mensagem direta", "direct message") else d.printClip(&buf, "{s}  ·  {s}", .{ if (g) |x| x.name else "", ch.topic });
         const has_panels = plugin_panel.available();
@@ -98,6 +101,7 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     const panels_w: f32 = if (has_panels) 36 else 0;
     const name_room = if (search_w > 0) @max(80, sx - (r.x + 42) - 14 - 214 - 110 - panels_w) else @max(sx - 192 - panels_w - (r.x + 42), 40);
     const name_w = d.textClipped(dl, fam.get(.semibold), 16, r.x + 42, d.centerY(r, 16), ctx.col(.text), ch.name, name_room - w.botTagSpace(ctx, dm_user, false));
+    thread_settings.headerTitle(ctx, dl, ch, .{ .x = r.x + 42, .y = r.y + r.h / 2 - 12, .w = name_w, .h = 24 });
     const tx = r.x + 42 + name_w + w.botTag(ctx, dl, r.x + 42 + name_w, r.y + r.h / 2, dm_user, false, 1) + 14;
     // Da direita para a esquerda: busca, membros, buscar mensagens, salvas, caixa de entrada, fixadas.
     // Numa thread, no lugar do tópico: o canal pai, e clicar volta para ele.
