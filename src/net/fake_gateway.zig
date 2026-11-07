@@ -22,6 +22,7 @@ pub const Sink = struct {
     push: *const fn (ctx: *anyopaque, event: ev.Event) void,
 };
 const links = @import("../core/links.zig");
+const rpc_proto = @import("rpc_proto.zig");
 
 /// O que a demonstração "mandou para o Discord" (o QA confere; não há servidor
 /// para perguntar). Lido da thread da interface.
@@ -48,6 +49,10 @@ pub const sent = struct {
     pub var search_len: A = .init(0);
     /// A consulta da última busca (o QA confere o que iria para o Discord).
     pub var search_params: [1100]u8 = undefined;
+    /// Rich Presence: quantos op 3 com atividade iriam para o Discord e o último.
+    pub var presences: A = .init(0);
+    pub var presence_len: A = .init(0);
+    pub var presence: [4096]u8 = undefined;
 };
 
 const demo_gifs = [_][]const u8{ "dancing cat", "thumbs up", "good morning", "laughing", "confused", "applause", "typing fast", "shrug" };
@@ -98,6 +103,10 @@ pub const Gateway = struct {
     mention_log: []types.Message = &.{},
     /// Threads e posts da demonstração: o que cada uma tem de conversa.
     threads: std.AutoHashMapUnmanaged(Id, DemoThread) = .empty,
+    /// Rich Presence: a atividade de agora (como no gateway de verdade) e o
+    /// nosso status, que vai junto no op 3.
+    presence: rpc_proto.Presence = .{},
+    my_status: types.Status = .online,
 
     pub fn start(g: *Gateway) !void {
         g.thread = c.SDL_CreateThread(threadMain, "gateway", g) orelse return error.SdlThread;
@@ -128,6 +137,23 @@ pub const Gateway = struct {
     pub fn stop(g: *Gateway) void {
         g.commands.push(.shutdown);
         if (g.thread) |t| c.SDL_WaitThread(t, null);
+        g.presence.deinit(alloc);
+    }
+
+    /// Rich Presence: o mesmo op 3 que o gateway de verdade mandaria (o QA
+    /// confere) e a nossa linha na interface. A aplicação tem nome inventado.
+    fn setActivity(g: *Gateway, app: Id, act: ?*rpc_proto.Activity) void {
+        defer if (act) |a| alloc.destroy(a);
+        if (act != null and !g.presence.known(app)) g.presence.learn(alloc, app, "{\"name\":\"Jogo de Teste\"}", false, "[{\"id\":\"4242\",\"type\":1,\"name\":\"logo\"}]");
+        g.presence.set(alloc, app, act);
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(alloc);
+        g.presence.writeOp3(&out, alloc, if (g.my_status == .offline) "invisible" else @tagName(g.my_status)) catch return;
+        const n = @min(out.items.len, sent.presence.len);
+        @memcpy(sent.presence[0..n], out.items[0..n]);
+        sent.presence_len.store(n, .release);
+        _ = sent.presences.fetchAdd(1, .release);
+        g.emit(g.presence.meEvent(alloc, me_id, g.my_status));
     }
 
     /// Editar servidor ou grupo: volta como o gateway de verdade, com o
@@ -391,7 +417,11 @@ pub const Gateway = struct {
                 .set_note => |n| alloc.free(n.text),
                 .move_member => |mm| g.emit(.{ .voice_state = .{ .channel = mm.channel, .user = mm.user } }),
                 .fetch_app => |app| g.emit(.{ .app_icon = .{ .app = app, .icon = "" } }),
-                .set_status => |st| g.emit(.{ .presence_update = .{ .user = me_id, .status = st } }),
+                .set_status => |st| {
+                    g.my_status = st;
+                    g.emit(.{ .presence_update = .{ .user = me_id, .status = st } });
+                },
+                .set_activity => |sa| g.setActivity(sa.app, sa.activity),
                 .create_dm => |u| {
                     const seed = for (users) |x| {
                         if (x.id == u) break x;

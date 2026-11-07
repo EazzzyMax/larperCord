@@ -35,6 +35,7 @@ const read_json = @import("read_state_json.zig");
 const voice_mod = @import("voice.zig");
 const thread_json = @import("thread_json.zig");
 const user_json = @import("user_json.zig");
+const rpc_proto = @import("rpc_proto.zig");
 const Id = types.Id;
 const Value = std.json.Value;
 
@@ -95,6 +96,8 @@ pub const Gateway = struct {
     voice_wait_until: i64 = 0,
     /// Status escolhido (também vai no IDENTIFY de uma sessão nova).
     status: types.Status = .online,
+    /// Rich Presence: a atividade de agora, que vai junto com o status.
+    presence: rpc_proto.Presence = .{},
     /// Cargo -> cor e posição, para a cor do nome de cada membro.
     role_info: std.AutoHashMapUnmanaged(Id, RoleInfo) = .empty,
     /// Última lista de membros pedida (op 14): repetida depois de um READY.
@@ -167,7 +170,9 @@ pub const Gateway = struct {
         @memset(&g.resume_base, 0);
         for (g.pending.items) |cmd| g.dropCommand(cmd);
         g.pending.deinit(alloc);
+        for (g.held.items) |cmd| freeCommand(cmd);
         g.held.deinit(alloc);
+        g.presence.deinit(alloc);
         g.frame.deinit(alloc);
         g.zout.deinit(alloc);
         g.role_info.deinit(alloc);
@@ -609,10 +614,41 @@ pub const Gateway = struct {
         j.writeString(&out, alloc, g.token) catch return;
         out.print(alloc, ",\"capabilities\":4605,\"properties\":", .{}) catch return;
         out.appendSlice(alloc, identity_props) catch return;
-        out.print(alloc, ",\"presence\":{{\"activities\":[],\"status\":\"{s}\",\"afk\":false,\"since\":0}},\"compress\":false,\"client_state\":", .{statusName(g.status)}) catch return;
+        out.appendSlice(alloc, ",\"presence\":{") catch return;
+        g.presence.writeActivities(&out, alloc) catch return;
+        out.print(alloc, ",\"status\":\"{s}\",\"afk\":false,\"since\":0}},\"compress\":false,\"client_state\":", .{statusName(g.status)}) catch return;
         out.appendSlice(alloc, client_state_json) catch return;
         out.appendSlice(alloc, "}}") catch return;
         g.send(out.items);
+    }
+
+    fn dropHeldActivity(g: *Gateway) void {
+        var i: usize = 0;
+        while (i < g.held.items.len) {
+            if (g.held.items[i] == .set_activity) freeCommand(g.held.orderedRemove(i)) else i += 1;
+        }
+    }
+
+    /// op 3: o status de agora com a atividade do Rich Presence (se houver).
+    fn sendPresence(g: *Gateway) void {
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(alloc);
+        g.presence.writeOp3(&out, alloc, statusName(g.status)) catch return;
+        g.send(out.items);
+    }
+
+    /// Nome e imagens de uma aplicação do Rich Presence (sem o nome, a atividade
+    /// não vai: o Discord não aceita uma sem nome).
+    fn learnApp(g: *Gateway, app: Id) void {
+        var pb: [96]u8 = undefined;
+        var rpc_resp = g.request("GET", std.fmt.bufPrint(&pb, "/applications/{d}/rpc", .{app}) catch return, null);
+        defer if (rpc_resp) |*r| r.body.deinit(alloc);
+        const rpc_ok = if (rpc_resp) |r| r.status == 200 else false;
+        const missing = if (rpc_resp) |r| r.status == 404 else false;
+        var assets_resp = if (rpc_ok) g.request("GET", std.fmt.bufPrint(&pb, "/oauth2/applications/{d}/assets", .{app}) catch return, null) else null;
+        defer if (assets_resp) |*r| r.body.deinit(alloc);
+        const assets: ?[]const u8 = if (assets_resp) |r| (if (r.status == 200) r.body.items else null) else null;
+        g.presence.learn(alloc, app, if (rpc_ok) rpc_resp.?.body.items else null, missing, assets);
     }
 
     fn sendResume(g: *Gateway) void {
@@ -2313,7 +2349,7 @@ pub const Gateway = struct {
     /// Comando que é escrito no WebSocket (não passa pelo REST).
     fn usesGateway(cmd: ev.Command) bool {
         return switch (cmd) {
-            .subscribe_guild, .set_status, .join_voice, .voice_flags => true,
+            .subscribe_guild, .set_status, .set_activity, .join_voice, .voice_flags => true,
             else => false,
         };
     }
@@ -2718,6 +2754,7 @@ pub const Gateway = struct {
             .gif_search => |q| alloc.free(q.query),
             .forward_message => |f| alloc.free(f.text),
             .ack_bulk => |list| if (list.len > 0) alloc.free(list),
+            .set_activity => |sa| if (sa.activity) |a| alloc.destroy(a),
             .create_thread => |m| alloc.free(m.name),
             .edit_place => |e| freeEdit(e),
             .create_post => |m| {
@@ -2953,7 +2990,9 @@ pub const Gateway = struct {
 
     fn execute(g: *Gateway, cmd: ev.Command) void {
         if (!g.ws_ready and usesGateway(cmd)) {
-            g.held.append(alloc, cmd) catch {};
+            // Rich Presence: só a atividade mais nova espera a conexão voltar.
+            if (cmd == .set_activity) g.dropHeldActivity();
+            g.held.append(alloc, cmd) catch freeCommand(cmd);
             return;
         }
         defer freeCommand(cmd);
@@ -3335,9 +3374,15 @@ pub const Gateway = struct {
             .set_status => |st| {
                 if (st == g.status) return;
                 g.status = st;
-                var buf: [128]u8 = undefined;
-                const payload = std.fmt.bufPrint(&buf, "{{\"op\":3,\"d\":{{\"status\":\"{s}\",\"since\":0,\"activities\":[],\"afk\":false}}}}", .{statusName(st)}) catch return;
-                g.send(payload);
+                g.sendPresence();
+            },
+            .set_activity => |sa| {
+                // Rich Presence: nome e imagens da aplicação, uma vez por aplicação.
+                if (sa.activity != null and !g.presence.known(sa.app)) g.learnApp(sa.app);
+                g.presence.set(alloc, sa.app, sa.activity);
+                g.sendPresence();
+                // O Discord não manda a nossa presença de volta: a nossa linha muda aqui.
+                g.emit(g.presence.meEvent(alloc, g.me, g.status));
             },
             .member_role => |mr| {
                 const path = std.fmt.bufPrint(&path_buf, "/guilds/{d}/members/{d}/roles/{d}", .{ mr.guild, mr.user, mr.role }) catch return;

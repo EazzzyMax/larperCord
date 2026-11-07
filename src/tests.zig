@@ -55,6 +55,7 @@ test {
     _ = @import("net/settings_proto.zig");
     _ = @import("net/thread_json.zig");
     _ = @import("net/user_json.zig");
+    _ = @import("net/rpc_proto.zig");
     _ = @import("ui/apng.zig");
     _ = @import("plugins/engine.zig");
     _ = @import("plugins/manifest.zig");

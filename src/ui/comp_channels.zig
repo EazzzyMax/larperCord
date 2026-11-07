@@ -436,9 +436,12 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     const modes = modeLine(ctx, &mb);
     if (modes != null) qa.mark(pr, "mode-line", .{});
     if (tty) {
-        var buf: [160]u8 = undefined;
+        var buf: [256]u8 = undefined;
         const t = if (modes) |ml|
             std.fmt.bufPrint(&buf, "{s} {s} [{s}]", .{ w.statusGlyph(me.status), me.name, ml }) catch ""
+        else if (me.activity) |act|
+            // A nossa atividade (Rich Presence), como a dos outros na lista.
+            std.fmt.bufPrint(&buf, "{s} {s} · {s}", .{ w.statusGlyph(me.status), me.name, act }) catch ""
         else
             std.fmt.bufPrint(&buf, "{s} {s}", .{ w.statusGlyph(me.status), me.name }) catch "";
         const tr: d.Rect = .{ .x = pr.x + 4, .y = pr.y + 2, .w = pr.w - 80, .h = pr.h - 4 };
@@ -446,7 +449,8 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         qa.mark(tr, "me", .{});
         if (hb.hovered) d.rect(ctx.dl, tr, ctx.col(.hover), 0);
         if (hb.clicked) ctx.popup(.{ .menu = .{ .kind = .status, .id = me.id, .x = tr.x, .y = tr.y - 190 } });
-        d.text(ctx.dl, fam.get(.bold), ctx.th.font_size - 1, pr.x + 10, d.centerY(pr, ctx.th.font_size - 1), w.statusColor(ctx, me.status), t);
+        if (modes == null and me.activity != null) qa.mark(tr, "me-activity", .{});
+        _ = d.textClipped(ctx.dl, fam.get(.bold), ctx.th.font_size - 1, pr.x + 10, d.centerY(pr, ctx.th.font_size - 1), w.statusColor(ctx, me.status), t, tr.w - 6);
     } else {
         const card: d.Rect = .{ .x = pr.x + 6, .y = pr.y + pr.h / 2 - 18, .w = pr.w - 108, .h = 36 };
         const hb = d.hit(ctx, 1, card);
@@ -459,6 +463,10 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         // Foco/economia ligados aparecem no lugar do status (o menu tem como sair).
         if (modes) |ml| {
             _ = d.textClipped(ctx.dl, fam.get(.semibold), 12, card.x + 44, card.y + 19, ctx.col(.accent), ml, card.w - 48);
+        } else if (me.activity) |act| {
+            // A nossa atividade (Rich Presence) no lugar do status, como a dos outros na lista.
+            qa.mark(card, "me-activity", .{});
+            _ = d.textClipped(ctx.dl, fam.get(.regular), 12, card.x + 44, card.y + 19, ctx.col(.muted), act, card.w - 48);
         } else _ = d.textClipped(ctx.dl, fam.get(.regular), 12, card.x + 44, card.y + 19, ctx.col(.muted), switch (me.status) {
             .online => "Online",
             .idle => i18n.tr3("Ausente", "Idle", "退席中"),

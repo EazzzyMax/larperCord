@@ -252,6 +252,9 @@ pub const Command = union(enum) {
     set_note: struct { user: Id, text: []const u8 },
     /// Ícone de uma aplicação (GET /applications/{id}/rpc).
     fetch_app: Id,
+    /// Rich Presence: a atividade de um jogo (`app` = client_id). Alocada com o
+    /// c_allocator, passa para quem recebe; null limpa.
+    set_activity: struct { app: Id, activity: ?*@import("../net/rpc_proto.zig").Activity },
     /// Move alguém para outro canal de voz (null = desconecta da call).
     move_member: struct { guild: Id, user: Id, channel: ?Id },
     /// As 25 menções mais recentes (só leitura), chegam como `recent_mentions`.
