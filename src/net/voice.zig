@@ -469,6 +469,7 @@ const Worker = struct {
             // usa ele para saber quanto tempo passou entre duas falas.
             w.rtp_ts +%= frame_samples;
             if (w.next_frame < now - 100) w.next_frame = now + frame_ms; // não acumula atraso
+            if (debugOn()) w.watchQueues();
         }
         w.conceal();
         w.expireSpeakers(now);
@@ -896,6 +897,7 @@ const Worker = struct {
         if (debugOn() and now - w.stats_ms >= 3000) {
             dbg("recebido: {d} pacotes de {d} pessoas, fora de ordem {d}, perdidos refeitos {d}, inventados {d}, fila vazia {d}, pausas de quem fala {d}, maior vão {d} ms, descartados {d}, recomeços {d}, sem decifrar {d}; thread: acordou atrasada até {d} ms, ocupada até {d} ms", .{ w.stats.packets, w.n_sources, w.stats.late, w.stats.rebuilt, w.stats.concealed, w.stats.starved, w.stats.paused, w.stats.gap_max_ms, w.stats.skipped, w.stats.cleared, w.stats.undecrypted, w.stats.wake_late_ms, w.stats.busy_ms });
             dbg("extra: com padding {d}, silêncios decodificados {d}, quadros quase no limite {d}, mistura estourou {d} amostras", .{ w.stats.padded, w.stats.silence_frames, w.stats.near_full, mix_over.swap(0, .monotonic) });
+            dbg("fila: seca {d} vezes no meio da fala (cada uma ~20 ms de corte), maior {d} ms, vãos de 60 ms ou mais {d}, voltas logo depois do silêncio {d}", .{ w.stats.dry, w.stats.queue_max_ms, w.stats.net_gaps, w.stats.resumed });
             w.stats = .{};
             dbg("mic: {s}, rms máx {d:.0}, {d} quadros enviados, DAVE {s}", .{ if (w.mic.stream == null) "sem microfone" else if (blocked) "mudo" else "ligado", w.mic_peak_rms, w.sent_frames, if (w.dave) |dv| (if (dv.enabled) "cifrando" else "esperando") else "não" });
             w.stats_ms = now;
@@ -1027,9 +1029,13 @@ const Worker = struct {
             // Passa pelo decodificador: ele prevê o volume de cada quadro a partir do anterior.
             // Sem isto, a próxima fala pode sair muitas vezes mais alta por uns 100 ms.
             var quiet: [5760 * channels]i16 = undefined;
-            _ = c.opus_decode(src.dec, frame.ptr, @intCast(frame.len), &quiet, 5760, 0);
+            const qn = c.opus_decode(src.dec, frame.ptr, @intCast(frame.len), &quiet, 5760, 0);
             w.stats.silence_frames += 1;
-            src.jitter.silenceFrame(seq, ts);
+            // E toca: quem volta a falar logo depois encontra a folga na fila.
+            const st = if (w.deaf_applied) null else src.stream;
+            if (src.jitter.silenceFrame(seq, ts, if (st) |s| queuedMs(s) else 0) and qn > 0) {
+                if (st) |s| src.put(s, quiet[0..@as(usize, @intCast(qn)) * channels]);
+            } else src.seam.dropped();
             return;
         }
         // Quadro do DAVE (termina com o marcador 0xFAFA): decifra. Sem o
@@ -1166,7 +1172,6 @@ const Worker = struct {
         // uma folga contra o jitter. No meio da fala nunca entra silêncio.
         const since = now - src.last_ms;
         const spurt = since > 250;
-        if (!spurt) w.stats.gap_max_ms = @max(w.stats.gap_max_ms, since);
         if (!src.speaking or now - src.last_emit_ms > 1000) {
             src.speaking = true;
             src.last_emit_ms = now;
@@ -1181,7 +1186,18 @@ const Worker = struct {
         }
         const st = src.stream orelse return;
         const queued_ms = queuedMs(st);
+        const prev_seq = src.jitter.last_seq;
+        const prev_ts = src.jitter.last_ts;
+        const invented = src.jitter.concealed;
         const plan = src.jitter.plan(seq, ts, spurt, queued_ms);
+        // Vão no meio da fala que não é silêncio nem pausa dele: a rede (ou quem
+        // manda) segurou os pacotes.
+        if (!spurt and !plan.resumed and !plan.paused) {
+            w.stats.gap_max_ms = @max(w.stats.gap_max_ms, since);
+            if (since >= 60) w.stats.net_gaps += 1;
+            if (since >= 80 and !plan.late) dbg("vão na rede: ssrc {d}, {d} ms sem pacote, sequência +{d}, relógio +{d} quadros, fila com {d} ms, {d} inventados", .{ src.ssrc, since, seq -% prev_seq, (ts -% prev_ts) / frame_samples, queued_ms, invented });
+        }
+        if (plan.resumed) w.stats.resumed += 1;
         if (plan.late) {
             w.stats.late += 1;
             return;
@@ -1195,7 +1211,7 @@ const Worker = struct {
         if (plan.paused) w.stats.paused += 1;
         // Depois de uma pausa ou de um buraco grande, o estado dele é de outra hora.
         if (spurt or plan.fresh) _ = c.opus_decoder_ctl(src.dec, c.OPUS_RESET_STATE);
-        if (!spurt and !plan.clear and !plan.paused and queued_ms == 0) w.stats.starved += 1;
+        if (!spurt and !plan.clear and !plan.paused and !plan.resumed and queued_ms == 0) w.stats.starved += 1;
         if (plan.pad_ms > 0) {
             const silence_buf: [voz.Jitter.cushion_max * bytes_per_ms]u8 = @splat(0);
             var left: usize = plan.pad_ms * bytes_per_ms;
@@ -1267,6 +1283,19 @@ const Worker = struct {
         }
     }
 
+    /// Só com a depuração, a cada 20 ms: a fila de quem está falando. Seca no meio
+    /// da fala é o corte que se ouve; cheia demais é atraso.
+    fn watchQueues(w: *Worker) void {
+        if (w.deaf_applied) return;
+        for (w.sources[0..w.n_sources]) |*s| {
+            if (!s.speaking or s.jitter.ended) continue;
+            const st = s.stream orelse continue;
+            const q = queuedMs(st);
+            if (q == 0) w.stats.dry += 1;
+            w.stats.queue_max_ms = @max(w.stats.queue_max_ms, q);
+        }
+    }
+
     /// De quanto em quanto o dispositivo puxa áudio de cada stream.
     fn updatePull(w: *Worker) void {
         var fmt: c.SDL_AudioSpec = undefined;
@@ -1309,8 +1338,16 @@ const Stats = struct {
     paused: u32 = 0,
     /// Quadros inventados porque a fila ia secar.
     concealed: u32 = 0,
-    /// O maior tempo entre dois pacotes da mesma pessoa, dentro de uma fala.
+    /// O maior tempo entre dois pacotes da mesma pessoa, dentro de uma fala, sem
+    /// contar o silêncio e as pausas dela.
     gap_max_ms: i64 = 0,
+    /// Vãos de 60 ms ou mais dentro de uma fala (o que a rede segurou).
+    net_gaps: u32 = 0,
+    /// Voltas logo depois dos quadros de silêncio (fala nova, com folga).
+    resumed: u32 = 0,
+    /// Vezes, a cada 20 ms, que a fila de quem falava estava seca: corte audível.
+    dry: u32 = 0,
+    queue_max_ms: u32 = 0,
     skipped: u32 = 0,
     cleared: u32 = 0,
     undecrypted: u32 = 0,

@@ -39,6 +39,10 @@ const Scenario = struct {
     stall_ms: i64 = 0,
     /// A porta de ruído de quem fala: rajadas curtas, com o relógio RTP andando.
     gate: bool = false,
+    /// Como o registro de uma call de verdade: no fim de cada fala, 5 quadros de
+    /// silêncio; muitas vezes a pessoa volta logo, com a sequência e o relógio
+    /// seguidos, menos de 250 ms depois do último áudio.
+    vad: bool = false,
     /// Dispositivo que puxa mais áudio de cada vez.
     pull: u32 = pull_frames,
 };
@@ -55,9 +59,14 @@ const scenarios = [_]Scenario{
     .{ .name = "wi-fi ruim (tudo junto)", .file = "wifi", .loss_pct = 3, .burst_pct = 0.3, .jitter_ms = 40, .reorder_pct = 1, .stall_every_ms = 11000, .stall_ms = 200 },
     .{ .name = "porta de ruido de quem fala", .file = "porta", .gate = true, .jitter_ms = 5 },
     .{ .name = "dispositivo de 85 ms", .file = "disp85", .jitter_ms = 10, .pull = 4096 },
+    .{ .name = "silencios de quem fala", .file = "silencios", .vad = true, .jitter_ms = 10, .reorder_pct = 1 },
+    .{ .name = "silencios + para 200 ms", .file = "silpara", .vad = true, .jitter_ms = 10, .reorder_pct = 1, .stall_every_ms = 9000, .stall_ms = 200 },
 };
 
-const Packet = struct { seq: u16, ts: u32, arrive_ms: i64, data: []const u8 };
+const Packet = struct { seq: u16, ts: u32, arrive_ms: i64, data: []const u8, silence: bool = false };
+
+/// O quadro de silêncio do Discord (Opus, 20 ms de nada).
+const silence_frame = [_]u8{ 0xF8, 0xFF, 0xFE };
 
 fn lessArrive(_: void, a: Packet, b: Packet) bool {
     return a.arrive_ms < b.arrive_ms;
@@ -194,9 +203,21 @@ const Player = struct {
     old: OldJitter = .{},
     jitter: voz.Jitter = .{},
     seam: voz.Seam = .{},
+    /// Quem fala está falando (não mandou quadros de silêncio): fila seca agora é buraco.
+    talking: bool = true,
     res: *Result,
 
-    /// A volta da thread de voz, a cada 20 ms.
+    /// Quadro de silêncio de quem fala, já decodificado, como em voice.zig.
+    fn silence(p: *Player, pkt: Packet, pcm: []i16) void {
+        if (!p.jitter.silenceFrame(pkt.seq, pkt.ts, p.q.ms()) or pcm.len == 0) {
+            p.seam.dropped();
+            return;
+        }
+        p.seam.apply(pcm);
+        p.q.put(pcm);
+    }
+
+    /// A volta da thread de voz: a cada pacote e a cada 20 ms.
     fn tick(p: *Player) void {
         if (p.mode != .agora) return;
         const what = p.jitter.conceal(p.q.ms());
@@ -211,12 +232,20 @@ const Player = struct {
     }
 
     fn receive(p: *Player, pkt: Packet, now: i64) void {
-        const spurt = now - p.last_ms > 250;
-        p.last_ms = now;
         var pcm: [5760 * voz.channels]i16 = undefined;
         var fill: [voz.frame_len]i16 = undefined;
         const frame = pkt.data;
         const len: i32 = @intCast(frame.len);
+        if (pkt.silence) {
+            // Como em voice.zig: passa pelo decodificador e não conta como áudio.
+            const n = opus_decode(p.dec, frame.ptr, len, &pcm, 5760, 0);
+            p.talking = false;
+            if (p.mode == .agora) p.silence(pkt, pcm[0..@as(usize, @intCast(@max(n, 0))) * voz.channels]);
+            return;
+        }
+        p.talking = true;
+        const spurt = now - p.last_ms > 250;
+        p.last_ms = now;
         switch (p.mode) {
             .antes => {
                 const n = opus_decode(p.dec, frame.ptr, len, &pcm, 5760, 0);
@@ -334,17 +363,25 @@ fn run(s: Scenario, mode: Mode, packets: []const Packet, limit: i32, wav: ?[*:0]
     var gap_open = false;
     var t: i64 = 0;
     while (t < end_ms) : (t += 1) {
-        while (next < packets.len and packets[next].arrive_ms <= t) : (next += 1) p.receive(packets[next], t);
-        if (@mod(t, voz.frame_ms) == 7) p.tick();
+        // A thread de voz acorda a cada pacote e a cada 20 ms, e sempre olha a fila.
+        var got = false;
+        while (next < packets.len and packets[next].arrive_ms <= t) : (next += 1) {
+            p.receive(packets[next], t);
+            got = true;
+        }
+        if (got or @mod(t, voz.frame_ms) == 7) p.tick();
         const now_f: f64 = @floatFromInt(t);
         while (pull_at <= now_f) : (pull_at += @as(f64, @floatFromInt(s.pull)) * 1000.0 / voz.rate) {
             const q = &p.q;
             const have = (q.buf.items.len - q.head) / voz.channels;
             if (have > 0) started = true;
             if (!started) continue;
-            res.latency_sum += q.ms();
-            res.latency_max = @max(res.latency_max, q.ms());
-            res.pulls += 1;
+            // Atraso só conta com alguém falando: o silêncio dele na fila não atrasa ninguém.
+            if (p.talking) {
+                res.latency_sum += q.ms();
+                res.latency_max = @max(res.latency_max, q.ms());
+                res.pulls += 1;
+            }
             const take: usize = @min(have, s.pull);
             for (0..take) |k| {
                 if (written < out.len) {
@@ -353,7 +390,7 @@ fn run(s: Scenario, mode: Mode, packets: []const Packet, limit: i32, wav: ?[*:0]
                 }
             }
             q.head += take * voz.channels;
-            if (take < s.pull and next < packets.len) {
+            if (take < s.pull and next < packets.len and p.talking) {
                 // Faltou áudio: o dispositivo toca silêncio.
                 if (!gap_open) res.gaps += 1;
                 gap_open = true;
@@ -432,16 +469,56 @@ pub fn main() !void {
         var seq: u16 = 1000;
         var open_left: u32 = 5;
         var shut_left: u32 = 0;
+        var sil_left: u32 = 0;
+        var vad_ts: u32 = 0;
         // Quem fala só codifica o que manda: o decodificador não vê buraco nenhum.
-        const gate_enc = if (s.gate) opus_encoder_create(voz.rate, voz.channels, 2048, &err) orelse return error.Opus else null;
+        const gate_enc = if (s.gate or s.vad) opus_encoder_create(voz.rate, voz.channels, 2048, &err) orelse return error.Opus else null;
         if (gate_enc) |g| {
             _ = opus_encoder_ctl(g, 4002, @as(c_int, 64000));
             _ = opus_encoder_ctl(g, 4012, @as(c_int, 1));
             _ = opus_encoder_ctl(g, 4014, @as(c_int, 10));
         }
         for (packets, 0..) |pk_all, i| {
-            var pk = pk_all;
+            var pk: []const u8 = pk_all;
             const send: i64 = @intCast(i * voz.frame_ms);
+            var is_silence = false;
+            var ts: u32 = @truncate(i * voz.frame_samples);
+            if (s.vad) {
+                if (shut_left > 0) {
+                    shut_left -= 1;
+                    if (shut_left == 0) open_left = r.intRangeAtMost(u32, 10, 60);
+                    continue;
+                }
+                if (sil_left > 0) {
+                    sil_left -= 1;
+                    pk = &silence_frame;
+                    is_silence = true;
+                    if (sil_left == 0) {
+                        // Metade volta na hora, um quarto em até 80 ms, o resto bem depois.
+                        const roll = r.intRangeAtMost(u32, 0, 3);
+                        shut_left = switch (roll) {
+                            0, 1 => 0,
+                            2 => r.intRangeAtMost(u32, 1, 4),
+                            else => r.intRangeAtMost(u32, 15, 40),
+                        };
+                        if (shut_left == 0) open_left = r.intRangeAtMost(u32, 10, 60);
+                    }
+                } else {
+                    open_left -= 1;
+                    if (open_left == 0) sil_left = 5;
+                    for (0..voz.frame_samples) |k| {
+                        const v = voice_mono[i * voz.frame_samples + k];
+                        stereo[k * 2] = v;
+                        stereo[k * 2 + 1] = v;
+                    }
+                    const n = opus_encode(gate_enc.?, &stereo, voz.frame_samples, &buf, buf.len);
+                    if (n <= 0) return error.Opus;
+                    pk = try gpa.dupe(u8, buf[0..@intCast(n)]);
+                }
+                // O relógio só anda com pacote, como no registro (nenhuma pausa detectada).
+                ts = vad_ts;
+                vad_ts +%= voz.frame_samples;
+            }
             if (s.gate) {
                 if (shut_left > 0) {
                     shut_left -= 1;
@@ -475,10 +552,10 @@ pub fn main() !void {
                 const pos = @mod(arrive, s.stall_every_ms);
                 if (arrive > s.stall_every_ms and pos < s.stall_ms) arrive += s.stall_ms - pos;
             }
-            try list.append(gpa, .{ .seq = seq, .ts = @truncate(i * voz.frame_samples), .arrive_ms = arrive, .data = pk });
+            try list.append(gpa, .{ .seq = seq, .ts = ts, .arrive_ms = arrive, .data = pk, .silence = is_silence });
         }
         std.mem.sort(Packet, list.items, {}, lessArrive);
-        if (s.gate) {
+        if (s.gate or s.vad) {
             // O que já vem da fonte, tocado sem fila nenhuma: isso não é defeito de quem toca.
             var base: Result = .{};
             const dec = opus_decoder_create(voz.rate, voz.channels, &err) orelse return error.Opus;
