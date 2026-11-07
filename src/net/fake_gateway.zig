@@ -50,6 +50,9 @@ pub const sent = struct {
     pub var search_params: [1100]u8 = undefined;
 };
 
+/// O que o Discord responde quando quer um captcha (chave de mentira).
+const captcha_body = "{\"captcha_key\":[\"captcha-required\"],\"captcha_sitekey\":\"00000000-0000-0000-0000-000000000000\",\"captcha_service\":\"hcaptcha\"}";
+
 const demo_gifs = [_][]const u8{ "dancing cat", "thumbs up", "good morning", "laughing", "confused", "applause", "typing fast", "shrug" };
 
 fn demoGifItem(name: []const u8, i: usize) !types.Gif {
@@ -491,6 +494,8 @@ pub const Gateway = struct {
                     _ = sent.invite_joins.fetchAdd(1, .monotonic);
                     const c0 = code.slice();
                     const status: ev.JoinStatus = if (std.mem.eql(u8, c0, "qacaptcha")) .captcha else if (std.mem.eql(u8, c0, "qabanido")) .forbidden else if (std.mem.eql(u8, c0, "qacheio")) .too_many else .ok;
+                    // O captcha passa pelo mesmo caminho de uma resposta de verdade da API.
+                    if (status == .captcha) @import("challenge.zig").observe(400, "POST", "/v9/invites/qacaptcha", captcha_body);
                     // Sem servidor novo na demonstração: "entra" num que já está na barra.
                     g.emit(.{ .invite_joined = .{ .code = code, .status = status, .guild = if (status == .ok) guildId(2) else 0 } });
                 },

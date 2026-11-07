@@ -52,6 +52,7 @@ test {
     _ = @import("net/read_state_json.zig");
     _ = @import("net/media_url.zig");
     _ = @import("net/proxy.zig");
+    _ = @import("net/challenge.zig");
     _ = @import("net/settings_proto.zig");
     _ = @import("net/thread_json.zig");
     _ = @import("net/user_json.zig");
