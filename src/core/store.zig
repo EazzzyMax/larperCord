@@ -1501,6 +1501,8 @@ pub const Store = struct {
             },
             // Quem abre é o app (só depois de o canal estar aqui).
             .thread_open => {},
+            // Quem guarda é a caixa de texto (ui/composer_limits.zig, pelo App.afterEvent).
+            .my_limits, .account_flags, .send_cooldown => {},
         }
     }
 

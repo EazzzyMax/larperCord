@@ -29,6 +29,7 @@ const emoji_img = @import("emoji_img.zig");
 const sigil = @import("comp_chat.zig").sigil;
 const threads = @import("comp_threads.zig");
 const forum = @import("forum.zig");
+const send_limits = @import("composer_limits.zig");
 const store_mod = @import("../core/store.zig");
 const types = @import("../core/types.zig");
 const i18n = @import("i18n.zig");
@@ -1472,10 +1473,14 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
     if (ctx.st.friends) return;
     const ch_id = ctx.st.activeChannel() orelse return;
     const cs = ctx.store.channel(ch_id) orelse return;
-    // No lugar da caixa: "Novo post" num fórum, o aviso numa thread sem permissão.
-    if (cs.info.kind == .forum or (cs.info.thread != null and !ctx.store.canSend(&cs.info))) {
+    // Não dá para enviar (castigo, quarentena, permissão, thread trancada): o
+    // motivo no lugar da caixa. O modo lento deixa escrever (ui/composer_limits.zig).
+    const limit = send_limits.blockFor(ctx.store, &cs.info, ctx.now_ms);
+    // No lugar da caixa: "Novo post" num fórum, ou o motivo.
+    if (cs.info.kind == .forum or limit.reason.blocksInput()) {
         composer_extra = 0;
         vim.composer_active = false;
+        if (limit.reason.blocksInput()) return send_limits.band(ctx, n, r_in, limit);
         return forum.composerBand(ctx, n, r_in, cs);
     }
     const grown = composer_extra;
@@ -1524,7 +1529,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
 
     // Prévia do markdown, acima de tudo que fica preso na caixa.
     {
-        const typing_gap: f32 = if (d.pflag(n, "typing", true) and cs.typing.items.len > 0) 22 else 6;
+        const typing_gap: f32 = if ((d.pflag(n, "typing", true) and cs.typing.items.len > 0) or limit.slowmode_s > 0 or limit.reason.cooling()) 22 else 6;
         const inset: f32 = if (pill) 18 else 0;
         md_preview.draw(ctx, dl, fam, r.x + inset, top - tray_h - typing_gap, r.w - inset * 2, typing_gap);
         const preview_h = md_preview.height(st);
@@ -1541,6 +1546,8 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         w.typingDots(dl, tx + 4, ty + 8, ctx.col(.muted), ctx.now_ms);
         d.text(dl, fam.get(.semibold), 13, tx + 24, ty, ctx.col(.muted), t);
     }
+    // Modo lento: na mesma linha, à direita.
+    send_limits.slowmodeLabel(ctx, fam, limit, r.right() - (if (pill) @as(f32, 24) else 6), top - 19);
 
     var input_x: f32 = r.x + 48;
     var input_r = r.right() - 96;
@@ -1650,7 +1657,9 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         st.focus_input = false;
     }
     var hint_buf: [96]u8 = undefined;
-    const hint = if (prompt) "" else if (cs.info.guild == 0)
+    const hint = if (prompt) "" else if (limit.reason.cooling())
+        send_limits.cooldownHint(&hint_buf, limit, ctx.now_ms)
+    else if (cs.info.guild == 0)
         i18n.fmtZ(&hint_buf, "Conversar com @{s}", "Message @{s}", .{cs.info.name})
     else
         i18n.fmtZ(&hint_buf, "Conversar em {s}{s}", "Message {s}{s}", .{ sigil(&cs.info), cs.info.name });

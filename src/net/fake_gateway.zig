@@ -75,6 +75,13 @@ pub const sent = struct {
     pub fn view(buf: []const u8, len: *const A) []const u8 {
         return buf[0..@min(buf.len, len.load(.acquire))];
     }
+    /// Pedidos de lista de membros (op 14) e o canal do último.
+    pub var subscribes: A = .init(0);
+    pub var sub_channel: A = .init(0);
+    pub var create_dms: A = .init(0);
+    /// Mensagens que o "servidor" aceitou e recusou pelo modo lento.
+    pub var messages: A = .init(0);
+    pub var slowmode_refusals: A = .init(0);
 };
 
 /// O canal das enquetes da demonstração (#geral de "os larpers"): uma de uma
@@ -139,6 +146,8 @@ pub const Gateway = struct {
     poll_ids: [poll_backs.len]Id = @splat(0),
     poll_mine: [poll_backs.len]u16 = @splat(0),
     party_msg: Id = 0,
+    /// Modo lento do lado do "servidor": quando mandamos por último em cada canal.
+    slow_sent: std.AutoHashMapUnmanaged(Id, i64) = .empty,
 
     pub fn start(g: *Gateway) !void {
         g.thread = c.SDL_CreateThread(threadMain, "gateway", g) orelse return error.SdlThread;
@@ -252,6 +261,10 @@ pub const Gateway = struct {
             g.emit(.{ .roles = .{ .guild = guildId(locked_guild), .roles = rs2 } });
         }
         for (relations, 0..) |rel, i| g.emit(.{ .relationship = .{ .user = rel.user, .kind = rel.kind, .since_ms = nowMs() - @as(i64, @intCast(i + 1)) * 97 * 86_400_000 } });
+        // Nosso membro em dois servidores: de castigo por 3 h em "os larpers" e
+        // em quarentena do AutoMod (nome) no "CTF da madrugada".
+        g.emit(.{ .my_limits = .{ .guild = guildId(timeout_guild), .timeout_until_ms = nowMs() + 3 * 3_600_000 } });
+        g.emit(.{ .my_limits = .{ .guild = guildId(quarantine_guild), .member_flags = 1 << 7 } });
         try g.demoActivities();
         g.emit(.{ .guild_folders = try demoFolders() });
         try g.demoThreads();
@@ -291,6 +304,15 @@ pub const Gateway = struct {
                     // mantém os anexos dela na confirmação).
                     for (m.files) |f| alloc.free(f);
                     if (m.files.len > 0) alloc.free(m.files);
+                    // Modo lento, como o Discord: cedo demais é 429 (não enviada + quanto falta).
+                    if (try g.slowmodeRefuses(m.channel)) |left| {
+                        alloc.free(m.content);
+                        _ = sent.slowmode_refusals.fetchAdd(1, .monotonic);
+                        g.emit(.{ .send_failed = .{ .channel = m.channel, .nonce = m.nonce } });
+                        g.emit(.{ .send_cooldown = .{ .channel = m.channel, .ms = left } });
+                        continue;
+                    }
+                    _ = sent.messages.fetchAdd(1, .monotonic);
                     // Como o gateway de verdade: emoji personalizado aparece
                     // como `:nome:` e o texto original fica em `raw`.
                     const shown = try jsonx.simplifyContent(alloc, m.content);
@@ -411,7 +433,11 @@ pub const Gateway = struct {
                     const more = @divTrunc(nowMs(), 1000) - msgs[0].timestamp < 14 * 86400;
                     g.emit(.{ .history = .{ .channel = o.channel, .messages = msgs, .older = true, .more = more } });
                 },
-                .subscribe_guild => |sg| try g.memberList(sg.guild),
+                .subscribe_guild => |sg| {
+                    _ = sent.subscribes.fetchAdd(1, .monotonic);
+                    sent.sub_channel.store(sg.channel, .monotonic);
+                    try g.memberList(sg.guild);
+                },
                 .relationship => |r| g.emit(.{ .relationship = .{ .user = r.user, .kind = if (r.accept) .friend else .none } }),
                 .fetch_profile => |fp| {
                     const seed = for (users) |x| {
@@ -447,6 +473,7 @@ pub const Gateway = struct {
                 .fetch_app => |app| g.emit(.{ .app_icon = .{ .app = app, .icon = "" } }),
                 .set_status => |st| g.emit(.{ .presence_update = .{ .user = me_id, .status = st } }),
                 .create_dm => |u| {
+                    _ = sent.create_dms.fetchAdd(1, .monotonic);
                     const seed = for (users) |x| {
                         if (x.id == u) break x;
                     } else continue;
@@ -564,6 +591,20 @@ pub const Gateway = struct {
             cmds.clearRetainingCapacity();
             try g.tick(nowMs());
         }
+    }
+
+    /// Quanto falta (ms) se ainda não dá para mandar no canal; senão anota o envio.
+    /// No nosso servidor (o primeiro, somos donos) o modo lento não vale.
+    fn slowmodeRefuses(g: *Gateway, channel: Id) !?u32 {
+        const slow = demoSlowmode(channel);
+        if (slow == 0 or guildOfChannel(channel) == guildId(0)) return null;
+        const now = nowMs();
+        if (g.slow_sent.get(channel)) |t| {
+            const left = t + @as(i64, slow) * 1000 - now;
+            if (left > 0) return @intCast(left);
+        }
+        try g.slow_sent.put(alloc, channel, now);
+        return null;
     }
 
     /// Threads ativas, como o Discord manda ao abrir o servidor: duas abertas
@@ -1192,6 +1233,17 @@ pub fn mediaId(guild_index: usize) Id {
 pub const thread_guild = 5;
 /// Aqui só vale o @everyone: as threads herdam a falta de permissão.
 pub const locked_guild = 7;
+/// "os larpers": estamos de castigo. "CTF da madrugada": quarentena do AutoMod.
+pub const timeout_guild = 3;
+pub const quarantine_guild = 4;
+
+/// Modo lento da demonstração (s): o #memes do "Rice do Hyprland" (vale para
+/// nós) e o #bugs do nosso servidor (somos donos: liberado).
+pub fn demoSlowmode(ch: Id) u32 {
+    if (ch == channelId(1, 5)) return 5;
+    if (ch == channelId(0, 11)) return 30;
+    return 0;
+}
 
 fn isDemoForum(ch: Id) bool {
     return ch == forumId(thread_guild) or ch == mediaId(thread_guild) or ch == mediaId(locked_guild);
@@ -1297,6 +1349,8 @@ pub fn channelId(guild_index: usize, i: usize) Id {
 /// moderação vê e no AFK ninguém entra.
 fn demoOverwrites(gi: usize, ci: usize) ![]const types.Overwrite {
     if (gi != 1 and gi != locked_guild) return &.{};
+    // #anúncios do "Rice do Hyprland": só lê.
+    if (gi == 1 and ci == 2) return demoDeny(gi, types.perm.send_messages);
     const deny: u64 = switch (ci) {
         11 => types.perm.view_channel,
         15 => types.perm.connect,
@@ -1373,6 +1427,7 @@ fn buildReady() !ev.Ready {
                 .topic = try alloc.dupe(u8, pick(ch.topic, ch.topic_en)),
                 .position = @intCast(ci),
                 .overwrites = try demoOverwrites(gi, ci),
+                .rate_limit_per_user = demoSlowmode(id),
             };
             n += 1;
             // Depois do #música: um fórum e um canal de mídia.

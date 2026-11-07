@@ -37,6 +37,9 @@ const thread_json = @import("thread_json.zig");
 const user_json = @import("user_json.zig");
 const envio_json = @import("envio_json.zig");
 const envio = @import("../core/envio.zig");
+const gw_budget = @import("gw_budget.zig");
+const limits_json = @import("limits_json.zig");
+const debug_log = @import("../platform/debug_log.zig");
 const Id = types.Id;
 const Value = std.json.Value;
 
@@ -142,6 +145,14 @@ pub const Gateway = struct {
     frame_len: usize = 0,
     /// Acorda o poll do gateway quando chega comando (leitura, escrita).
     wake: sys.Wake = .{},
+    /// Teto de envio do WebSocket (net/gw_budget.zig): op 3, 4 e 14 esperam vez
+    /// aqui; heartbeat, IDENTIFY e RESUME passam direto.
+    outbox: gw_budget.Outbox = .{},
+    /// Já avisou no registro que a fila está esperando o teto (uma vez por aperto).
+    outbox_noted: bool = false,
+    /// Envio de mensagem: o 429 volta para quem pediu em vez de esperar e tentar
+    /// de novo (vira a contagem do modo lento na caixa de texto).
+    pass_429: bool = false,
 
     pub fn start(g: *Gateway) !void {
         g.wake = sys.Wake.open();
@@ -240,6 +251,7 @@ pub const Gateway = struct {
                     for (g.pending.items) |cmd| g.dropCommand(cmd);
                     g.pending.clearRetainingCapacity();
                     g.held.clearRetainingCapacity();
+                    g.outbox.clear();
                     // Fica só atendendo o encerramento.
                     var cmds: std.ArrayList(ev.Command) = .empty;
                     defer cmds.deinit(alloc);
@@ -386,6 +398,8 @@ pub const Gateway = struct {
             }
             g.heartbeat();
         }
+        // O que esperava o teto de envio e já tem vez.
+        g.flushOutbox();
     }
 
     const End = enum {
@@ -446,6 +460,8 @@ pub const Gateway = struct {
         g.hb_sent_at = 0;
         g.ws_end = null;
         g.ws_live = true;
+        // O teto do Discord é por conexão: começa do zero.
+        g.outbox.newConnection();
         g.frame.clearRetainingCapacity();
         g.zout.clearRetainingCapacity();
         g.shrinkBuffers();
@@ -479,7 +495,8 @@ pub const Gateway = struct {
             const now = nowMs();
             const voice_busy = g.voice != null or g.voice_wait_until != 0;
             const cap: i64 = if (voice_busy or !sys.valid(g.wake.read)) 50 else 1000;
-            const due = @min(if (g.next_hb == std.math.maxInt(i64)) g.hello_until else g.next_hb, g.acks.nextDue());
+            const queued = if (g.ws_ready) g.outbox.due(now) else std.math.maxInt(i64);
+            const due = @min(@min(if (g.next_hb == std.math.maxInt(i64)) g.hello_until else g.next_hb, g.acks.nextDue()), queued);
             const wait: c_int = @intCast(std.math.clamp(due - now, 0, cap));
             var pfd = [2]sys.PollFd{
                 .{ .fd = sock, .events = c.POLLIN, .revents = 0 },
@@ -559,7 +576,71 @@ pub const Gateway = struct {
         }
     }
 
+    /// Heartbeat, IDENTIFY e RESUME: saem sempre e na hora, e contam no teto
+    /// (o resto passa por `queueOp`).
     fn send(g: *Gateway, payload: []const u8) void {
+        if (g.ws == null or !g.ws_live) return;
+        g.outbox.budget.note(nowMs());
+        g.writeWs(payload);
+    }
+
+    /// Op 3, 4 e 14: entram na fila do teto e saem assim que houver vez
+    /// (presença e lista de membros se juntam; voz sai na ordem, sem perder nenhum).
+    fn queueOp(g: *Gateway, it: gw_budget.Item) void {
+        switch (g.outbox.push(it)) {
+            .queued, .coalesced => {},
+            .merged => if (debug_log.isOn()) std.log.info("gateway: fila do op 4 cheia; o último estado de voz ficou no lugar do anterior", .{}),
+            .replaced_oldest => if (debug_log.isOn()) std.log.info("gateway: op 14 de muitos servidores na fila; o mais antigo deu lugar ao novo", .{}),
+        }
+        g.flushOutbox();
+    }
+
+    /// Manda o que tem vez agora (só depois do READY/RESUMED: antes, o Discord
+    /// fecha com 4003).
+    fn flushOutbox(g: *Gateway) void {
+        if (!g.ws_live or !g.ws_ready or g.ws_end != null) return;
+        const now = nowMs();
+        while (g.outbox.pop(now)) |it| g.writeItem(it);
+        const left = g.outbox.pending();
+        if (left == 0) {
+            g.outbox_noted = false;
+        } else if (!g.outbox_noted) {
+            g.outbox_noted = true;
+            if (debug_log.isOn()) std.log.info("gateway: teto de envio ({d} em 60 s); {d} op(s) esperando, o próximo em {d} ms", .{ g.outbox.budget.used(now), left, @max(g.outbox.due(now) - now, 0) });
+        }
+    }
+
+    fn writeItem(g: *Gateway, it: gw_budget.Item) void {
+        switch (it) {
+            .presence => {
+                var buf: [128]u8 = undefined;
+                const payload = std.fmt.bufPrint(&buf, "{{\"op\":3,\"d\":{{\"status\":\"{s}\",\"since\":0,\"activities\":[],\"afk\":false}}}}", .{statusName(g.status)}) catch return;
+                g.writeWs(payload);
+            },
+            .lazy => |l| {
+                var tb: [32]u8 = undefined;
+                const lists = if (l.thread != 0) std.fmt.bufPrint(&tb, "\"{d}\"", .{l.thread}) catch "" else "";
+                var buf: [360]u8 = undefined;
+                const payload = std.fmt.bufPrint(&buf, "{{\"op\":14,\"d\":{{\"guild_id\":\"{d}\",\"typing\":true,\"threads\":true,\"activities\":true,\"members\":[],\"channels\":{{\"{d}\":[[0,99]]}},\"thread_member_lists\":[{s}]}}}}", .{ l.guild, l.channel, lists }) catch return;
+                g.writeWs(payload);
+            },
+            .voice => |v| {
+                var b: [192]u8 = undefined;
+                const ch = if (v.channel) |cid| std.fmt.bufPrint(&b, "\"{d}\"", .{cid}) catch return else "null";
+                var out: [256]u8 = undefined;
+                const p = std.fmt.bufPrint(&out, "{{\"op\":4,\"d\":{{\"guild_id\":\"{d}\",\"channel_id\":{s},\"self_mute\":{s},\"self_deaf\":{s}}}}}", .{
+                    v.guild,
+                    ch,
+                    if (v.mute) "true" else "false",
+                    if (v.deaf) "true" else "false",
+                }) catch return;
+                std.log.debug("voz: op4 canal={s}", .{ch});
+                g.writeWs(p);
+            },
+        }
+    }
+
+    fn writeWs(g: *Gateway, payload: []const u8) void {
         const h = g.ws orelse return;
         if (!g.ws_live) return;
         var off: usize = 0;
@@ -846,8 +927,16 @@ pub const Gateway = struct {
             var list: std.ArrayList(Id) = .empty;
             for (j.array(j.get(m, "roles"))) |rv| if (j.id(rv)) |rid| list.append(alloc, rid) catch {};
             if (list.toOwnedSlice(alloc)) |roles| g.emit(.{ .my_roles = .{ .guild = gid, .roles = roles } }) else |_| {}
+            g.myLimits(gid, m);
         }
         g.emit(.{ .member_info = .{ .guild = gid, .user = uid, .info = g.infoOf(j.array(j.get(m, "roles"))) } });
+    }
+
+    /// Castigo e quarentena do nosso membro (só o que o objeto trouxe).
+    fn myLimits(g: *Gateway, gid: Id, m: Value) void {
+        const l = limits_json.memberLimitsOf(m);
+        if (l.timeout_until_ms == null and l.flags == null) return;
+        g.emit(.{ .my_limits = .{ .guild = gid, .timeout_until_ms = l.timeout_until_ms, .member_flags = l.flags } });
     }
 
     /// Passa as pastas para o Store (só se vieram: uma atualização parcial
@@ -941,11 +1030,7 @@ pub const Gateway = struct {
         g.sub_guild = guild;
         g.sub_channel = channel;
         g.sub_thread = thread;
-        var tb: [32]u8 = undefined;
-        const lists = if (thread != 0) std.fmt.bufPrint(&tb, "\"{d}\"", .{thread}) catch "" else "";
-        var buf: [360]u8 = undefined;
-        const payload = std.fmt.bufPrint(&buf, "{{\"op\":14,\"d\":{{\"guild_id\":\"{d}\",\"typing\":true,\"threads\":true,\"activities\":true,\"members\":[],\"channels\":{{\"{d}\":[[0,99]]}},\"thread_member_lists\":[{s}]}}}}", .{ guild, channel, lists }) catch return;
-        g.send(payload);
+        g.queueOp(.{ .lazy = .{ .guild = guild, .channel = channel, .thread = thread } });
     }
 
     /// Nome do status no gateway (offline = invisível para os outros).
@@ -980,6 +1065,18 @@ pub const Gateway = struct {
 
     fn dispatch(g: *Gateway, t: []const u8, d: Value, arena: std.mem.Allocator) !void {
         if (std.mem.eql(u8, t, "READY")) return g.onReady(d, arena);
+        // Limite de um op específico (o do op 8, por exemplo): só registra.
+        if (std.mem.eql(u8, t, "RATE_LIMITED")) {
+            if (debug_log.isOn()) {
+                const secs: f64 = switch (j.get(d, "retry_after") orelse Value.null) {
+                    .float => |f| f,
+                    .integer => |n| @floatFromInt(n),
+                    else => 0,
+                };
+                std.log.info("gateway: o Discord limitou o op {d}; esperar {d:.1} s", .{ j.int(j.get(d, "opcode")) orelse -1, secs });
+            }
+            return;
+        }
         if (std.mem.eql(u8, t, "RESUMED")) {
             // O gateway reenviou o que perdemos; o estado local continua válido.
             g.gatewayReady();
@@ -1116,7 +1213,10 @@ pub const Gateway = struct {
         if (std.mem.eql(u8, t, "GUILD_MEMBER_UPDATE") or std.mem.eql(u8, t, "USER_UPDATE")) {
             const u = j.get(d, "user") orelse d;
             const uid = j.id(j.get(u, "id")) orelse return;
-            if (uid == g.me and std.mem.eql(u8, t, "USER_UPDATE")) if (j.int(j.get(u, "premium_type"))) |p| g.emit(.{ .premium = @intCast(std.math.clamp(p, 0, 255)) });
+            if (uid == g.me and std.mem.eql(u8, t, "USER_UPDATE")) {
+                if (j.int(j.get(u, "premium_type"))) |p| g.emit(.{ .premium = @intCast(std.math.clamp(p, 0, 255)) });
+                if (limits_json.userFlagsOf(u)) |f| g.emit(.{ .account_flags = f });
+            }
             g.emit(.{ .user_update = .{ .id = uid, .name = dupe(userName(u)), .role = roleFor(uid), .status = .offline, .avatar = avatarOf(u), .decoration = decorationOf(u), .bot = user_json.isBot(u), .verified_bot = user_json.isVerifiedBot(u) } });
             if (j.id(j.get(d, "guild_id"))) |gid| g.memberColor(gid, uid, d);
             return;
@@ -1499,6 +1599,7 @@ pub const Gateway = struct {
             .tags = thread_json.forumTags(cv),
             .media = kind_i == 16,
             .require_tag = thread_json.requiresTag(cv),
+            .rate_limit_per_user = limits_json.slowmodeOf(cv),
         };
     }
 
@@ -1657,6 +1758,8 @@ pub const Gateway = struct {
         g.ingestMembers(d);
         g.ingestRoles(gid, j.array(j.get(d, "roles")));
         g.ingestEmojis(gid, j.array(j.get(d, "emojis")));
+        // Servidor em que acabamos de entrar: o nosso membro vem na lista.
+        for (j.array(j.get(d, "members"))) |m| if (j.get(m, "user")) |u| if (j.id(j.get(u, "id")) == g.me) g.myLimits(gid, m);
         g.emit(.{ .guild_create = .{
             .guild = .{
                 .id = gid,
@@ -2184,6 +2287,9 @@ pub const Gateway = struct {
         _ = arena;
         const me = j.get(d, "user") orelse return;
         g.me = j.id(j.get(me, "id")) orelse return;
+        // Sessão nova: o que esperava o teto de envio era da anterior (o que
+        // ainda vale sai de novo logo abaixo e no fim).
+        g.outbox.forgetPending();
         // O pedido de voz pode ter chegado antes do READY; agora o gateway
         // já aceita o op 4. Numa sessão nova a call antiga não vale mais.
         if (g.voice_channel != 0) {
@@ -2307,6 +2413,7 @@ pub const Gateway = struct {
             .premium_type = @intCast(std.math.clamp(j.int(j.get(me, "premium_type")) orelse 0, 0, 255)),
         } });
         g.emitReadStates(d);
+        g.emit(.{ .account_flags = limits_json.userFlagsOf(me) orelse 0 });
         for (j.array(j.get(d, "guilds"))) |gv| g.emitVoiceFlags(j.array(j.get(gv, "voice_states")));
         for (j.array(j.get(d, "relationships"))) |rv| {
             const uid = j.id(j.get(rv, "user_id")) orelse j.id(j.get(rv, "id")) orelse continue;
@@ -2401,7 +2508,7 @@ pub const Gateway = struct {
         var pos: u16 = 0;
         const push = struct {
             fn f(o: *std.ArrayList(types.Channel), g: Id, ch: Ch, p: *u16) !void {
-                try o.append(alloc, .{ .id = ch.id, .guild = g, .parent = if (ch.parent == 0) null else ch.parent, .kind = ch.kind, .name = dupe(ch.name), .topic = dupe(ch.topic), .position = p.*, .overwrites = overwritesOf(ch.source), .last_message = j.id(j.get(ch.source, "last_message_id")) orelse 0, .tags = thread_json.forumTags(ch.source), .media = (j.int(j.get(ch.source, "type")) orelse 0) == 16, .require_tag = thread_json.requiresTag(ch.source) });
+                try o.append(alloc, .{ .id = ch.id, .guild = g, .parent = if (ch.parent == 0) null else ch.parent, .kind = ch.kind, .name = dupe(ch.name), .topic = dupe(ch.topic), .position = p.*, .overwrites = overwritesOf(ch.source), .last_message = j.id(j.get(ch.source, "last_message_id")) orelse 0, .tags = thread_json.forumTags(ch.source), .media = (j.int(j.get(ch.source, "type")) orelse 0) == 16, .require_tag = thread_json.requiresTag(ch.source), .rate_limit_per_user = limits_json.slowmodeOf(ch.source) });
                 p.* +%= 1;
             }
         }.f;
@@ -2415,7 +2522,8 @@ pub const Gateway = struct {
 
     // --- REST ------------------------------------------------------------------
 
-    const Response = struct { status: c_long, body: std.ArrayList(u8) };
+    /// `retry_ms`: o 429 que voltou para quem pediu (`pass_429`).
+    const Response = struct { status: c_long, body: std.ArrayList(u8), retry_ms: u32 = 0 };
 
     /// Cabeçalhos de rate limit que o Discord manda em toda resposta.
     const RateInfo = struct {
@@ -2676,6 +2784,15 @@ pub const Gateway = struct {
                 return null;
             }
             _ = c.curl_easy_getinfo(h, c.CURLINFO_RESPONSE_CODE, &resp.status);
+            // Envio de mensagem: o 429 é do canal (modo lento), não da conta. Volta
+            // para quem pediu, sem segurar os outros pedidos nem tentar de novo.
+            if (resp.status == 429 and g.pass_429) {
+                const lim = limits_json.rateLimited(resp.body.items, rate.retry_after_ms, rate.global);
+                if (!lim.global) {
+                    resp.retry_ms = lim.ms;
+                    return resp;
+                }
+            }
             applyRate(g, rate);
             if (resp.status == 429) {
                 // Rate limit: espera o que o Discord pediu e tenta de novo.
@@ -2889,17 +3006,7 @@ pub const Gateway = struct {
 
     /// Op 4 do gateway principal: entra/sai do canal de voz.
     fn sendVoiceState(g: *Gateway, channel: ?Id) void {
-        var b: [192]u8 = undefined;
-        const ch = if (channel) |cid| std.fmt.bufPrint(&b, "\"{d}\"", .{cid}) catch return else "null";
-        var out: [256]u8 = undefined;
-        const p = std.fmt.bufPrint(&out, "{{\"op\":4,\"d\":{{\"guild_id\":\"{d}\",\"channel_id\":{s},\"self_mute\":{s},\"self_deaf\":{s}}}}}", .{
-            g.voice_guild,
-            ch,
-            if (g.voice_mute) "true" else "false",
-            if (g.voice_deaf) "true" else "false",
-        }) catch return;
-        std.log.debug("voz: op4 canal={s}", .{ch});
-        g.send(p);
+        g.queueOp(.{ .voice = .{ .guild = g.voice_guild, .channel = channel, .mute = g.voice_mute, .deaf = g.voice_deaf } });
     }
 
     /// O gateway de voz só abre quando já temos endpoint, token e session_id.
@@ -3275,8 +3382,17 @@ pub const Gateway = struct {
                     }
                 }
                 const failed: ev.Event = .{ .send_failed = .{ .channel = m.channel, .nonce = m.nonce } };
-                var resp = g.requestEx("POST", path, if (mime == null) b.items else null, mime) orelse return g.emit(failed);
+                g.pass_429 = true;
+                const got = g.requestEx("POST", path, if (mime == null) b.items else null, mime);
+                g.pass_429 = false;
+                var resp = got orelse return g.emit(failed);
                 defer resp.body.deinit(alloc);
+                // Modo lento (ou o limite do canal): nada de esperar e tentar sozinho.
+                // A mensagem fica como "não enviada" e a caixa mostra quanto falta.
+                if (resp.status == 429) {
+                    g.emit(failed);
+                    return g.emit(.{ .send_cooldown = .{ .channel = m.channel, .ms = resp.retry_ms } });
+                }
                 if (resp.status >= 300) g.emit(failed);
                 if (resp.status == 413) return g.notice("arquivo grande demais para o Discord (limite de 10 MB sem Nitro)", "file too large for Discord (10 MB limit without Nitro)", .{});
                 if (resp.status >= 300) return g.noticeHttp(i18n.tr("não foi possível enviar", "couldn't send"), &resp);
@@ -3333,7 +3449,9 @@ pub const Gateway = struct {
             .typing => |ch| {
                 const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/typing", .{ch}) catch return;
                 var resp = g.request("POST", path, null) orelse return;
-                resp.body.deinit(alloc);
+                defer resp.body.deinit(alloc);
+                // 200 (e não 204): o modo lento ainda corre, e o corpo diz quanto falta.
+                if (resp.status == 200) if (limits_json.typingCooldownMs(resp.body.items)) |ms| g.emit(.{ .send_cooldown = .{ .channel = ch, .ms = ms } });
             },
             .subscribe_guild => |sg| {
                 if (sg.guild == g.sub_guild and sg.channel == g.sub_channel and sg.thread == g.sub_thread) return;
@@ -3399,9 +3517,8 @@ pub const Gateway = struct {
             .set_status => |st| {
                 if (st == g.status) return;
                 g.status = st;
-                var buf: [128]u8 = undefined;
-                const payload = std.fmt.bufPrint(&buf, "{{\"op\":3,\"d\":{{\"status\":\"{s}\",\"since\":0,\"activities\":[],\"afk\":false}}}}", .{statusName(st)}) catch return;
-                g.send(payload);
+                // Sai com o status do momento em que tiver vez (só o último vale).
+                g.queueOp(.presence);
             },
             .member_role => |mr| {
                 const path = std.fmt.bufPrint(&path_buf, "/guilds/{d}/members/{d}/roles/{d}", .{ mr.guild, mr.user, mr.role }) catch return;

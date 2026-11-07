@@ -57,6 +57,12 @@ const instance = @import("platform/instance.zig");
 const janela = @import("core/janela.zig");
 const ritmo = @import("core/ritmo.zig");
 const quadro = @import("ui/quadro.zig");
+const send_limits = @import("ui/composer_limits.zig");
+const Debounce = @import("core/debounce.zig").Debounce;
+
+/// Op 14 do canal aberto: espera a escolha parar (Ctrl+Tab, cliques em sequência).
+const sub_delay_ms = 250;
+const SubReq = struct { guild: types.Id, channel: types.Id, thread: types.Id };
 
 pub const Options = struct {
     theme: ?[]const u8 = null,
@@ -165,6 +171,8 @@ pub const App = struct {
     qa_blur: bool = false,
     /// O QA quer o portão dos quadros valendo (não vai ler os pixels nesse trecho).
     qa_real_gate: bool = false,
+    /// A lista de membros do canal aberto (op 14) que ainda espera a escolha parar.
+    sub_wait: Debounce(SubReq) = .{},
 
     pub fn create(gpa: std.mem.Allocator, opts: Options) !*App {
         const started = c.SDL_GetTicksNS();
@@ -346,6 +354,7 @@ pub const App = struct {
         app.images.deinit();
         app.st.saved.deinit(app.gpa);
         app.store.deinit();
+        send_limits.reset();
         app.themes.deinit();
         c.cImGui_ImplSDLRenderer3_Shutdown();
         c.cImGui_ImplSDL3_Shutdown();
@@ -522,6 +531,8 @@ pub const App = struct {
         app.st.saved.clear(app.gpa);
         app.st.saved.owner = 0;
         app.plugins.setAccount(0);
+        send_limits.reset();
+        app.sub_wait.cancel();
         app.store.deinit();
         app.store = Store.init(app.gpa);
         app.store.on_evict = msg_cache.onEvict;
@@ -912,10 +923,38 @@ pub const App = struct {
 
     /// Lista de membros do servidor, vista deste canal. Numa thread, a do
     /// canal pai (ela não tem lista própria no op 14), mais quem está nela.
+    /// Sai `sub_delay_ms` depois da última troca: passando por vários canais
+    /// em seguida, só o que ficou aberto pede.
     fn subscribeTo(app: *App, cs: anytype) void {
         if (cs.info.guild == 0) return;
         const parent = if (cs.info.thread != null) cs.info.parent orelse cs.info.id else cs.info.id;
-        app.cmd(.{ .subscribe_guild = .{ .guild = cs.info.guild, .channel = parent, .thread = if (cs.info.thread != null) cs.info.id else 0 } });
+        app.sub_wait.set(.{ .guild = cs.info.guild, .channel = parent, .thread = if (cs.info.thread != null) cs.info.id else 0 }, now(), sub_delay_ms);
+    }
+
+    /// O pedido do op 14 que já esperou o bastante.
+    fn flushSubscribe(app: *App) void {
+        const sr = app.sub_wait.take(now()) orelse return;
+        app.cmd(.{ .subscribe_guild = .{ .guild = sr.guild, .channel = sr.channel, .thread = sr.thread } });
+    }
+
+    /// Dá para mandar neste canal agora? Não dando (castigo, permissão, modo
+    /// lento…), avisa o motivo e quem chamou não manda.
+    fn sendAllowed(app: *App, ch: types.Id) bool {
+        const b = send_limits.blockForId(&app.store, ch, now());
+        if (b.reason == .none) return true;
+        var buf: [240]u8 = undefined;
+        app.st.showToast(now(), !b.reason.cooling(), "{s}", "{s}", .{send_limits.reasonText(&buf, b, now())});
+        return false;
+    }
+
+    /// O Enter não mandou (modo lento): o texto volta para a caixa vazia.
+    fn keepDraft(app: *App, text: []const u8) void {
+        const st = &app.st;
+        if (st.input[0] != 0 or text.len == 0) return;
+        const n = @min(text.len, st.input.len - 1);
+        @memcpy(st.input[0..n], text[0..n]);
+        @memset(st.input[n..], 0);
+        st.input_sync = true;
     }
 
     fn afterOpen(app: *App, cs: anytype) void {
@@ -1046,6 +1085,7 @@ pub const App = struct {
 
     /// Com as opções de envio (silenciosa, sem prévias, menções) da caixa de texto.
     fn sendWithOpts(app: *App, ch: types.Id, text: []const u8, reply_to: types.Id, with_uploads: bool, opts: envio.SendOpts) void {
+        if (!app.sendAllowed(ch)) return;
         const out_text = mentions.expand(app.gpa, &app.store, app.guildOfChannel(ch), text, &.{}) catch return;
         defer app.gpa.free(out_text);
         app.st.nonce += 1;
@@ -1082,6 +1122,7 @@ pub const App = struct {
         app.store.outbox.put(app.gpa, app.st.nonce, opts, file_opts) catch {};
         const copy = ca.dupe(u8, out_text) catch return;
         app.cmd(.{ .send_message = .{ .channel = ch, .content = copy, .nonce = app.st.nonce, .reply_to = reply_to, .files = files, .opts = opts, .file_opts = file_opts } });
+        send_limits.noteSent(&app.store, ch, now());
     }
 
     fn guildOfChannel(app: *const App, ch: types.Id) types.Id {
@@ -1297,7 +1338,7 @@ pub const App = struct {
             },
             .resend_message => |r| {
                 const m = app.store.pendingByNonce(r.channel, r.nonce) orelse return;
-                if (!m.failed) return;
+                if (!m.failed or !app.sendAllowed(r.channel)) return;
                 const ca = std.heap.c_allocator;
                 const copy = ca.dupe(u8, m.msg.content) catch return;
                 // Os anexos locais continuam na cópia pendente (file://caminho).
@@ -1321,6 +1362,7 @@ pub const App = struct {
                 const sent_as = app.store.outbox.get(r.nonce);
                 const fopts = if (sent_as) |e| envio.dupeFileOpts(ca, e.files) catch &.{} else &.{};
                 app.cmd(.{ .send_message = .{ .channel = r.channel, .content = copy, .nonce = r.nonce, .reply_to = m.msg.reply_to, .files = files, .opts = if (sent_as) |e| e.opts else .{}, .file_opts = fopts } });
+                send_limits.noteSent(&app.store, r.channel, now());
             },
             .discard_message => |r| app.store.discardPending(r.channel, r.nonce),
             .open_friends => {
@@ -1360,6 +1402,8 @@ pub const App = struct {
                 // "/nome" de um plugin: roda aqui e não vai para o Discord.
                 if (app.plugins.command(text)) return;
                 const ch = st.activeChannel() orelse return;
+                // Não dá para mandar agora: o texto continua na caixa.
+                if (!app.sendAllowed(ch)) return app.keepDraft(text);
                 // O que foi escolhido na lista vira a menção exata (pelo ID).
                 const chosen = mentions.expand(app.gpa, &app.store, app.guildOfChannel(ch), text, autocomplete.tokens()) catch return;
                 defer app.gpa.free(chosen);
@@ -1470,6 +1514,8 @@ pub const App = struct {
                 for (app.store.channelsOf(0)) |id| if (app.store.channel(id)) |cs| if (!cs.info.group and cs.info.recipient == user) {
                     return app.openChannel(id, false);
                 };
+                // Conta em quarentena: o Discord não deixa abrir DM nova.
+                if (send_limits.state.accountQuarantined()) return st.showToast(now(), true, "sua conta está em quarentena: o Discord não deixa começar conversas novas", "your account is quarantined: Discord won't let it start new conversations", .{});
                 // Ainda não tem conversa: pede ao Discord e abre quando chegar.
                 st.pending_dm = user;
                 app.cmd(.{ .create_dm = user });
@@ -1903,6 +1949,10 @@ pub const App = struct {
             },
             // Falar é ter lido: o contador zera junto.
             .message_create => |m| if (m.author == app.store.me) st.filtros.clear(&app.store, m.channel),
+            // Limites de envio: quem mostra é a caixa de texto.
+            .my_limits => |l| send_limits.state.applyMember(std.heap.c_allocator, l.guild, l.timeout_until_ms, l.member_flags, now()),
+            .account_flags => |f| send_limits.state.user_flags = f,
+            .send_cooldown => |sc| send_limits.holdFor(sc.channel, sc.ms, now()),
             else => {},
         }
     }
@@ -2264,7 +2314,7 @@ pub const App = struct {
                 (login_anim and !app.st.settings.reduce_motion);
             // Dorme até o próximo quadro de um GIF, de uma animação lenta ou
             // do redesenho adiado da rede (o que vier primeiro).
-            var due = @min(app.images.next_frame_ms, anim.next_wake_ms);
+            var due = @min(@min(app.images.next_frame_ms, anim.next_wake_ms), app.sub_wait.due());
             if (bg_dirty) due = @min(due, last_frame_ms + bg_frame_ms);
             if (mouse.wanted()) due = @min(due, last_frame_ms + ritmo.MousePace.interval_ms);
             const wait = due -| now();
@@ -2367,6 +2417,7 @@ pub const App = struct {
                 if (app.store.expireTyping(typing_check_ms)) pending = 2;
             }
             if (app.notifiers.items.len > 0) app.reapNotifiers();
+            app.flushSubscribe();
 
             app.images.now_ms = now();
             if (app.images.pump()) bg_dirty = true;

@@ -182,6 +182,14 @@ pub const Event = union(enum) {
     thread_members: struct { thread: Id, replace: bool = false, count: ?u32 = null, added: []Id = &.{}, removed: []Id = &.{} },
     /// A thread que acabamos de criar existe: abre ela.
     thread_open: Id,
+    /// O nosso membro num servidor (READY, GUILD_MEMBER_UPDATE…): castigo e
+    /// flags de quarentena. null = o objeto não trouxe; `timeout_until_ms` 0 = sem castigo.
+    my_limits: struct { guild: Id, timeout_until_ms: ?i64 = null, member_flags: ?u64 = null },
+    /// As flags da nossa conta (READY, USER_UPDATE).
+    account_flags: u64,
+    /// O Discord segura o envio neste canal por `ms` (429 do envio, ou o POST de
+    /// "digitando" dizendo quanto falta do modo lento).
+    send_cooldown: struct { channel: Id, ms: u32 },
 };
 
 /// `rejected`: o Discord recusou o token (4004). Vem logo antes de `failed`.

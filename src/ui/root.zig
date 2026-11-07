@@ -240,7 +240,8 @@ fn shortcuts(ctx: *d.Ctx) void {
     if (ctrl and c.ImGui_IsKeyPressed(c.ImGuiKey_F) and !ctx.st.settings.open) search.toggle();
     if (c.ImGui_IsKeyPressed(c.ImGuiKey_F2) or (ctrl and c.ImGui_IsKeyPressed(c.ImGuiKey_T)))
         ctx.act(.{ .next_theme = if (shift) -1 else 1 });
-    if (ctrl and c.ImGui_IsKeyPressed(c.ImGuiKey_Tab)) ctx.act(.{ .next_tab = if (shift) -1 else 1 });
+    // Uma troca por toque: segurar não sai trocando de aba em rajada.
+    if (ctrl and c.ImGui_IsKeyPressedEx(c.ImGuiKey_Tab, false)) ctx.act(.{ .next_tab = if (shift) -1 else 1 });
     if (ctrl and c.ImGui_IsKeyPressed(c.ImGuiKey_W)) ctx.act(.{ .close_tab = ctx.st.tab });
     // Caixa de entrada e mensagens salvas (ui/inbox.zig, ui/saved.zig).
     if (ctrl and !shift and c.ImGui_IsKeyPressed(c.ImGuiKey_I) and !ctx.st.settings.open) ctx.act(.toggle_inbox);
