@@ -263,7 +263,16 @@ pub const Channel = struct {
     tags: []const ForumTag = &.{},
     media: bool = false,
     require_tag: bool = false,
+    /// DM que ainda não foi aceita: pedido de mensagem ou spam (fica fora da
+    /// lista de conversas e não notifica). `.none` nos outros canais.
+    request: DmRequest = .none,
+    /// Grupo: quem é o dono (só ele tira gente do grupo).
+    owner: Id = 0,
 };
+
+/// Pedido de mensagem de quem não é amigo (`is_message_request`) ou o que o
+/// Discord separou como spam (`is_spam`, flag IS_SPAM).
+pub const DmRequest = enum(u2) { none, pending, spam };
 
 /// Registro de leitura de um canal (`read_state` do READY).
 pub const ReadEntry = struct {

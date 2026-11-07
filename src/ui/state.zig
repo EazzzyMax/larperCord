@@ -7,7 +7,7 @@ pub const Settings = @import("settings_state.zig").Settings;
 
 /// `voice_move`: os canais de voz para onde dá para mover alguém (id = a pessoa).
 /// `plugin_choices`: a segunda lista de uma entrada de plugin (id = a mensagem ou a pessoa).
-pub const MenuKind = enum { message, user, channel, guild, status, voice_move, thread_delete, guild_leave, plugin_choices };
+pub const MenuKind = enum { message, user, channel, guild, status, voice_move, thread_delete, guild_leave, plugin_choices, group_leave };
 
 pub const Popup = union(enum) {
     none,
@@ -36,6 +36,8 @@ pub const Popup = union(enum) {
     /// Entrar por convite e criar um (ui/invites.zig).
     join_invite,
     create_invite: struct { channel: Id },
+    /// Pessoas de um grupo de DM: tirar e pôr gente (ui/group_dm.zig).
+    group_members: struct { channel: Id },
 };
 
 /// Seleção de texto entre mensagens: âncora e cabeça (mensagem + byte).

@@ -35,6 +35,7 @@ const read_json = @import("read_state_json.zig");
 const voice_mod = @import("voice.zig");
 const thread_json = @import("thread_json.zig");
 const user_json = @import("user_json.zig");
+const social = @import("social.zig");
 const Id = types.Id;
 const Value = std.json.Value;
 
@@ -1140,8 +1141,11 @@ pub const Gateway = struct {
             g.emit(.{ .relationship = .{ .user = uid, .kind = .none } });
             return;
         }
-        if (std.mem.eql(u8, t, "CHANNEL_RECIPIENT_ADD")) {
-            if (j.get(d, "user")) |u| g.upsert(u);
+        if (std.mem.eql(u8, t, "CHANNEL_RECIPIENT_ADD") or std.mem.eql(u8, t, "CHANNEL_RECIPIENT_REMOVE")) {
+            const u = j.get(d, "user") orelse return;
+            const add = std.mem.eql(u8, t, "CHANNEL_RECIPIENT_ADD");
+            if (add) g.upsert(u);
+            g.emit(.{ .recipient = .{ .channel = j.id(j.get(d, "channel_id")) orelse return, .user = j.id(j.get(u, "id")) orelse return, .add = add } });
             return;
         }
         if (std.mem.eql(u8, t, "MESSAGE_ACK")) {
@@ -1476,6 +1480,8 @@ pub const Gateway = struct {
             .tags = thread_json.forumTags(cv),
             .media = kind_i == 16,
             .require_tag = thread_json.requiresTag(cv),
+            .request = if (kind_i == 1 or kind_i == 3) social.requestOf(cv) else .none,
+            .owner = social.ownerOf(cv, kind_i),
         };
     }
 
@@ -2806,6 +2812,31 @@ pub const Gateway = struct {
         g.notice("salvo ✓", "saved ✓", .{});
     }
 
+    /// Pedido de mensagem ou grupo: um pedido por clique. Dando certo, a lista
+    /// muda na hora; o evento que o gateway manda depois repete o mesmo.
+    fn runSocial(g: *Gateway, s: ev.Social) void {
+        var path_buf: [96]u8 = undefined;
+        const rq = social.build(&path_buf, s) orelse return;
+        var resp = g.request(rq.method, rq.path, rq.body) orelse return g.notice("sem conexão: nada mudou", "no connection: nothing changed", .{});
+        defer resp.body.deinit(alloc);
+        if (resp.status >= 300) return g.noticeHttp(social.failText(s), &resp);
+        switch (s) {
+            // A resposta é a DM já aceita; sem os participantes, fica para o CHANNEL_UPDATE.
+            .accept_request => {
+                var arena = std.heap.ArenaAllocator.init(alloc);
+                defer arena.deinit();
+                const v = std.json.parseFromSliceLeaky(Value, arena.allocator(), resp.body.items, .{}) catch return;
+                const ch = (g.channelValue(v, 0) catch null) orelse return;
+                if (ch.recipient != 0 or ch.group) return g.emit(.{ .channel_upsert = ch });
+                alloc.free(ch.name);
+                alloc.free(ch.topic);
+            },
+            .reject_request, .leave_group => |id| g.emit(.{ .channel_delete = id }),
+            .add_member => |m| g.emit(.{ .recipient = .{ .channel = m.channel, .user = m.user, .add = true } }),
+            .remove_member => |m| g.emit(.{ .recipient = .{ .channel = m.channel, .user = m.user, .add = false } }),
+        }
+    }
+
     /// POST /channels/{id}/messages/{mid}/ack, como o cliente oficial. Falha
     /// não incomoda ninguém: a próxima leitura confirma de novo.
     fn sendAck(g: *Gateway, channel: Id, msg_id: Id, last_viewed: u32) void {
@@ -3431,6 +3462,7 @@ pub const Gateway = struct {
                 if (resp.status >= 300) return g.noticeHttp(if (jt.join) i18n.tr("não deu para entrar na thread", "couldn't join the thread") else i18n.tr("não deu para sair da thread", "couldn't leave the thread"), &resp);
                 g.emit(.{ .thread_joined = .{ .thread = jt.thread, .joined = jt.join } });
             },
+            .social => |s| g.runSocial(s),
             .fetch_thread_members => |tid| {
                 const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/thread-members?with_member=true&limit=100", .{tid}) catch return;
                 var resp = g.request("GET", path, null) orelse return;

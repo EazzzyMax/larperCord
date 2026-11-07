@@ -79,6 +79,8 @@ pub const Event = union(enum) {
     /// CHANNEL_CREATE / CHANNEL_UPDATE.
     channel_upsert: types.Channel,
     channel_delete: Id,
+    /// CHANNEL_RECIPIENT_ADD / REMOVE: alguém entrou ou saiu de um grupo.
+    recipient: struct { channel: Id, user: Id, add: bool },
     /// MESSAGE_ACK: um dispositivo (este ou outro) leu o canal até `message`
     /// (0 = até o fim). `manual`: "marcar como não lida". `mentions`: menções
     /// não lidas, quando o Discord manda.
@@ -203,6 +205,19 @@ pub const EditPlace = struct {
     banner: ImageChange = .keep,
 };
 
+/// Pedidos de mensagem e grupos de DM: um clique, um pedido (net/social.zig
+/// monta o caminho e o corpo).
+pub const Social = union(enum) {
+    /// Aceita (PUT .../recipients/@me) ou recusa (DELETE) um pedido de mensagem.
+    accept_request: Id,
+    reject_request: Id,
+    /// Põe ou tira alguém de um grupo (tirar: só o dono).
+    add_member: struct { channel: Id, user: Id },
+    remove_member: struct { channel: Id, user: Id },
+    /// Sai do grupo (DELETE /channels/{id}).
+    leave_group: Id,
+};
+
 /// O que fazer com uma imagem ao editar (o caminho é alocado).
 pub const ImageChange = union(enum) {
     keep,
@@ -286,11 +301,15 @@ pub const Command = union(enum) {
     join_thread: struct { thread: Id, join: bool },
     /// Quem está na thread, pelo REST (a lista do op 14 pode não vir).
     fetch_thread_members: Id,
+    /// Pedido de mensagem ou grupo de DM.
+    social: Social,
     shutdown,
 };
 
 pub const Action = union(enum) {
     search_messages: SearchRequest,
+    /// Aceitar/recusar pedido de mensagem, pôr/tirar gente do grupo, sair dele.
+    social: Social,
     select_guild: Id,
     select_channel: Id,
     close_tab: usize,

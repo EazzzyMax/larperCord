@@ -635,6 +635,35 @@ pub const Store = struct {
         }
     }
 
+    /// CHANNEL_RECIPIENT_ADD/REMOVE: alguém entrou ou saiu de um grupo. A
+    /// resposta do pedido e o evento do gateway dizem o mesmo: repetir não muda
+    /// nada. Tirarem a gente é perder o grupo.
+    fn recipientChange(s: *Store, ch_id: Id, uid: Id, add: bool) !void {
+        if (uid == s.me and s.me != 0) {
+            if (!add) s.removeChannel(ch_id);
+            return;
+        }
+        const cs = s.channel(ch_id) orelse return;
+        if (!cs.info.group) return;
+        const old = cs.info.recipients;
+        const at = std.mem.indexOfScalar(Id, old, uid);
+        if (add == (at != null)) return;
+        var list: []Id = &.{};
+        if (add) {
+            list = try ev_alloc.alloc(Id, old.len + 1);
+            @memcpy(list[0..old.len], old);
+            list[old.len] = uid;
+        } else if (old.len > 1) {
+            list = try ev_alloc.alloc(Id, old.len - 1);
+            @memcpy(list[0..at.?], old[0..at.?]);
+            @memcpy(list[at.?..], old[at.? + 1 ..]);
+        }
+        if (old.len > 0) ev_alloc.free(old);
+        cs.info.recipients = list;
+        if (add and cs.info.recipient == 0) cs.info.recipient = uid;
+        if (!add and cs.info.recipient == uid) cs.info.recipient = if (list.len > 0) list[0] else 0;
+    }
+
     /// Thread nova ou atualizada: entra na lista do pai, e a mensagem que a
     /// abriu passa a mostrar o cartão.
     fn indexThread(s: *Store, id: Id, parent: ?Id, was_known: bool) !void {
@@ -1115,6 +1144,7 @@ pub const Store = struct {
             .guild_delete => |id| s.removeGuild(id),
             .channel_upsert => |ch| try s.mergeChannel(ch),
             .channel_delete => |id| s.removeChannel(id),
+            .recipient => |r| try s.recipientChange(r.channel, r.user, r.add),
             .read => |r| s.applyAck(r.channel, r.message, r.manual),
             .read_states => |rs| {
                 defer ev_alloc.free(rs.entries);
@@ -2527,4 +2557,36 @@ test "permissões da thread vêm do pai" {
     ow[0] = .{ .id = 5, .deny = types.perm.view_channel };
     cs.info.overwrites = ow;
     try std.testing.expect(!s.canAccess(th));
+}
+
+test "grupo: gente entra e sai (repetido não muda nada) e pedido aceito sai do pedido" {
+    const c_alloc = std.heap.c_allocator;
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    s.me = 1;
+    const rs = try c_alloc.alloc(Id, 2);
+    rs[0] = 2;
+    rs[1] = 3;
+    try s.apply(.{ .channel_upsert = .{ .id = 60, .guild = 0, .name = try c_alloc.dupe(u8, "g"), .topic = try c_alloc.dupe(u8, ""), .recipient = 2, .recipients = rs, .group = true, .owner = 1 } }, 0);
+    try s.apply(.{ .recipient = .{ .channel = 60, .user = 4, .add = true } }, 0);
+    try s.apply(.{ .recipient = .{ .channel = 60, .user = 4, .add = true } }, 0);
+    try std.testing.expectEqualSlices(Id, &.{ 2, 3, 4 }, s.channel(60).?.info.recipients);
+    try s.apply(.{ .recipient = .{ .channel = 60, .user = 2, .add = false } }, 0);
+    try s.apply(.{ .recipient = .{ .channel = 60, .user = 2, .add = false } }, 0);
+    try std.testing.expectEqualSlices(Id, &.{ 3, 4 }, s.channel(60).?.info.recipients);
+    try std.testing.expectEqual(@as(Id, 3), s.channel(60).?.info.recipient);
+    try s.apply(.{ .recipient = .{ .channel = 60, .user = 3, .add = false } }, 0);
+    try s.apply(.{ .recipient = .{ .channel = 60, .user = 4, .add = false } }, 0);
+    try std.testing.expectEqual(@as(usize, 0), s.channel(60).?.info.recipients.len);
+    // Evento de canal que não é grupo, ou que não conhecemos: nada.
+    try s.apply(.{ .recipient = .{ .channel = 99, .user = 4, .add = true } }, 0);
+    // Pedido de mensagem: o CHANNEL_UPDATE depois de aceitar tira a marca.
+    try s.apply(.{ .channel_upsert = .{ .id = 61, .guild = 0, .name = try c_alloc.dupe(u8, "d"), .topic = try c_alloc.dupe(u8, ""), .recipient = 5, .request = .pending } }, 0);
+    try s.apply(.{ .recipient = .{ .channel = 61, .user = 4, .add = true } }, 0);
+    try std.testing.expectEqual(@as(usize, 0), s.channel(61).?.info.recipients.len);
+    try s.apply(.{ .channel_upsert = .{ .id = 61, .guild = 0, .name = try c_alloc.dupe(u8, "d"), .topic = try c_alloc.dupe(u8, ""), .recipient = 5 } }, 0);
+    try std.testing.expectEqual(types.DmRequest.none, s.channel(61).?.info.request);
+    // Tirarem a gente: o grupo some.
+    try s.apply(.{ .recipient = .{ .channel = 60, .user = 1, .add = false } }, 0);
+    try std.testing.expect(s.channel(60) == null);
 }
