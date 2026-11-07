@@ -263,6 +263,8 @@ pub const Channel = struct {
     tags: []const ForumTag = &.{},
     media: bool = false,
     require_tag: bool = false,
+    /// Modo lento (s; 0 = sem): quanto cada pessoa espera entre uma mensagem e outra.
+    rate_limit_per_user: u32 = 0,
 };
 
 /// Registro de leitura de um canal (`read_state` do READY).

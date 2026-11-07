@@ -34,6 +34,10 @@ test {
     _ = @import("core/cache_format.zig");
     _ = @import("core/search_query.zig");
     _ = @import("core/accounts.zig");
+    _ = @import("core/limites.zig");
+    _ = @import("core/debounce.zig");
+    _ = @import("net/gw_budget.zig");
+    _ = @import("net/limits_json.zig");
     _ = @import("theme/kdl.zig");
     _ = @import("theme/color.zig");
     _ = @import("theme/theme.zig");
