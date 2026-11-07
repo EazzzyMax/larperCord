@@ -36,6 +36,14 @@ pub const Popup = union(enum) {
     /// Entrar por convite e criar um (ui/invites.zig).
     join_invite,
     create_invite: struct { channel: Id },
+    /// Quem reagiu a uma mensagem (ui/reactors.zig; o emoji escolhido fica lá).
+    reactions: struct { message: Id, x: f32, y: f32 },
+    /// Quem votou numa opção de uma enquete (ui/reactors.zig).
+    poll_voters: struct { message: Id, answer: u32, x: f32, y: f32 },
+    /// Opções da próxima mensagem, ao lado dos botões da caixa (ui/compose_opts.zig).
+    compose_options: struct { x: f32, y: f32 },
+    /// Texto alternativo de um arquivo da bandeja (ui/upload_opts.zig).
+    upload_alt: struct { index: u8, x: f32, y: f32 },
 };
 
 /// Seleção de texto entre mensagens: âncora e cabeça (mensagem + byte).
@@ -77,6 +85,10 @@ pub const Upload = struct {
     /// Tamanho da imagem (0 = não é imagem).
     width: u16 = 0,
     height: u16 = 0,
+    /// Vai como spoiler (SPOILER_ no nome).
+    spoiler: bool = false,
+    /// Texto alternativo (c_allocator; vazio = nenhum).
+    alt: []u8 = &.{},
 
     pub fn name(u: *const Upload) []const u8 {
         return std.fs.path.basename(u.path);
@@ -175,6 +187,12 @@ pub const State = struct {
     /// Caixa de texto do cartão de perfil ("Mensagem @fulano").
     popup_input: [256]u8 = @splat(0),
     reply_to: Id = 0,
+    /// Respondendo, o autor é mencionado (o "@ LIGADO" da barra). A última
+    /// escolha vale até fechar o app.
+    reply_ping: bool = true,
+    /// Opções da próxima mensagem (silenciosa, sem prévias, sem menções):
+    /// voltam ao normal depois de enviar.
+    send_opts: @import("../core/envio.zig").SendOpts = .{},
     editing: Id = 0,
     /// O conteúdo de `input` mudou por fora: a caixa de texto deve recarregar.
     input_sync: bool = false,

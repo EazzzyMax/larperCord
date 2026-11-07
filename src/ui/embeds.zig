@@ -5,6 +5,7 @@ const std = @import("std");
 const c = @import("c");
 const d = @import("draw.zig");
 const qa = @import("qa.zig");
+const poll_card = @import("poll_card.zig");
 const rich = @import("rich.zig");
 const att = @import("attachments.zig");
 const i18n = @import("i18n.zig");
@@ -164,6 +165,14 @@ pub fn block(ctx: *d.Ctx, dl: ?*c.ImDrawList, m: *const StoredMessage, x: f32, y
         const n_spans = 1 + e.fields.len + e.blocks.len;
         const spans = m.embed_spans[@min(m.embed_spans.len, k)..@min(m.embed_spans.len, k + n_spans)];
         k += n_spans;
+        // Enquete com os dados no Store: o cartão de votar no lugar do parado.
+        if (e.poll) if (ctx.store.polls.get(m.msg.id)) |p| {
+            const pw = @min(avail, poll_card.max_w);
+            const ph = poll_card.height(ctx, p, pw);
+            if (dl) |l| poll_card.draw(ctx, l, m, p, x, y, pw, alpha);
+            y += ph;
+            continue;
+        };
         const w = @min(avail, max_w);
         const h = cardHeight(ctx, e, spans, w, dl != null);
         if (dl) |l| {

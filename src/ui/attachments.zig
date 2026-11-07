@@ -462,6 +462,8 @@ pub fn tray(ctx: *d.Ctx, dl: *c.ImDrawList, r: d.Rect) void {
                 c.ImDrawList_AddImageRounded(dl, t.ref, d.v(ix, iy), d.v(ix + dw, iy + dh), d.v(0, 0), d.v(1, 1), d.Rgba.white.u(), 4, 0);
             } else pictureIcon(dl, pr.x + pr.w / 2, pr.y + pr.h / 2, ctx.col(.faint));
         } else docIcon(dl, pr.x + pr.w / 2, pr.y + pr.h / 2, ctx.col(.accent));
+        // Spoiler e texto alternativo (ui/upload_opts.zig).
+        @import("upload_opts.zig").cardButtons(ctx, dl, i, u, pr);
         _ = d.textClipped(dl, ctx.ui.get(.medium), 12, cr.x + 8, cr.y + 80, ctx.col(.text), u.name(), cr.w - 16);
         var sb: [32]u8 = undefined;
         d.text(dl, ctx.ui.get(.regular), 11, cr.x + 8, cr.y + 94, ctx.col(.faint), formatSize(&sb, u.size));

@@ -37,6 +37,7 @@ const guild_color = @import("ui/guild_color.zig");
 const theme_mod = @import("theme/theme.zig");
 const plugin_host = @import("plugins/host.zig");
 const mentions = @import("core/mentions.zig");
+const envio = @import("core/envio.zig");
 const autocomplete = @import("ui/autocomplete.zig");
 const inbox_core = @import("core/inbox.zig");
 const leitura = @import("core/leitura.zig");
@@ -418,14 +419,15 @@ pub const App = struct {
     const max_upload: u64 = 10 * 1024 * 1024;
 
     fn clearUploads(app: *App) void {
-        for (app.st.uploads.items) |u| dropUpload(u.path);
+        for (app.st.uploads.items) |u| dropUpload(u);
         app.st.uploads.clearRetainingCapacity();
     }
 
     /// Tira um arquivo da bandeja. O de imagem colada era só nosso: apaga.
-    fn dropUpload(path: [:0]u8) void {
-        if (types.isPastedFile(path)) _ = c.unlink(path.ptr);
-        std.heap.c_allocator.free(path);
+    fn dropUpload(u: @import("ui/state.zig").Upload) void {
+        if (types.isPastedFile(u.path)) _ = c.unlink(u.path.ptr);
+        std.heap.c_allocator.free(u.path);
+        if (u.alt.len > 0) std.heap.c_allocator.free(u.alt);
     }
 
     /// Coloca um arquivo na bandeja da próxima mensagem.
@@ -544,6 +546,7 @@ pub const App = struct {
         st.palette.open = false;
         st.settings.open = false;
         st.reply_to = 0;
+        st.send_opts = .{};
         st.editing = 0;
         st.pending_dm = 0;
         st.selection = .{};
@@ -1038,6 +1041,11 @@ pub const App = struct {
     /// `with_uploads`: leva os arquivos da bandeja junto. Só o que a própria
     /// pessoa enviou pela caixa de texto; um plugin nunca leva os arquivos dela.
     pub fn sendWith(app: *App, ch: types.Id, text: []const u8, reply_to: types.Id, with_uploads: bool) void {
+        app.sendWithOpts(ch, text, reply_to, with_uploads, .{});
+    }
+
+    /// Com as opções de envio (silenciosa, sem prévias, menções) da caixa de texto.
+    fn sendWithOpts(app: *App, ch: types.Id, text: []const u8, reply_to: types.Id, with_uploads: bool, opts: envio.SendOpts) void {
         const out_text = mentions.expand(app.gpa, &app.store, app.guildOfChannel(ch), text, &.{}) catch return;
         defer app.gpa.free(out_text);
         app.st.nonce += 1;
@@ -1046,10 +1054,14 @@ pub const App = struct {
         const ups = if (with_uploads) app.st.uploads.items else &.{};
         var atts: []types.Attachment = &.{};
         var files: [][:0]const u8 = &.{};
+        var file_opts: []envio.FileOpt = &.{};
         if (ups.len > 0) {
             atts = ca.alloc(types.Attachment, ups.len) catch return;
             files = ca.alloc([:0]const u8, ups.len) catch return;
+            file_opts = ca.alloc(envio.FileOpt, ups.len) catch return;
             for (ups, 0..) |u, i| {
+                // O texto alternativo passa da bandeja para o comando.
+                file_opts[i] = .{ .spoiler = u.spoiler, .alt = u.alt };
                 atts[i] = .{
                     .url = std.fmt.allocPrint(ca, "file://{s}", .{u.path}) catch return,
                     .filename = ca.dupe(u8, u.name()) catch return,
@@ -1066,8 +1078,10 @@ pub const App = struct {
         if (app.store.channel(ch)) |cs| if (cs.detached) app.handle(.{ .jump_present = ch });
         app.store.addPending(ch, out_text, app.st.nonce, reply_to, now(), atts) catch return;
         app.st.scrollOf(ch).stick_bottom = true;
+        // Para o "tentar de novo" mandar igual.
+        app.store.outbox.put(app.gpa, app.st.nonce, opts, file_opts) catch {};
         const copy = ca.dupe(u8, out_text) catch return;
-        app.cmd(.{ .send_message = .{ .channel = ch, .content = copy, .nonce = app.st.nonce, .reply_to = reply_to, .files = files } });
+        app.cmd(.{ .send_message = .{ .channel = ch, .content = copy, .nonce = app.st.nonce, .reply_to = reply_to, .files = files, .opts = opts, .file_opts = file_opts } });
     }
 
     fn guildOfChannel(app: *const App, ch: types.Id) types.Id {
@@ -1242,6 +1256,23 @@ pub const App = struct {
                 app.cmd(.{ .fetch_pins = id });
             },
             .leave_guild => |id| app.cmd(.{ .leave_guild = id }),
+            .more_pins => |id| {
+                const pl = app.store.pins.getPtr(id) orelse return;
+                if (pl.state != .loaded or !pl.more or pl.more_state == .loading) return;
+                pl.more_state = .loading;
+                app.cmd(.{ .fetch_more_pins = .{ .channel = id, .before = pl.cursor } });
+            },
+            .poll_vote => |pv| app.cmd(.{ .poll_vote = pv }),
+            .want_people => |wp| {
+                const pl = &app.store.people;
+                if (wp.more and (pl.state != .loaded or !pl.more)) return;
+                const after: types.Id = if (wp.more and pl.users.items.len > 0) pl.users.items[pl.users.items.len - 1] else 0;
+                if (!wp.more) pl.users.clearRetainingCapacity();
+                pl.req +%= 1;
+                pl.state = .loading;
+                pl.more = false;
+                app.cmd(.{ .fetch_people = .{ .req = pl.req, .q = wp.q, .after = after } });
+            },
             .pin_message => |p| {
                 if (app.store.channel(p.channel)) |cs| if (app.store.find(cs, p.id)) |m| {
                     m.msg.pinned = p.add;
@@ -1286,7 +1317,10 @@ pub const App = struct {
                 }
                 m.failed = false;
                 m.layout_w = -1;
-                app.cmd(.{ .send_message = .{ .channel = r.channel, .content = copy, .nonce = r.nonce, .reply_to = m.msg.reply_to, .files = files } });
+                // As opções do envio que falhou (silenciosa, spoiler…) vão de novo.
+                const sent_as = app.store.outbox.get(r.nonce);
+                const fopts = if (sent_as) |e| envio.dupeFileOpts(ca, e.files) catch &.{} else &.{};
+                app.cmd(.{ .send_message = .{ .channel = r.channel, .content = copy, .nonce = r.nonce, .reply_to = m.msg.reply_to, .files = files, .opts = if (sent_as) |e| e.opts else .{}, .file_opts = fopts } });
             },
             .discard_message => |r| app.store.discardPending(r.channel, r.nonce),
             .open_friends => {
@@ -1333,7 +1367,18 @@ pub const App = struct {
                 // Regras fixas dos plugins (tirar o rastreio dos links…). Sem nenhuma, nem entra.
                 const cleaned = app.plugins.rewriteOutgoing(chosen);
                 defer if (cleaned) |t| app.gpa.free(t);
-                app.sendTo(ch, cleaned orelse chosen, st.reply_to);
+                // As opções do menu da caixa valem para esta mensagem; "@silent "
+                // no começo também a deixa silenciosa (e sai do texto), como no Discord.
+                var opts = st.send_opts;
+                opts.ping_reply = st.reply_ping or st.reply_to == 0;
+                var body: []const u8 = cleaned orelse chosen;
+                if (envio.stripSilent(body)) |rest| {
+                    opts.silent = true;
+                    body = rest;
+                }
+                if (body.len == 0 and st.uploads.items.len == 0) return;
+                app.sendWithOpts(ch, body, st.reply_to, true, opts);
+                st.send_opts = .{};
                 st.reply_to = 0;
                 st.drafts.remove(app.gpa, ch);
             },
@@ -1409,7 +1454,10 @@ pub const App = struct {
                 app.cmd(.{ .delete_message = .{ .channel = ch, .id = id } });
                 st.showToast(now(), false, "mensagem excluída", "message deleted", .{});
             },
-            .react => |r| {
+            .react => |r_in| {
+                // Clicar numa reação é sempre a normal (a contagem de super não vem junto).
+                var r = r_in;
+                r.emoji.burst = 0;
                 const f = app.store.findAny(r.id) orelse return;
                 var mine = false;
                 for (f.m.reactionSlice()) |*x| if (x.same(&r.emoji)) {
@@ -1614,7 +1662,7 @@ pub const App = struct {
             .save_settings => app.saveSettings(),
             .pick_files => app.pickFiles(),
             .remove_upload => |i| if (i < st.uploads.items.len) {
-                dropUpload(st.uploads.items[i].path);
+                dropUpload(st.uploads.items[i]);
                 _ = st.uploads.orderedRemove(i);
             },
             .paste_image => app.pasteImage(),

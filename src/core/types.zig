@@ -368,6 +368,9 @@ pub const Embed = struct {
     bare: bool = false,
     /// Cartão marcado como spoiler: coberto até passar o mouse.
     spoiler: bool = false,
+    /// O cartão parado de uma enquete: a conversa troca pelo de votar quando
+    /// a enquete está no Store (ui/poll_card.zig).
+    poll: bool = false,
 };
 
 pub const EmbedField = struct { name: []const u8, value: []const u8 };
@@ -473,6 +476,8 @@ pub const Reaction = struct {
     animated: bool = false,
     /// Emoji personalizado (0 = unicode): é assim que a API o reconhece.
     custom: Id = 0,
+    /// Quantas das `count` são super reações. Num evento, > 0 marca uma super reação.
+    burst: u16 = 0,
 
     pub fn text(r: *const Reaction) []const u8 {
         return r.emoji[0..r.len];

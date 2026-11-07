@@ -8,6 +8,8 @@ const types = @import("types.zig");
 const markdown = @import("markdown.zig");
 const Event = @import("event.zig").Event;
 const event = @import("event.zig");
+const polls_mod = @import("polls.zig");
+const envio = @import("envio.zig");
 const Id = types.Id;
 
 /// LARPER_READ_DEBUG: conta no log por que cada canal ficou não lido (só IDs).
@@ -16,6 +18,8 @@ pub var read_debug = false;
 /// Strings que chegam em eventos são alocadas com o c_allocator (podem vir
 /// de outra thread) e liberadas com ele também.
 const ev_alloc = std.heap.c_allocator;
+/// Pessoas por página nas listas de quem reagiu ou votou (net/envio_json.zig).
+const people_page = 25;
 /// Quantas mensagens a mais um canal pode ter antes de cortar para `max_messages`.
 const trim_slack = 128;
 
@@ -146,6 +150,21 @@ pub const ChannelState = struct {
 pub const PinList = struct {
     state: History = .none,
     items: std.ArrayList(StoredMessage) = .empty,
+    /// O Discord tem mais (páginas de 50), a partir de `cursor`. `more_state`:
+    /// a página seguinte, pedida pelo "Carregar mais".
+    more: bool = false,
+    cursor: envio.PinCursor = .{},
+    more_state: History = .none,
+};
+
+/// Quem reagiu ou votou: só a lista aberta agora, buscada quando abre.
+/// `req` diz de qual pedido são as páginas (as de um pedido velho são ignoradas).
+pub const PeopleList = struct {
+    req: u32 = 0,
+    state: History = .none,
+    users: std.ArrayList(Id) = .empty,
+    /// Veio a página cheia: pode ter mais.
+    more: bool = false,
 };
 
 /// Lista de membros de um servidor, no formato do Discord: posições fixas
@@ -250,6 +269,12 @@ pub const Store = struct {
     /// usa também).
     read_index: std.AutoHashMapUnmanaged(Id, types.ReadEntry) = .empty,
     pins: std.AutoHashMapUnmanaged(Id, PinList) = .empty,
+    /// Enquetes das mensagens, por ID da mensagem (core/polls.zig).
+    polls: polls_mod.Map = .{},
+    /// A lista de quem reagiu ou votou que está aberta (ui/reactors.zig).
+    people: PeopleList = .{},
+    /// Opções das nossas mensagens pendentes, para o "tentar de novo" (core/envio.zig).
+    outbox: envio.Outbox = .{},
     /// O que o seletor de GIFs mostra.
     gif_results: GifList = .{},
     gif_favorites: GifList = .{},
@@ -291,6 +316,9 @@ pub const Store = struct {
         var pli = s.pins.valueIterator();
         while (pli.next()) |pl| s.freePins(pl);
         s.pins.deinit(s.gpa);
+        s.polls.deinit(s.gpa);
+        s.people.users.deinit(s.gpa);
+        s.outbox.deinit(s.gpa);
         freeGifs(s.gif_results.items);
         freeGifs(s.gif_favorites.items);
         s.clearInvites();
@@ -916,6 +944,7 @@ pub const Store = struct {
                 s.ready = true;
             },
             .message_create => |m| {
+                if (m.nonce != 0 and m.author == s.me) s.outbox.remove(s.gpa, m.nonce);
                 try s.addMessage(m, now_ms);
                 budget_tick +%= 1;
                 if (budget_tick % 100 == 0) s.enforceBudget(now_ms);
@@ -1139,12 +1168,30 @@ pub const Store = struct {
                 if (!gop.found_existing) gop.value_ptr.* = .{};
                 const pl = gop.value_ptr;
                 if (!p.ok) {
-                    pl.state = .failed;
+                    if (p.older) pl.more_state = .failed else pl.state = .failed;
                     return;
                 }
-                for (pl.items.items) |*m| s.freeMessage(m);
-                pl.items.clearRetainingCapacity();
+                // A página seguinte só vale em cima da lista de onde saiu.
+                if (p.older and (pl.state != .loaded or pl.more_state != .loading)) {
+                    for (p.messages) |m| freeRaw(m);
+                    return;
+                }
+                if (!p.older) {
+                    for (pl.items.items) |*m| s.freeMessage(m);
+                    pl.items.clearRetainingCapacity();
+                }
+                pl.more = p.more;
+                pl.cursor = p.cursor;
+                pl.more_state = .none;
                 for (p.messages, 0..) |m, i| {
+                    // Alguém fixou entre uma página e outra: a mesma não entra duas vezes.
+                    const dup = p.older and for (pl.items.items) |*x| {
+                        if (x.msg.id == m.id) break true;
+                    } else false;
+                    if (dup) {
+                        freeRaw(m);
+                        continue;
+                    }
                     const sm = s.stored(m) catch |err| {
                         for (p.messages[i..]) |rest| freeRaw(rest);
                         return err;
@@ -1152,6 +1199,26 @@ pub const Store = struct {
                     try pl.items.append(s.gpa, sm);
                 }
                 pl.state = .loaded;
+            },
+            .poll => |pe| {
+                try s.polls.put(s.gpa, pe.id, pe.poll);
+                s.pollChanged(pe.channel, pe.id);
+            },
+            .poll_vote => |v| {
+                const p = s.polls.get(v.id) orelse return;
+                p.vote(v.answer, v.add, v.user == s.me);
+                s.pollChanged(v.channel, v.id);
+            },
+            .people_page => |pg| {
+                defer if (pg.users.len > 0) ev_alloc.free(pg.users);
+                if (pg.req != s.people.req) return;
+                if (!pg.ok) {
+                    s.people.state = .failed;
+                    return;
+                }
+                try s.people.users.appendSlice(s.gpa, pg.users);
+                s.people.more = pg.users.len >= people_page;
+                s.people.state = .loaded;
             },
             .pins_changed => |id| if (s.pins.getPtr(id)) |pl| {
                 if (pl.state != .loading) pl.state = .none;
@@ -1245,6 +1312,7 @@ pub const Store = struct {
                 cs.version +%= 1;
             },
             .message_delete => |del| {
+                s.polls.remove(s.gpa, del.id);
                 const cs = s.channel(del.channel) orelse return;
                 for (cs.messages.items, 0..) |*m, i| if (m.msg.id == del.id) {
                     // Registro: apagada por alguém, continua na tela marcada.
@@ -1727,15 +1795,17 @@ pub const Store = struct {
     /// Soma ou tira uma reação. `mine` indica se foi a gente.
     pub fn react(s: *Store, m: *StoredMessage, emoji: types.Reaction, mine: bool, add: bool) void {
         _ = s;
+        // Super reação: conta no total e nas super, sem mexer no nosso `me` (o da normal).
+        const burst = emoji.burst > 0;
         for (m.reactions[0..m.n_reactions], 0..) |*r, i| if (r.same(&emoji)) {
             if (add) {
-                if (mine and r.me) return;
+                if (mine and r.me and !burst) return;
                 r.count +|= 1;
-                if (mine) r.me = true;
+                if (burst) r.burst +|= 1 else if (mine) r.me = true;
             } else {
-                if (mine and !r.me) return;
+                if (mine and !r.me and !burst) return;
                 r.count -|= 1;
-                if (mine) r.me = false;
+                if (burst) r.burst -|= 1 else if (mine) r.me = false;
                 if (r.count == 0) {
                     std.mem.copyForwards(types.Reaction, m.reactions[i .. m.n_reactions - 1], m.reactions[i + 1 .. m.n_reactions]);
                     m.n_reactions -= 1;
@@ -1747,10 +1817,19 @@ pub const Store = struct {
         if (!add or m.n_reactions >= m.reactions.len) return;
         var r = emoji;
         r.count = 1;
-        r.me = mine;
+        r.me = mine and !burst;
+        r.burst = @intFromBool(burst);
         m.reactions[m.n_reactions] = r;
         m.n_reactions += 1;
         m.layout_w = -1;
+    }
+
+    /// A enquete mudou: a mensagem refaz a altura (o cartão de votar troca o parado).
+    fn pollChanged(s: *Store, channel_id: Id, id: Id) void {
+        const cs = s.channel(channel_id) orelse return;
+        const m = s.find(cs, id) orelse return;
+        m.layout_w = -1;
+        cs.version +%= 1;
     }
 
     /// Edição local imediata (o servidor confirma depois).
@@ -1778,6 +1857,7 @@ pub const Store = struct {
     pub fn discardPending(s: *Store, channel_id: Id, nonce: u64) void {
         const cs = s.channel(channel_id) orelse return;
         const m = s.pendingByNonce(channel_id, nonce) orelse return;
+        s.outbox.remove(s.gpa, nonce);
         const i = (@intFromPtr(m) - @intFromPtr(cs.messages.items.ptr)) / @sizeOf(StoredMessage);
         s.freeMessage(m);
         _ = cs.messages.orderedRemove(i);
@@ -2254,6 +2334,122 @@ test "reações, edição e exclusão" {
 
     try s.apply(.{ .message_delete = .{ .channel = 10, .id = 7 } }, 0);
     try std.testing.expectEqual(@as(usize, 0), s.channel(10).?.messages.items.len);
+}
+
+fn pollStore(s: *Store) !void {
+    const c_alloc = std.heap.c_allocator;
+    const chans = try c_alloc.alloc(types.Channel, 1);
+    chans[0] = .{ .id = 10, .guild = 5, .name = try c_alloc.dupe(u8, "g"), .topic = try c_alloc.dupe(u8, "") };
+    try s.apply(.{ .ready = .{ .me = 1, .users = try c_alloc.alloc(types.User, 0), .guilds = try c_alloc.alloc(types.Guild, 0), .channels = chans, .voice = try c_alloc.alloc([2]Id, 0) } }, 0);
+    try s.apply(.{ .message_create = .{ .id = 7, .channel = 10, .author = 2, .timestamp = 0, .content = try c_alloc.dupe(u8, "oi") } }, 0);
+}
+
+test "super reações contam à parte e não mexem no nosso voto normal" {
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    try pollStore(&s);
+    var burst = types.Reaction.init("🔥");
+    burst.burst = 1;
+    try s.apply(.{ .reaction = .{ .channel = 10, .id = 7, .emoji = burst, .user = 1, .add = true } }, 0);
+    try s.apply(.{ .reaction = .{ .channel = 10, .id = 7, .emoji = types.Reaction.init("🔥"), .user = 1, .add = true } }, 0);
+    const m = s.find(s.channel(10).?, 7).?;
+    try std.testing.expectEqual(@as(u16, 2), m.reactions[0].count);
+    try std.testing.expectEqual(@as(u16, 1), m.reactions[0].burst);
+    try std.testing.expect(m.reactions[0].me);
+    try s.apply(.{ .reaction = .{ .channel = 10, .id = 7, .emoji = burst, .user = 1, .add = false } }, 0);
+    try std.testing.expectEqual(@as(u16, 1), m.reactions[0].count);
+    try std.testing.expectEqual(@as(u16, 0), m.reactions[0].burst);
+    try std.testing.expect(m.reactions[0].me);
+}
+
+test "enquete: chega à parte, conta os votos e some com a mensagem" {
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    try pollStore(&s);
+    const p = try polls_mod.create();
+    p.n = 2;
+    p.answers[0].id = 1;
+    p.answers[1].id = 2;
+    p.known = true;
+    try p.setTexts("?", &.{ "a", "b" });
+    const m = s.find(s.channel(10).?, 7).?;
+    m.layout_w = 100;
+    try s.apply(.{ .poll = .{ .channel = 10, .id = 7, .poll = p } }, 0);
+    try std.testing.expect(m.layout_w < 0);
+    try s.apply(.{ .poll_vote = .{ .channel = 10, .id = 7, .user = 2, .answer = 2, .add = true } }, 0);
+    try s.apply(.{ .poll_vote = .{ .channel = 10, .id = 7, .user = 1, .answer = 1, .add = true } }, 0);
+    try s.apply(.{ .poll_vote = .{ .channel = 10, .id = 7, .user = 1, .answer = 1, .add = true } }, 0);
+    const got = s.polls.get(7).?;
+    try std.testing.expectEqual(@as(u32, 1), got.answers[0].count);
+    try std.testing.expect(got.answers[0].me and !got.answers[1].me);
+    try std.testing.expectEqual(@as(u32, 2), got.total());
+    try s.apply(.{ .message_delete = .{ .channel = 10, .id = 7 } }, 0);
+    try std.testing.expect(s.polls.get(7) == null);
+}
+
+test "lista de pessoas: só as páginas do pedido atual" {
+    const c_alloc = std.heap.c_allocator;
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    s.people.req = 3;
+    s.people.state = .loading;
+    const old = try c_alloc.alloc(Id, 1);
+    old[0] = 9;
+    try s.apply(.{ .people_page = .{ .req = 2, .users = old } }, 0);
+    try std.testing.expectEqual(@as(usize, 0), s.people.users.items.len);
+    const page = try c_alloc.alloc(Id, people_page);
+    for (page, 0..) |*u, i| u.* = 100 + i;
+    try s.apply(.{ .people_page = .{ .req = 3, .users = page } }, 0);
+    try std.testing.expect(s.people.state == .loaded and s.people.more);
+    const last = try c_alloc.alloc(Id, 2);
+    last[0] = 200;
+    last[1] = 201;
+    try s.apply(.{ .people_page = .{ .req = 3, .users = last } }, 0);
+    try std.testing.expectEqual(@as(usize, people_page + 2), s.people.users.items.len);
+    try std.testing.expect(!s.people.more);
+    try s.apply(.{ .people_page = .{ .req = 3, .ok = false } }, 0);
+    try std.testing.expect(s.people.state == .failed);
+}
+
+test "fixadas em páginas: a seguinte vai no fim, sem repetir" {
+    const c_alloc = std.heap.c_allocator;
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    try pollStore(&s);
+    const one = try c_alloc.alloc(types.Message, 1);
+    one[0] = .{ .id = 50, .channel = 10, .author = 2, .timestamp = 0, .content = try c_alloc.dupe(u8, "a") };
+    try s.apply(.{ .pins = .{ .channel = 10, .messages = one, .more = true, .cursor = envio.PinCursor.init("2026-01-01T00:00:00+00:00") } }, 0);
+    const pl = s.pins.getPtr(10).?;
+    try std.testing.expect(pl.more and pl.state == .loaded);
+    try std.testing.expectEqualStrings("2026-01-01T00:00:00+00:00", pl.cursor.slice());
+    // Página seguinte sem ter pedido: ignorada.
+    const stray = try c_alloc.alloc(types.Message, 1);
+    stray[0] = .{ .id = 51, .channel = 10, .author = 2, .timestamp = 0, .content = try c_alloc.dupe(u8, "b") };
+    try s.apply(.{ .pins = .{ .channel = 10, .messages = stray, .older = true } }, 0);
+    try std.testing.expectEqual(@as(usize, 1), pl.items.items.len);
+    pl.more_state = .loading;
+    const two = try c_alloc.alloc(types.Message, 2);
+    two[0] = .{ .id = 50, .channel = 10, .author = 2, .timestamp = 0, .content = try c_alloc.dupe(u8, "a") };
+    two[1] = .{ .id = 52, .channel = 10, .author = 2, .timestamp = 0, .content = try c_alloc.dupe(u8, "c") };
+    try s.apply(.{ .pins = .{ .channel = 10, .messages = two, .older = true } }, 0);
+    try std.testing.expectEqual(@as(usize, 2), pl.items.items.len);
+    try std.testing.expectEqual(@as(Id, 52), pl.items.items[1].msg.id);
+    try std.testing.expect(!pl.more and pl.more_state == .none);
+}
+
+test "opções da pendente somem quando ela é confirmada ou descartada" {
+    const c_alloc = std.heap.c_allocator;
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    try pollStore(&s);
+    try s.outbox.put(s.gpa, 77, .{ .silent = true }, &.{});
+    try s.outbox.put(s.gpa, 78, .{ .no_embeds = true }, &.{});
+    try s.addPending(10, "a", 77, 0, 0, &.{});
+    try s.addPending(10, "b", 78, 0, 0, &.{});
+    try s.apply(.{ .message_create = .{ .id = 90, .channel = 10, .author = 1, .timestamp = 0, .content = try c_alloc.dupe(u8, "a"), .nonce = 77 } }, 0);
+    try std.testing.expect(s.outbox.get(77) == null and s.outbox.get(78) != null);
+    s.discardPending(10, 78);
+    try std.testing.expect(s.outbox.get(78) == null);
 }
 
 fn testMsgs(ids: []const Id, channel: Id) ![]types.Message {

@@ -98,6 +98,10 @@ fn popupKey(p: state.Popup) u64 {
         .gif => 14,
         .join_invite => 12,
         .create_invite => |t| 13 +% t.channel *% 31,
+        .reactions => |t| 15 +% t.message *% 31,
+        .poll_voters => |t| 16 +% (t.message *% 31) +% t.answer,
+        .compose_options => 17,
+        .upload_alt => |t| 18 +% @as(u64, t.index) *% 31,
     };
 }
 
@@ -167,6 +171,10 @@ pub fn draw(ctx: *d.Ctx) void {
         .edit_place => |t| @import("edit_place.zig").draw(ctx, t.id, t.group),
         .join_invite => @import("invites.zig").drawJoin(ctx),
         .create_invite => |t| @import("invites.zig").drawCreate(ctx, t.channel),
+        .reactions => |t| @import("reactors.zig").drawReactions(ctx, t.message, t.x, t.y),
+        .poll_voters => |t| @import("reactors.zig").drawVoters(ctx, t.message, t.answer, t.x, t.y),
+        .compose_options => |t| @import("compose_opts.zig").drawMenu(ctx, t.x, t.y),
+        .upload_alt => |t| @import("upload_opts.zig").drawAlt(ctx, t.index, t.x, t.y),
         .none => {},
     }
     animateOpen(ctx);
@@ -267,6 +275,8 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
             add(&items, &n, .{ .label = "Responder", .en = "Reply", .id = 1 });
             if (own) add(&items, &n, .{ .label = "Editar mensagem", .en = "Edit Message", .id = 2 });
             add(&items, &n, .{ .label = "Adicionar reação", .en = "Add Reaction", .id = 3 });
+            // Quem reagiu: buscado só ao abrir (ui/reactors.zig).
+            if (found.m.n_reactions > 0 and found.m.msg.id != 0) add(&items, &n, .{ .label = "Ver reações", .en = "View Reactions", .id = 15 });
             if (found.m.msg.id != 0 and found.m.msg.system == .none) add(&items, &n, .{ .label = "Encaminhar", .en = "Forward", .id = 14 });
             add(&items, &n, .{ .label = if (ctx.st.selection.empty()) "Copiar texto" else "Copiar seleção", .en = if (ctx.st.selection.empty()) "Copy Text" else "Copy Selection", .id = 4 });
             add(&items, &n, .{ .label = "Copiar link da mensagem", .en = "Copy Message Link", .id = 5 });
@@ -529,6 +539,7 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
         1 => ctx.act(.{ .reply = id }),
         2 => ctx.act(.{ .edit_message = id }),
         3 => st.popup = .{ .emoji = .{ .target = id, .x = r.x, .y = r.y } },
+        15 => @import("reactors.zig").openReactions(ctx, id, 0, r.x, r.y),
         4 => if (!st.selection.empty()) {
             if (selectionText(ctx)) |s| ctx.act(.{ .copy = s });
         } else if (ctx.store.findAny(id)) |f| {

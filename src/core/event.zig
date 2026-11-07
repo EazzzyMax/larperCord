@@ -5,6 +5,8 @@
 //! Strings dentro de `Event` são alocadas com `std.heap.c_allocator` e
 //! passam a pertencer ao Store.
 const types = @import("types.zig");
+const envio = @import("envio.zig");
+const polls = @import("polls.zig");
 const InviteCode = @import("links.zig").InviteCode;
 const Id = types.Id;
 
@@ -44,6 +46,12 @@ pub const InviteJoined = struct { code: InviteCode, status: JoinStatus, guild: I
 pub const InviteStatus = enum { ok, forbidden, disabled, failed };
 pub const InviteCreated = struct { req: u32, status: InviteStatus, code: InviteCode = .{} };
 pub const CreateInvite = struct { req: u32, channel: Id, max_age: u32, max_uses: u8, temporary: bool };
+
+/// Voto numa enquete (`n` = 0 tira o voto): PUT /channels/{c}/polls/{m}/answers/@me.
+pub const PollVote = struct { channel: Id, id: Id, answers: [polls.max_answers]u32 = @splat(0), n: u8 = 0 };
+/// Lista de pessoas buscada só quando aberta: quem reagiu com `emoji` (super
+/// reações com `burst`) ou, com `answer` > 0, quem votou nessa opção da enquete.
+pub const PeopleQuery = struct { channel: Id, id: Id, emoji: types.Reaction = .{}, burst: bool = false, answer: u32 = 0 };
 
 pub const Event = union(enum) {
     ready: Ready,
@@ -87,8 +95,18 @@ pub const Event = union(enum) {
     /// `muted`: servidores, categorias e canais silenciados no Discord (alocado;
     /// quem trata é o app). As entradas passam para o Store.
     read_states: struct { entries: []types.ReadEntry, muted: []Id = &.{} },
-    /// GET /channels/{id}/pins (`ok` = false: não deu para buscar).
-    pins: struct { channel: Id, messages: []types.Message, ok: bool = true },
+    /// GET /channels/{id}/messages/pins (`ok` = false: não deu para buscar).
+    /// `older`: a página seguinte (vai no fim da lista). `more`: há mais, a
+    /// partir de `cursor`.
+    pins: struct { channel: Id, messages: []types.Message, ok: bool = true, older: bool = false, more: bool = false, cursor: envio.PinCursor = .{} },
+    /// A enquete de uma mensagem (histórico, mensagem nova ou atualizada).
+    /// Passa a pertencer ao Store.
+    poll: struct { channel: Id, id: Id, poll: *polls.Poll },
+    /// MESSAGE_POLL_VOTE_ADD / MESSAGE_POLL_VOTE_REMOVE.
+    poll_vote: struct { channel: Id, id: Id, user: Id, answer: u32, add: bool },
+    /// Uma página de pessoas (quem reagiu, quem votou) do pedido `req`.
+    /// `users` é alocado com o c_allocator e passa para o Store.
+    people_page: struct { req: u32, users: []Id = &.{}, ok: bool = true },
     /// GIFs em alta, de uma busca ou favoritos (`req` = o pedido que isto responde).
     gifs: struct { req: u32, favorites: bool = false, items: []types.Gif = &.{}, ok: bool = true },
     /// CHANNEL_PINS_UPDATE: a lista guardada ficou velha.
@@ -212,7 +230,9 @@ pub const ImageChange = union(enum) {
 
 pub const Command = union(enum) {
     /// `files`: caminhos dos arquivos a enviar (alocados, terminados em 0).
-    send_message: struct { channel: Id, content: []const u8, nonce: u64, reply_to: Id = 0, files: []const [:0]const u8 = &.{} },
+    /// `opts`: silenciosa, sem prévias, menções. `file_opts`: spoiler e texto
+    /// alternativo de cada arquivo (alocados; pode ter menos que `files`).
+    send_message: struct { channel: Id, content: []const u8, nonce: u64, reply_to: Id = 0, files: []const [:0]const u8 = &.{}, opts: envio.SendOpts = .{}, file_opts: []const envio.FileOpt = &.{} },
     edit_message: struct { channel: Id, id: Id, content: []const u8 },
     leave_guild: Id,
     /// `text`: cópia do conteúdo, só para a demonstração (o Discord já tem a original).
@@ -268,6 +288,11 @@ pub const Command = union(enum) {
     /// Mais 50 depois de `after`, voltando para o presente.
     fetch_newer: struct { channel: Id, after: Id },
     fetch_pins: Id,
+    /// A próxima página de fixadas (as de antes de `before`).
+    fetch_more_pins: struct { channel: Id, before: envio.PinCursor },
+    poll_vote: PollVote,
+    /// Uma página de quem reagiu ou votou (depois de `after`), para o pedido `req`.
+    fetch_people: struct { req: u32, q: PeopleQuery, after: Id = 0 },
     /// GET /gifs/search (`query` vazio = em alta).
     gif_search: struct { req: u32, query: []const u8 },
     gif_favorites: u32,
@@ -354,7 +379,13 @@ pub const Action = union(enum) {
     gif_search: []const u8,
     gif_favorites,
     want_pins: Id,
+    /// "Carregar mais" no fim das fixadas.
+    more_pins: Id,
     pin_message: struct { channel: Id, id: Id, add: bool },
+    /// Votar (ou tirar o voto) numa enquete.
+    poll_vote: PollVote,
+    /// Abriu a lista de quem reagiu ou votou (`more`: a próxima página).
+    want_people: struct { q: PeopleQuery, more: bool = false },
     leave_guild: Id,
     /// Abre a paleta para escolher para onde encaminhar a mensagem.
     forward_pick: Id,
