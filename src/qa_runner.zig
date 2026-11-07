@@ -289,6 +289,11 @@ fn linkOpened(_: *App) bool {
     const att = @import("ui/attachments.zig");
     return std.mem.eql(u8, att.last_opened[0..att.last_opened_len], "https://ziglang.org");
 }
+fn scrollToTop(app: *App) void {
+    const sc = app.st.scrollOf(app.st.activeChannel() orelse return);
+    sc.stick_bottom = false;
+    sc.target = 0;
+}
 fn jumpBottomShown(_: *App) bool {
     return qa.find("jump-bottom") != null;
 }
@@ -2562,6 +2567,9 @@ const ops = [_]Op{
     expect("em cima de um link, o cursor vira a mãozinha", cursorIsHand),
     click("first:link:https://ziglang.org"),
     expect("clicar num link abre o navegador", linkOpened),
+    // Lá em cima de verdade: onde o link fica depende das fontes, e perto do fim nem rola.
+    .{ .run = scrollToTop },
+    .{ .wait = 300 },
     expect("ver mensagens antigas mostra o botão de ir ao fim", jumpBottomShown),
     click("jump-bottom"),
     expect("o botão de ir ao fim volta para a última mensagem", atBottom),
