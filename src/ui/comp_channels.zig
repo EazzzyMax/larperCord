@@ -18,6 +18,7 @@ const types = @import("../core/types.zig");
 const threads = @import("comp_threads.zig");
 const ev = @import("../core/event.zig");
 const voz = @import("../core/voz.zig");
+const devices = @import("device_menu.zig");
 const Id = types.Id;
 
 const Variant = enum { discord, tree, pills };
@@ -435,18 +436,22 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     var mb: [80]u8 = undefined;
     const modes = modeLine(ctx, &mb);
     if (modes != null) qa.mark(pr, "mode-line", .{});
+    // Os botões da direita: no estilo texto, a largura vem dos rótulos.
+    const bs: f32 = if (tty) 22 else 32;
+    const btn_fs = ctx.th.font_size - 1;
+    const btns_w = bs + if (tty) devices.ttyWidth(fam.get(.bold), btn_fs, .mic) + devices.ttyWidth(fam.get(.bold), btn_fs, .deaf) else 2 * bs;
     if (tty) {
         var buf: [160]u8 = undefined;
         const t = if (modes) |ml|
             std.fmt.bufPrint(&buf, "{s} {s} [{s}]", .{ w.statusGlyph(me.status), me.name, ml }) catch ""
         else
             std.fmt.bufPrint(&buf, "{s} {s}", .{ w.statusGlyph(me.status), me.name }) catch "";
-        const tr: d.Rect = .{ .x = pr.x + 4, .y = pr.y + 2, .w = pr.w - 80, .h = pr.h - 4 };
+        const tr: d.Rect = .{ .x = pr.x + 4, .y = pr.y + 2, .w = @max(pr.w - btns_w - 16, 20), .h = pr.h - 4 };
         const hb = d.hit(ctx, 1, tr);
         qa.mark(tr, "me", .{});
         if (hb.hovered) d.rect(ctx.dl, tr, ctx.col(.hover), 0);
         if (hb.clicked) ctx.popup(.{ .menu = .{ .kind = .status, .id = me.id, .x = tr.x, .y = tr.y - 190 } });
-        d.text(ctx.dl, fam.get(.bold), ctx.th.font_size - 1, pr.x + 10, d.centerY(pr, ctx.th.font_size - 1), w.statusColor(ctx, me.status), t);
+        _ = d.textClipped(ctx.dl, fam.get(.bold), ctx.th.font_size - 1, pr.x + 10, d.centerY(pr, ctx.th.font_size - 1), w.statusColor(ctx, me.status), t, tr.w - 8);
     } else {
         const card: d.Rect = .{ .x = pr.x + 6, .y = pr.y + pr.h / 2 - 18, .w = pr.w - 108, .h = 36 };
         const hb = d.hit(ctx, 1, card);
@@ -468,58 +473,31 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         if (modes != null) d.tip(ctx, card, i18n.tr3("Clique para mudar ou sair", "Click to change or turn off", "クリックで変更・オフ"), hb.hovered);
     }
 
-    // Mudo, ensurdecer, configurações.
-    const bs: f32 = if (tty) 22 else 32;
-    for (0..3) |i| {
-        const bx = pr.right() - 8 - @as(f32, @floatFromInt(3 - i)) * bs;
-        const br: d.Rect = .{ .x = bx, .y = pr.y + pr.h / 2 - bs / 2, .w = bs, .h = bs };
-        const hb = d.hit(ctx, 10 + i, br);
+    // Mudo e ensurdecer (com a setinha do menu de dispositivos) e configurações.
+    const gr: d.Rect = .{ .x = pr.right() - 8 - bs, .y = pr.y + pr.h / 2 - bs / 2, .w = bs, .h = bs };
+    var bx = gr.x;
+    for ([_]devices.Kind{ .deaf, .mic }) |kind| {
+        const i: usize = if (kind == .mic) 0 else 1;
+        const bw = if (tty) devices.ttyWidth(fam.get(.bold), btn_fs, kind) else bs;
+        bx -= bw;
+        const br: d.Rect = .{ .x = bx, .y = gr.y, .w = bw, .h = bs };
         qa.mark(br, "user-btn:{d}", .{i});
-        d.tip(ctx, br, switch (i) {
-            0 => if (ctx.st.muted) i18n.tr3("Desmutar", "Unmute", "ミュート解除") else i18n.tr3("Mutar microfone", "Mute", "マイクをミュート"),
-            1 => if (ctx.st.deafened) i18n.tr3("Voltar a ouvir", "Undeafen", "スピーカーを元に戻す") else i18n.tr3("Ensurdecer", "Deafen", "スピーカーをミュート"),
-            else => i18n.tr3("Configurações  (Ctrl+,)", "User Settings  (Ctrl+,)", "ユーザー設定  (Ctrl+,)"),
-        }, hb.hovered);
-        const vf = ctx.store.voiceFlags(ctx.store.me);
-        const in_call = ctx.st.voice != null;
-        const forced = in_call and ((i == 0 and vf.serverMuted()) or (i == 1 and vf.deaf));
-        if (forced) {
+        if (devices.toggle(ctx, ctx.dl, fam.get(.bold), btn_fs, kind, br, if (tty) .tty else .icon, 10 + i, if (i == 0) "user-btn:0" else "user-btn:1"))
             qa.mark(br, "user-forced:{d}", .{i});
-            d.tip(ctx, br, if (i == 0) i18n.tr("Mudo pelo servidor: ninguém te ouve", "Server muted: nobody can hear you") else i18n.tr("Surdo pelo servidor", "Server deafened"), hb.hovered);
-        }
-        const active = (i == 0 and ctx.st.muted) or (i == 1 and ctx.st.deafened) or forced;
-        if (hb.clicked) switch (i) {
-            0 => ctx.act(.toggle_mute),
-            1 => ctx.act(.toggle_deafen),
-            else => ctx.act(.open_settings),
-        };
-        const k = anim.to(anim.id("ubtn", i), if (hb.hovered) 1 else 0, 24);
-        const ink = if (active) ctx.col(.danger) else ctx.col(.muted).mix(ctx.col(.text), k);
-        if (tty) {
-            const glyph = switch (i) {
-                0 => if (ctx.st.muted) "M̶" else "M",
-                1 => if (ctx.st.deafened) "F̶" else "F",
-                else => "⚙",
-            };
-            if (hb.hovered) d.rect(ctx.dl, br, ctx.col(.hover), 0);
-            const gw = d.width(fam.get(.bold), ctx.th.font_size - 1, glyph);
-            d.text(ctx.dl, fam.get(.bold), ctx.th.font_size - 1, br.x + bs / 2 - gw / 2, d.centerY(br, ctx.th.font_size - 1), ink, glyph);
-            continue;
-        }
-        d.rect(ctx.dl, br, ctx.col(.hover).alpha(k * 1.5), ctx.th.radius);
-        const cx = br.x + bs / 2;
-        const cy = br.y + bs / 2;
-        switch (i) {
-            0 => icons.mic(ctx.dl, cx, cy, ink.u()),
-            1 => icons.headset(ctx.dl, cx, cy, ink.u()),
-            else => icons.gear(ctx.dl, cx, cy, ink.u()),
-        }
-        if (active) d.line(ctx.dl, cx - 9, cy - 9, cx + 9, cy + 9, ctx.col(.danger), 2.2);
-        // Quem impôs foi o servidor: o clique aqui não resolve.
-        if (forced) {
-            d.circle(ctx.dl, cx + 8, cy + 9, 7, ctx.col(.sidebar));
-            icons.lock(ctx.dl, cx + 8, cy + 8, ctx.col(.danger).u());
-        }
+    }
+    const hb = d.hit(ctx, 12, gr);
+    qa.mark(gr, "user-btn:{d}", .{2});
+    d.tip(ctx, gr, i18n.tr3("Configurações  (Ctrl+,)", "User Settings  (Ctrl+,)", "ユーザー設定  (Ctrl+,)"), hb.hovered);
+    if (hb.clicked) ctx.act(.open_settings);
+    const k = anim.to(anim.id("ubtn", 2), if (hb.hovered) 1 else 0, 24);
+    const ink = ctx.col(.muted).mix(ctx.col(.text), k);
+    if (tty) {
+        if (hb.hovered) d.rect(ctx.dl, gr, ctx.col(.hover), 0);
+        const gw = d.width(fam.get(.bold), btn_fs, "⚙");
+        d.text(ctx.dl, fam.get(.bold), btn_fs, gr.x + bs / 2 - gw / 2, d.centerY(gr, btn_fs), ink, "⚙");
+    } else {
+        d.rect(ctx.dl, gr, ctx.col(.hover).alpha(k * 1.5), ctx.th.radius);
+        icons.gear(ctx.dl, gr.x + bs / 2, gr.y + bs / 2, ink.u());
     }
 }
 
@@ -630,6 +608,9 @@ fn voicePanel(ctx: *d.Ctx, fam: *d.Family, r: d.Rect, vc: Id, tty: bool) void {
         ctx.st.settings.page = .voz;
         ctx.act(.open_settings);
     }
+    // Botão direito em qualquer lugar da faixa: microfone e saída de uma vez.
+    if (ctx.hovering(r) and c.ImGui_IsMouseClicked(1) and c.ImGui_IsWindowHovered(c.ImGuiHoveredFlags_RootAndChildWindows)) devices.open(ctx, .both, lr);
+    d.tip(ctx, lr, i18n.tr("Configurações de voz · botão direito: dispositivos", "Voice settings · right-click: devices"), lh.hovered);
     if (tty) {
         const fs = ctx.th.font_size - 2;
         var pb: [16]u8 = undefined;

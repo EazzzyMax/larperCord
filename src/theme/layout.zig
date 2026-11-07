@@ -7,6 +7,8 @@
 //!   gap, padding, padding-x, padding-y
 //!   max-width         limita a largura e centraliza (bom pra layouts "zen")
 //!   hide-below        some quando a janela é mais estreita que isso
+//!   hide-below-height some quando a janela é mais baixa que isso
+//!   only-below-height só aparece quando a janela é mais baixa que isso
 //!   style             estilo nomeado desenhado atrás do nó
 //!   when / unless     só aparece com a opção do tema ligada / desligada
 //!                     (`modo-claro` e `modo-escuro` também valem)
@@ -93,11 +95,13 @@ pub const Options = struct {
     }
 };
 
-const Env = struct { win_w: f32, opts: ?Options };
+const Env = struct { win_w: f32, win_h: f32 = 0, opts: ?Options };
 
 fn visible(n: *const kdl.Node, env: Env) bool {
     if (n.flag("show")) |s| if (!s) return false;
     if (num(n, "hide-below")) |w| if (env.win_w < w) return false;
+    if (num(n, "hide-below-height")) |h| if (env.win_h < h) return false;
+    if (num(n, "only-below-height")) |h| if (env.win_h >= h) return false;
     if (n.str("when")) |o| if (!Options.on(env.opts, o)) return false;
     if (n.str("unless")) |o| if (env.opts != null and Options.on(env.opts, o)) return false;
     if (env.opts) |o| if (o.hides.len > 0 and onlyHidden(n, o.hides)) return false;
@@ -152,7 +156,7 @@ pub fn solve(gpa: std.mem.Allocator, root: *const kdl.Node, bounds: Rect, win_w:
 
 pub fn solveWith(gpa: std.mem.Allocator, root: *const kdl.Node, bounds: Rect, win_w: f32, opts: ?Options, out: *std.ArrayList(Placed)) !void {
     out.clearRetainingCapacity();
-    const env: Env = .{ .win_w = win_w, .opts = opts };
+    const env: Env = .{ .win_w = win_w, .win_h = bounds.h, .opts = opts };
     for (root.children) |*ch| {
         if (!visible(ch, env)) continue;
         try place(gpa, ch, bounds, env, out, 0);
@@ -349,6 +353,27 @@ test "max-width centraliza" {
     try solve(std.testing.allocator, &nodes[0], .{ .x = 0, .y = 0, .w = 1000, .h = 500 }, 1000, &out);
     try std.testing.expectEqual(@as(f32, 200), out.items[0].rect.x);
     try std.testing.expectEqual(@as(f32, 600), out.items[1].rect.w);
+}
+
+test "hide-below-height e only-below-height trocam o cabeçalho pela altura" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const nodes = try kdl.parse(arena.allocator(), "layout { column { grande height=200 hide-below-height=900; baixo height=60 only-below-height=900; resto } }", null);
+    var out: std.ArrayList(Placed) = .empty;
+    defer out.deinit(std.testing.allocator);
+    const has = struct {
+        fn f(list: []const Placed, name: []const u8) ?Rect {
+            for (list) |p| if (std.mem.eql(u8, p.node.name, name)) return p.rect;
+            return null;
+        }
+    }.f;
+    try solve(std.testing.allocator, &nodes[0], .{ .x = 0, .y = 0, .w = 1280, .h = 800 }, 1280, &out);
+    try std.testing.expect(has(out.items, "grande") == null);
+    try std.testing.expectEqual(@as(f32, 60), has(out.items, "baixo").?.h);
+    try std.testing.expectEqual(@as(f32, 740), has(out.items, "resto").?.h);
+    try solve(std.testing.allocator, &nodes[0], .{ .x = 0, .y = 0, .w = 1280, .h = 1000 }, 1280, &out);
+    try std.testing.expectEqual(@as(f32, 200), has(out.items, "grande").?.h);
+    try std.testing.expect(has(out.items, "baixo") == null);
 }
 
 test "when e unless seguem as opções" {

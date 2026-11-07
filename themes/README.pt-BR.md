@@ -97,6 +97,8 @@ Contêineres: `row` (horizontal), `column` (vertical), `stack` (um sobre o outro
 | `inset-x=` `inset-y=` | margem interna de um componente |
 | `max-width=` | limita a largura e centraliza |
 | `hide-below=` | esconde quando a janela é mais estreita que isso |
+| `hide-below-height=` | esconde quando a janela é mais baixa que isso |
+| `only-below-height=` | só aparece quando a janela é mais baixa que isso (a versão compacta de um cabeçalho alto) |
 | `show=#false` | esconde |
 | `style=` / `bg=` `radius=` | fundo do nó |
 | `font=mono` / `font=ui` / `font="Liberation Serif"` | fonte do componente: a mono, a da interface ou **qualquer família instalada** |
@@ -116,7 +118,7 @@ O filho de uma `row` que tem `width=` fixo e contém `channel-list` ou `member-l
 | `messages` | `variant=cozy\|irc\|bubbles` `avatar=circle\|squircle\|square\|none` `avatar-size=40` `spacing=16` `font-size=` |
 | `composer` | `variant=box\|pill\|prompt` `typing=#false` |
 | `member-list` | `variant=discord\|tty` |
-| `status-bar` | `variant=pills\|tty\|plain` `items="conn ping ram frame voice spacer theme keys clock"` |
+| `status-bar` | `variant=pills\|tty\|plain` `items="conn ping ram frame voice spacer theme keys clock"` (também `me mic deaf`: seu status e os botões de mudo e ensurdecer com o menu de dispositivos, para layouts sem `user-panel`) |
 | `label` | `text=` `size=` `weight=regular\|medium\|semibold\|bold` `color=token` `align=left\|center\|right`, mais [tipografia de display](#tipografia-de-display-no-label) |
 | `shape` | círculo, anel, arco, retângulo arredondado, linha ([detalhes](#shape-e-rule)) |
 | `rule` | régua lisa, tracejada, dupla, de jornal, com ornamento ([detalhes](#shape-e-rule)) |

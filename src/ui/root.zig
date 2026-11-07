@@ -192,6 +192,9 @@ fn autohide(ctx: *d.Ctx, p: layout.Placed, i: usize) void {
     const k = anim.to(anim.id("autohide", i), if (near) 1 else 0, 10);
     if (k > 0.98) return;
     d.rect(ctx.fg, p.rect, ctx.col(.bg).alpha(0.9 * (1 - k)), 0);
+    // Escondido, fica um tracinho na beirada dizendo que tem algo ali.
+    const hx = if (p.rect.x - ctx.win.x < ctx.win.right() - p.rect.right()) p.rect.x + 5 else p.rect.right() - 8;
+    d.rect(ctx.fg, .{ .x = hx, .y = p.rect.y + p.rect.h / 2 - 22, .w = 3, .h = 44 }, ctx.col(.faint).alpha(0.7 * (1 - k)), 1.5);
 }
 
 fn unknown(ctx: *d.Ctx, p: layout.Placed) void {
@@ -245,6 +248,9 @@ fn shortcuts(ctx: *d.Ctx) void {
     // Caixa de entrada e mensagens salvas (ui/inbox.zig, ui/saved.zig).
     if (ctrl and !shift and c.ImGui_IsKeyPressed(c.ImGuiKey_I) and !ctx.st.settings.open) ctx.act(.toggle_inbox);
     if (ctrl and shift and c.ImGui_IsKeyPressed(c.ImGuiKey_S) and !ctx.st.settings.open) ctx.act(.toggle_saved);
+    // Mudo e ensurdecer, os atalhos do Discord (as dicas dos botões mostram).
+    if (ctrl and shift and c.ImGui_IsKeyPressedEx(c.ImGuiKey_M, false)) ctx.act(.toggle_mute);
+    if (ctrl and shift and c.ImGui_IsKeyPressedEx(c.ImGuiKey_D, false)) ctx.act(.toggle_deafen);
     if (io.*.KeyAlt) {
         const keys = [_]c_int{ c.ImGuiKey_1, c.ImGuiKey_2, c.ImGuiKey_3, c.ImGuiKey_4, c.ImGuiKey_5, c.ImGuiKey_6, c.ImGuiKey_7, c.ImGuiKey_8, c.ImGuiKey_9 };
         for (keys, 0..) |k, i| if (c.ImGui_IsKeyPressed(k)) ctx.act(.{ .focus_tab = i });

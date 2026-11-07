@@ -725,6 +725,7 @@ pub const ops = [_]Op{
     expect("a linha do painel abre a página de voz", voicePage),
     click("settings-close"),
     expect("fecha", settingsClosed),
+} ++ @import("qa_dispositivos.zig").ops_call ++ [_]Op{
     run(markSounds),
     click("hangup"),
     expect("sair da call", notInCall),

@@ -78,6 +78,8 @@ pub const Shared = struct {
     mic_fallback: Atomic(bool) = .init(false),
     out_fallback: Atomic(bool) = .init(false),
     list_gen: Atomic(u32) = .init(0),
+    /// O menu rápido de dispositivos abriu: a thread lê a lista uma vez e sai.
+    list_req: Atomic(bool) = .init(false),
 
     // Contadores e injeção para o QA (nada disso muda o som de verdade).
     qa_tone: Atomic(f32) = .init(0),
@@ -530,6 +532,13 @@ pub fn setPageOpen(open: bool) void {
     }
 }
 
+/// Pede a lista de dispositivos uma vez (o menu rápido do microfone e do fone).
+/// Não bloqueia: a thread abre o áudio, lê e fecha; `list_gen` sobe se mudou.
+pub fn requestList() void {
+    sh.list_req.store(true, .release);
+    ensureThread();
+}
+
 /// Toca um bipe, se estiverem ligados. Não bloqueia: a thread abre o áudio.
 pub fn play(sound: voz.Sound) void {
     if (!sh.sounds.load(.monotonic)) return;
@@ -678,7 +687,7 @@ const Helper = struct {
     }
 
     fn hasWork(h: *const Helper) bool {
-        return sh.page_open.load(.acquire) or h.sfx != null or n_pending > 0;
+        return sh.page_open.load(.acquire) or h.sfx != null or n_pending > 0 or sh.list_req.load(.acquire);
     }
 };
 
@@ -691,6 +700,7 @@ fn helperMain(_: ?*anyopaque) callconv(.c) c_int {
         while (!stop_req.load(.acquire)) {
             const now = nowMs();
             if (h.audio_ok) {
+                if (sh.list_req.swap(false, .acq_rel)) publishDevices();
                 h.stepPage(now);
                 h.stepSounds(now);
                 h.stepOutput(now);

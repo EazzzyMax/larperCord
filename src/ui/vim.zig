@@ -44,6 +44,8 @@ pub fn keys(ctx: *d.Ctx) void {
     const io = ctx.io;
     if (io.*.WantTextInput or c.ImGui_IsAnyItemActive() or io.*.KeyAlt or io.*.KeySuper) return;
     if (io.*.KeyCtrl) {
+        // Ctrl+Shift+D é ensurdecer (ui/root.zig).
+        if (io.*.KeyShift) return;
         if (pressed(c.ImGuiKey_D)) scroll(ctx, page_h / 2);
         if (pressed(c.ImGuiKey_U)) scroll(ctx, -page_h / 2);
         return;

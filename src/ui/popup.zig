@@ -98,6 +98,7 @@ fn popupKey(p: state.Popup) u64 {
         .gif => 14,
         .join_invite => 12,
         .create_invite => |t| 13 +% t.channel *% 31,
+        .devices => |dv| 15 +% @as(u64, @intFromEnum(dv.which)),
     };
 }
 
@@ -167,6 +168,7 @@ pub fn draw(ctx: *d.Ctx) void {
         .edit_place => |t| @import("edit_place.zig").draw(ctx, t.id, t.group),
         .join_invite => @import("invites.zig").drawJoin(ctx),
         .create_invite => |t| @import("invites.zig").drawCreate(ctx, t.channel),
+        .devices => |dv| @import("device_menu.zig").draw(ctx, dv.which, dv.x, dv.y),
         .none => {},
     }
     animateOpen(ctx);

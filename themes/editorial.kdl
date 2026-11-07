@@ -81,7 +81,7 @@ styles mode=dark {
 layout {
     column style=pagina {
         topbar height=30 border-bottom="@border"
-        column height=122 padding-x=32 when=manchete {
+        column height=122 padding-x=32 when=manchete hide-below-height=900 {
             spacer height=6
             rule height=7 kind=oxford color=text
             row height=66 {
@@ -95,11 +95,26 @@ layout {
             rule height=11 kind=double color=text ornament=star ornament-color=accent ornament-size=11
             spacer flex=1
         }
-        row height=48 padding-x=32 gap=4 when=manchete {
+        row height=48 padding-x=32 gap=4 when=manchete hide-below-height=900 {
             label width=104 text="SEÇÕES" text-en="SECTIONS" tracking=2.5 size=9 weight=bold color=text font="Inter"
             guild-bar flex=1 orientation=horizontal variant=bar shape=square size=32 icon-style=outline labels=#false indicators=#false
         }
-        rule height=1 inset-x=32 color=border when=manchete
+        rule height=1 inset-x=32 color=border when=manchete hide-below-height=900
+        // Janela baixa: a manchete numa linha só, com as seções ao lado do nome.
+        column height=62 padding-x=32 when=manchete only-below-height=900 {
+            spacer height=4
+            rule height=5 kind=oxford color=text
+            row height=44 gap=12 {
+                label width=168 text="larperCord" font="Liberation Serif" size=30 weight=bold color=text tracking=-0.5
+                label width=70 text="SEÇÕES" text-en="SECTIONS" tracking=2.5 size=9 weight=bold color=muted font="Inter"
+                guild-bar flex=1 orientation=horizontal variant=bar shape=square size=28 icon-style=outline labels=#false indicators=#false
+                label width=170 size=10 weight=semibold color=muted span-gap=6 align=right {
+                    span "Nº 08" en="No. 08" font="Liberation Serif" size=14 weight=italic color=accent
+                    span "EDIÇÃO" en="ISSUE" tracking=3 size=9
+                }
+            }
+            rule height=9 kind=double color=text ornament=star ornament-color=accent ornament-size=9
+        }
         row flex=1 padding-x=32 padding-y=10 gap=22 {
             column width=196 hide-below=1150 {
                 label height=26 text="COLABORADORES" text-en="CONTRIBUTORS" tracking=2.5 size=9 weight=bold color=text

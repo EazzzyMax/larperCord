@@ -69,20 +69,33 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         d.text(dl, fam.get(.bold), 22, r.x + 4, r.y + r.h / 2 - 22, ctx.col(.text), t);
         _ = w.botTag(ctx, dl, r.x + 4 + d.width(fam.get(.bold), 22, t), r.y + r.h / 2 - 9, dm_user, false, 1);
         const sub = if (ch.guild == 0) i18n.tr("mensagem direta", "direct message") else d.printClip(&buf, "{s}  ·  {s}", .{ if (g) |x| x.name else "", ch.topic });
-        const has_panels = plugin_panel.available();
-        const needs_gear = !ctx.th.has_user_panel;
-        _ = d.textClipped(dl, fam.get(.regular), 13, r.x + 4, r.y + r.h / 2 + 5, ctx.col(.faint), sub, r.w - (if (has_panels) @as(f32, 156) else 120) - (if (needs_gear) @as(f32, 36) else 0));
-        inboxButtons(ctx, dl, r.right() - 32, r.y + r.h / 2 - 14);
-        pinsButton(ctx, dl, ch_id, r.right() - 104, r.y + r.h / 2 - 14);
-        if (has_panels) panelsButton(ctx, dl, r.right() - 140, r.y + r.h / 2 - 14);
-        if (needs_gear) {
-            const gr: d.Rect = .{ .x = r.right() - (if (has_panels) @as(f32, 176) else 140), .y = r.y + r.h / 2 - 14, .w = 28, .h = 28 };
+        // Da direita para a esquerda: salvas, caixa de entrada, fixadas, membros,
+        // buscar, painéis dos plugins e, sem painel do usuário, as configurações.
+        const by = r.y + r.h / 2 - 14;
+        var bx = r.right() - 32;
+        inboxButtons(ctx, dl, bx, by);
+        bx -= 72;
+        pinsButton(ctx, dl, ch_id, bx, by);
+        if (ctx.th.has_member_list) {
+            bx -= 36;
+            membersButton(ctx, dl, bx, by);
+        }
+        bx -= 36;
+        findButton(ctx, dl, bx, by);
+        if (plugin_panel.available()) {
+            bx -= 36;
+            panelsButton(ctx, dl, bx, by);
+        }
+        if (!ctx.th.has_user_panel) {
+            bx -= 36;
+            const gr: d.Rect = .{ .x = bx, .y = by, .w = 28, .h = 28 };
             const gh = d.hit(ctx, 9, gr);
             qa.mark(gr, "header-settings", .{});
             if (gh.clicked) ctx.act(.open_settings);
             icons.gear(dl, gr.x + 14, gr.y + 14, (if (gh.hovered) ctx.col(.text) else ctx.col(.muted)).u());
             d.tip(ctx, gr, i18n.tr("Configurações  (Ctrl+,)", "User Settings  (Ctrl+,)"), gh.hovered);
         }
+        _ = d.textClipped(dl, fam.get(.regular), 13, r.x + 4, r.y + r.h / 2 + 5, ctx.col(.faint), sub, @max(bx - r.x - 16, 0));
         return;
     }
 
@@ -136,22 +149,29 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         const label: []const u8 = if (search.open and search.text().len > 0) search.text() else i18n.tr("Buscar  Ctrl+F", "Search  Ctrl+F");
         _ = d.textClipped(dl, fam.get(.regular), 14, sr.x + 9, d.centerY(sr, 14), ctx.col(.faint).mix(ctx.col(.muted), sk), label, sr.w - 34);
         icons.search(dl, sr.right() - 15, sr.y + 13, ctx.col(.faint).mix(ctx.col(.muted), sk).u());
-    } else {
-        // Sem lugar para a caixa: a lupa.
-        const fr: d.Rect = .{ .x = sx - 76, .y = r.y + r.h / 2 - 14, .w = 28, .h = 28 };
-        const fh = d.hit(ctx, 5, fr);
-        qa.mark(fr, "header-find", .{});
-        if (fh.clicked) @import("search.zig").focusOrStart();
-        icons.search(dl, fr.x + 14, fr.y + 14, (if (fh.hovered) ctx.col(.text) else ctx.col(.muted)).u());
-        d.tip(ctx, fr, i18n.tr("Buscar mensagens (Ctrl+F)", "Search messages (Ctrl+F)"), fh.hovered);
-    }
-    const mr: d.Rect = .{ .x = sx - 40, .y = r.y + r.h / 2 - 14, .w = 28, .h = 28 };
+    } else findButton(ctx, dl, sx - 76, r.y + r.h / 2 - 14); // sem lugar para a caixa: a lupa
+    membersButton(ctx, dl, sx - 40, r.y + r.h / 2 - 14);
+    if (d.pflag(n, "divider", true)) d.line(dl, r.x, r.bottom() - 0.5, r.right(), r.bottom() - 0.5, ctx.col(.border), 1);
+}
+
+/// A lupa: busca nas mensagens (Ctrl+F).
+fn findButton(ctx: *d.Ctx, dl: *c.ImDrawList, x: f32, y: f32) void {
+    const fr: d.Rect = .{ .x = x, .y = y, .w = 28, .h = 28 };
+    const fh = d.hit(ctx, 5, fr);
+    qa.mark(fr, "header-find", .{});
+    if (fh.clicked) @import("search.zig").focusOrStart();
+    icons.search(dl, fr.x + 14, fr.y + 14, (if (fh.hovered) ctx.col(.text) else ctx.col(.muted)).u());
+    d.tip(ctx, fr, i18n.tr("Buscar mensagens (Ctrl+F)", "Search messages (Ctrl+F)"), fh.hovered);
+}
+
+/// Mostra e esconde a lista de membros.
+fn membersButton(ctx: *d.Ctx, dl: *c.ImDrawList, x: f32, y: f32) void {
+    const mr: d.Rect = .{ .x = x, .y = y, .w = 28, .h = 28 };
     const mh = d.hit(ctx, 2, mr);
     qa.mark(mr, "header-members", .{});
     if (mh.clicked) ctx.st.settings.show_member_list = !ctx.st.settings.show_member_list;
     icons.members(dl, mr.x + 14, mr.y + 14, (if (ctx.st.settings.show_member_list or mh.hovered) ctx.col(.text) else ctx.col(.muted)).u());
     d.tip(ctx, mr, if (ctx.st.settings.show_member_list) i18n.tr("Esconder membros", "Hide Member List") else i18n.tr("Mostrar membros", "Show Member List"), mh.hovered);
-    if (d.pflag(n, "divider", true)) d.line(dl, r.x, r.bottom() - 0.5, r.right(), r.bottom() - 0.5, ctx.col(.border), 1);
 }
 
 fn panelOpen() bool {

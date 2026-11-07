@@ -47,6 +47,7 @@ test {
     _ = @import("ui/syntax.zig");
     _ = @import("ui/settings_state.zig");
     _ = @import("ui/guild_color.zig");
+    _ = @import("ui/device_pick.zig");
     _ = @import("net/jsonx.zig");
     _ = @import("net/web_client.zig");
     _ = @import("net/read_state_json.zig");
