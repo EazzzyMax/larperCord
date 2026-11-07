@@ -354,6 +354,7 @@ pub const Gateway = struct {
             .fetch_people => |fp| g.emit(.{ .people_page = .{ .req = fp.req, .ok = false } }),
             .gif_search => |q| g.emit(.{ .gifs = .{ .req = q.req, .ok = false } }),
             .gif_favorites => |req| g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } }),
+            .gif_favorite => |f| g.emit(.{ .gifs = .{ .req = f.req, .favorites = true, .ok = false } }),
             .refresh_urls => g.emit(.{ .urls_refreshed = &.{} }),
             .fetch_sticker_packs => g.emit(.{ .sticker_packs = .{ .ok = false } }),
             .fetch_invite => |code| g.emit(.{ .invite = .{ .code = code, .invite = .{ .state = .failed } } }),
@@ -2103,6 +2104,9 @@ pub const Gateway = struct {
                 .embed = true,
                 .spoiler = media_flags.urlInSpoiler(j.str(j.get(m, "content")) orelse "", j.str(j.get(e, "url")) orelse ""),
                 .sensitive = media_flags.sensitive(media_flags.flagsValue(j.int(j.get(e, "flags")))),
+                // GIF do Tenor/Giphy: a página é a chave dele nos favoritos (`link` só
+                // vale como vídeo quando `video`).
+                .link = if (std.mem.eql(u8, kind, "gifv")) if (j.str(j.get(e, "url"))) |page| (if (isHttp(page)) try alloc.dupe(u8, page) else "") else "" else "",
             });
         }
     }
@@ -3017,6 +3021,11 @@ pub const Gateway = struct {
             },
             .edit_message => |m| alloc.free(m.content),
             .gif_search => |q| alloc.free(q.query),
+            .gif_favorite => |f| {
+                alloc.free(f.url);
+                alloc.free(f.src);
+                alloc.free(f.shown);
+            },
             .forward_message => |f| alloc.free(f.text),
             .ack_bulk => |list| if (list.len > 0) alloc.free(list),
             .refresh_urls => |list| {
@@ -3098,6 +3107,79 @@ pub const Gateway = struct {
         if (size > max) return error.TooBig;
         const bytes: [*]const u8 = @ptrCast(data);
         return alloc.dupe(u8, bytes[0..size]);
+    }
+
+    /// FrecencyUserSettings (GIFs favoritos, emojis recentes…) como estão agora na conta,
+    /// já decodificado do base64. null = não veio.
+    fn frecency(g: *Gateway, a: std.mem.Allocator) ?[]u8 {
+        var resp = g.request("GET", "/users/@me/settings-proto/2", null) orelse return null;
+        defer resp.body.deinit(alloc);
+        if (resp.status != 200) return null;
+        const v = std.json.parseFromSliceLeaky(Value, a, resp.body.items, .{}) catch return null;
+        return decodeSettings(a, j.str(j.get(v, "settings")) orelse return null);
+    }
+
+    fn decodeSettings(a: std.mem.Allocator, b64: []const u8) ?[]u8 {
+        const dec = std.base64.standard.Decoder;
+        const raw = a.alloc(u8, dec.calcSizeForSlice(b64) catch return null) catch return null;
+        dec.decode(raw, b64) catch return null;
+        return raw;
+    }
+
+    /// A lista de favoritos de `raw` para a tela (`gifs` com `favorites`).
+    fn emitFavorites(g: *Gateway, req: u32, raw: []const u8) void {
+        const failed: ev.Event = .{ .gifs = .{ .req = req, .favorites = true, .ok = false } };
+        const favs = @import("../core/gif_favorites.zig").parse(alloc, raw) catch return g.emit(failed);
+        defer alloc.free(favs);
+        const items = alloc.alloc(types.Gif, favs.len) catch return g.emit(failed);
+        for (favs, items) |f, *it| {
+            // Vídeo do Tenor: o app desenha a versão WebP dele.
+            var wb: [512]u8 = undefined;
+            it.* = .{ .url = dupe(f.url), .src = dupe(media_url.gifFromVideo(&wb, f.src) orelse f.src) };
+        }
+        g.emit(.{ .gifs = .{ .req = req, .favorites = true, .items = items } });
+    }
+
+    /// Estrela de um GIF: sempre uma cópia nova das configurações (outro aparelho pode ter
+    /// mudado algo), só os favoritos mudam, e o resto (emojis recentes e outras
+    /// preferências) volta byte a byte. O que não der para ler inteiro não é escrito.
+    /// Dando errado, a lista volta ao que está na conta.
+    fn gifFavorite(g: *Gateway, f: ev.GifFavorite) void {
+        const gf = @import("../core/gif_favorites.zig");
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+        const a = arena.allocator();
+        const failed_pt = "não deu para salvar o GIF favorito";
+        const failed_en = "couldn't save the favorite GIF";
+        const raw = g.frecency(a) orelse {
+            g.notice(failed_pt, failed_en, .{});
+            return g.emit(.{ .gifs = .{ .req = f.req, .favorites = true, .ok = false } });
+        };
+        const change: gf.Change = if (f.add) .{ .add = .{ .url = f.url, .src = f.src, .width = f.width, .height = f.height, .format = if (f.video) .video else .image } } else .{ .remove = f.url };
+        const out = gf.edit(a, raw, change) catch {
+            g.notice("{s}: as configurações da conta vieram num formato que o app não entende", "{s}: the account settings came in a format the app doesn't understand", .{i18n.tr(failed_pt, failed_en)});
+            return g.emitFavorites(f.req, raw);
+        } orelse return g.emitFavorites(f.req, raw);
+        const enc = std.base64.standard.Encoder;
+        const body = a.alloc(u8, enc.calcSize(out.len) + 16) catch return g.emitFavorites(f.req, raw);
+        // Base64 não tem nada a escapar no JSON.
+        const b64 = enc.encode(body[13..][0..enc.calcSize(out.len)], out);
+        @memcpy(body[0..13], "{\"settings\":\"");
+        body[13 + b64.len] = '"';
+        body[14 + b64.len] = '}';
+        var resp = g.request("PATCH", "/users/@me/settings-proto/2", body[0 .. 15 + b64.len]) orelse {
+            g.notice(failed_pt, failed_en, .{});
+            return g.emitFavorites(f.req, raw);
+        };
+        defer resp.body.deinit(alloc);
+        if (resp.status >= 300) {
+            g.noticeHttp(i18n.tr(failed_pt, failed_en), &resp);
+            return g.emitFavorites(f.req, raw);
+        }
+        // A resposta traz o arquivo como ficou; sem ele, vale o que foi mandado.
+        const v = std.json.parseFromSliceLeaky(Value, a, resp.body.items, .{}) catch null;
+        const saved = if (v) |x| if (j.str(j.get(x, "settings"))) |s| decodeSettings(a, s) else null else null;
+        g.emitFavorites(f.req, saved orelse out);
     }
 
     /// PATCH /guilds/{id} ou /channels/{id} (grupo). A tela muda quando o
@@ -3447,7 +3529,14 @@ pub const Gateway = struct {
                 for (found) |it| {
                     const url = j.str(j.get(it, "url")) orelse continue;
                     const src = j.str(j.get(it, "src")) orelse continue;
-                    items[n] = .{ .url = dupe(url), .src = dupe(src), .preview = dupe(j.str(j.get(it, "preview"))), .title = dupe(j.str(j.get(it, "title"))) };
+                    items[n] = .{
+                        .url = dupe(url),
+                        .src = dupe(src),
+                        .preview = dupe(j.str(j.get(it, "preview"))),
+                        .title = dupe(j.str(j.get(it, "title"))),
+                        .width = @intCast(std.math.clamp(j.int(j.get(it, "width")) orelse 0, 0, 65535)),
+                        .height = @intCast(std.math.clamp(j.int(j.get(it, "height")) orelse 0, 0, 65535)),
+                    };
                     n += 1;
                 }
                 g.emit(.{ .gifs = .{ .req = q.req, .items = shrinkGifs(items, n) } });
@@ -3490,28 +3579,12 @@ pub const Gateway = struct {
                 if (resp.status >= 300) g.noticeHttp(i18n.tr("não deu para enviar a figurinha", "couldn't send the sticker"), &resp);
             },
             .gif_favorites => |req| {
-                const failed: ev.Event = .{ .gifs = .{ .req = req, .favorites = true, .ok = false } };
-                // Só leitura: este arquivo também guarda os emojis recentes da conta.
-                var resp = g.request("GET", "/users/@me/settings-proto/2", null) orelse return g.emit(failed);
-                defer resp.body.deinit(alloc);
-                if (resp.status != 200) return g.emit(failed);
                 var arena = std.heap.ArenaAllocator.init(alloc);
                 defer arena.deinit();
-                const a = arena.allocator();
-                const v = std.json.parseFromSliceLeaky(Value, a, resp.body.items, .{}) catch return g.emit(failed);
-                const b64 = j.str(j.get(v, "settings")) orelse return g.emit(failed);
-                const dec = std.base64.standard.Decoder;
-                const raw = a.alloc(u8, dec.calcSizeForSlice(b64) catch return g.emit(failed)) catch return g.emit(failed);
-                dec.decode(raw, b64) catch return g.emit(failed);
-                const favs = @import("../core/gif_favorites.zig").parse(a, raw) catch return g.emit(failed);
-                const items = alloc.alloc(types.Gif, favs.len) catch return g.emit(failed);
-                for (favs, items) |f, *it| {
-                    // Vídeo do Tenor: o app desenha a versão WebP dele.
-                    var wb: [512]u8 = undefined;
-                    it.* = .{ .url = dupe(f.url), .src = dupe(media_url.gifFromVideo(&wb, f.src) orelse f.src) };
-                }
-                g.emit(.{ .gifs = .{ .req = req, .favorites = true, .items = items } });
+                const raw = g.frecency(arena.allocator()) orelse return g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } });
+                g.emitFavorites(req, raw);
             },
+            .gif_favorite => |f| g.gifFavorite(f),
             .fetch_invite => |code| {
                 const failed: ev.Event = .{ .invite = .{ .code = code, .invite = .{ .state = .failed } } };
                 const path = std.fmt.bufPrint(&path_buf, "/invites/{s}?with_counts=true&with_expiration=true", .{code.slice()}) catch return;

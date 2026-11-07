@@ -273,6 +273,20 @@ pub const ImageChange = union(enum) {
     path: [:0]const u8,
 };
 
+/// Um GIF que entra ou sai dos favoritos. `url` é a chave (o link da mensagem);
+/// `src` é o que fica guardado (o MP4 com `video`, como o app oficial guarda) e
+/// `shown`, o que a lista mostra até a resposta chegar.
+pub const GifFavorite = struct {
+    req: u32 = 0,
+    add: bool,
+    url: []const u8,
+    src: []const u8 = "",
+    shown: []const u8 = "",
+    width: u16 = 0,
+    height: u16 = 0,
+    video: bool = false,
+};
+
 pub const Command = union(enum) {
     /// `files`: caminhos dos arquivos a enviar (alocados, terminados em 0).
     /// `opts`: silenciosa, sem prévias, menções. `file_opts`: spoiler e texto
@@ -351,6 +365,9 @@ pub const Command = union(enum) {
     /// GET /gifs/search (`query` vazio = em alta).
     gif_search: struct { req: u32, query: []const u8 },
     gif_favorites: u32,
+    /// Liga ou desliga um GIF favorito: lê as configurações da conta de novo, muda só
+    /// os favoritos e grava (PATCH). Volta como `gifs` com `favorites`. Textos alocados.
+    gif_favorite: GifFavorite,
     pin: struct { channel: Id, id: Id, add: bool },
     fetch_invite: InviteCode,
     join_invite: InviteCode,
@@ -455,6 +472,8 @@ pub const Action = union(enum) {
     /// Busca GIFs (texto alocado em `st.gpa`; vazio = em alta).
     gif_search: []const u8,
     gif_favorites,
+    /// Estrela de um GIF (na conversa ou no seletor). Textos alocados em `st.gpa`.
+    gif_favorite: GifFavorite,
     want_pins: Id,
     /// "Carregar mais" no fim das fixadas.
     more_pins: Id,

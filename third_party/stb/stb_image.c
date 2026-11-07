@@ -19,38 +19,74 @@
 // "restaurar ao anterior" precisa do quadro de dois atrás).
 typedef int (*larper_gif_cb)(void *ud, const unsigned char *rgba, int w, int h, int delay_ms);
 
-int larper_gif_frames(const unsigned char *data, int len, larper_gif_cb cb, void *ud)
-{
+// Um quadro por vez, retomável (para tocar decodificando aos poucos, em
+// ui/gif_stream.zig). `data` precisa durar até o close.
+typedef struct larper_gif {
    stbi__context s;
    stbi__gif g;
-   stbi_uc *prev = 0, *prev2 = 0;
-   size_t stride = 0;
-   int comp = 0, n = 0;
-   stbi__start_mem(&s, data, len);
-   if (!stbi__gif_test(&s)) return 0;
-   memset(&g, 0, sizeof(g));
-   for (;;) {
-      stbi_uc *u = stbi__gif_load_next(&s, &g, &comp, 4, n >= 2 ? prev2 : 0);
-      if (!u || u == (stbi_uc *) &s) break;
-      if (!stride) {
-         stride = (size_t) g.w * g.h * 4;
-         prev = (stbi_uc *) STBI_MALLOC(stride);
-         prev2 = (stbi_uc *) STBI_MALLOC(stride);
-         if (!prev || !prev2) break;
-      }
-      {
-         stbi_uc *t = prev2;
-         prev2 = prev;
-         prev = t;
-         memcpy(prev, u, stride);
-      }
-      ++n;
-      if (!cb(ud, u, g.w, g.h, g.delay)) break;
+   stbi_uc *prev, *prev2;
+   size_t stride;
+   int comp, n;
+} larper_gif;
+
+larper_gif *larper_gif_open(const unsigned char *data, int len)
+{
+   larper_gif *it = (larper_gif *) STBI_MALLOC(sizeof(larper_gif));
+   if (!it) return 0;
+   memset(it, 0, sizeof(*it));
+   stbi__start_mem(&it->s, data, len);
+   if (!stbi__gif_test(&it->s)) {
+      STBI_FREE(it);
+      return 0;
    }
-   STBI_FREE(g.out);
-   STBI_FREE(g.history);
-   STBI_FREE(g.background);
-   STBI_FREE(prev);
-   STBI_FREE(prev2);
+   return it;
+}
+
+// O próximo quadro (RGBA w×h, válido até a próxima chamada). NULL: acabou ou erro.
+const unsigned char *larper_gif_next(larper_gif *it, int *w, int *h, int *delay_ms)
+{
+   stbi_uc *u = stbi__gif_load_next(&it->s, &it->g, &it->comp, 4, it->n >= 2 ? it->prev2 : 0);
+   if (!u || u == (stbi_uc *) &it->s) return 0;
+   if (!it->stride) {
+      it->stride = (size_t) it->g.w * it->g.h * 4;
+      it->prev = (stbi_uc *) STBI_MALLOC(it->stride);
+      it->prev2 = (stbi_uc *) STBI_MALLOC(it->stride);
+      if (!it->prev || !it->prev2) return 0;
+   }
+   {
+      stbi_uc *t = it->prev2;
+      it->prev2 = it->prev;
+      it->prev = t;
+      memcpy(it->prev, u, it->stride);
+   }
+   ++it->n;
+   *w = it->g.w;
+   *h = it->g.h;
+   *delay_ms = it->g.delay;
+   return u;
+}
+
+void larper_gif_close(larper_gif *it)
+{
+   if (!it) return;
+   STBI_FREE(it->g.out);
+   STBI_FREE(it->g.history);
+   STBI_FREE(it->g.background);
+   STBI_FREE(it->prev);
+   STBI_FREE(it->prev2);
+   STBI_FREE(it);
+}
+
+int larper_gif_frames(const unsigned char *data, int len, larper_gif_cb cb, void *ud)
+{
+   int w, h, delay, n = 0;
+   const unsigned char *u;
+   larper_gif *it = larper_gif_open(data, len);
+   if (!it) return 0;
+   while ((u = larper_gif_next(it, &w, &h, &delay)) != 0) {
+      ++n;
+      if (!cb(ud, u, w, h, delay)) break;
+   }
+   larper_gif_close(it);
    return n;
 }

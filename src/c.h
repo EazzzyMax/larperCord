@@ -43,3 +43,7 @@
 /* GIF quadro a quadro (third_party/stb/stb_image.c). */
 typedef int (*larper_gif_cb)(void *ud, const unsigned char *rgba, int w, int h, int delay_ms);
 int larper_gif_frames(const unsigned char *data, int len, larper_gif_cb cb, void *ud);
+typedef struct larper_gif larper_gif;
+larper_gif *larper_gif_open(const unsigned char *data, int len);
+const unsigned char *larper_gif_next(larper_gif *it, int *w, int *h, int *delay_ms);
+void larper_gif_close(larper_gif *it);

@@ -113,6 +113,10 @@ pub const sent = struct {
     pub var presences: A = .init(0);
     pub var presence_len: A = .init(0);
     pub var presence: [4096]u8 = undefined;
+    /// GIFs favoritos gravados (PATCH) e se o resto das configurações continuou
+    /// igual byte a byte depois da última gravação (1) ou não (0).
+    pub var gif_favorite_writes: A = .init(0);
+    pub var frecency_intact: A = .init(1);
 };
 
 /// O canal das enquetes da demonstração (#geral de "os larpers"): uma de uma
@@ -125,6 +129,13 @@ const poll_counts = [_][4]u32{ .{ 30, 3, 2, 1 }, .{ 4, 6, 2, 0 } };
 /// Quantas reagiram com 🎉 na última mensagem do canal (e duas super reações).
 const party_count = 30;
 
+/// As configurações de frecência da conta da demonstração (o que GET e PATCH
+/// /users/@me/settings-proto/2 leem e gravam): campos que não são os favoritos antes e
+/// depois deles, para o QA conferir que gravar um favorito não mexe no resto.
+const frecency_head = "\x0a\x04\x08\x02\x10\x01" ++ "\x1a\x06\x0a\x04\x0a\x02ab";
+const frecency_tail = "\x22\x09\x0a\x07\x0a\x03abc\x10\x07" ++ "\xa2\x06\x02\x08\x01";
+const gif_favorites = @import("../core/gif_favorites.zig");
+
 const demo_gifs = [_][]const u8{ "dancing cat", "thumbs up", "good morning", "laughing", "confused", "applause", "typing fast", "shrug" };
 
 fn demoGifItem(name: []const u8, i: usize) !types.Gif {
@@ -136,7 +147,16 @@ fn demoGifItem(name: []const u8, i: usize) !types.Gif {
         .src = try alloc.dupe(u8, "demo:gif"),
         .preview = try std.fmt.allocPrint(alloc, "demo:{d}", .{i % 3 + 1}),
         .title = try alloc.dupe(u8, name),
+        .width = 480,
+        .height = 270,
     };
+}
+
+fn freeGif(it: types.Gif) void {
+    alloc.free(it.url);
+    alloc.free(it.src);
+    alloc.free(it.preview);
+    alloc.free(it.title);
 }
 
 pub const Gateway = struct {
@@ -198,6 +218,8 @@ pub const Gateway = struct {
     /// O status personalizado de agora (net/fake_conta.zig guarda), que também
     /// vai no op 3, como no gateway de verdade.
     conta: conta_net.NetState = .{},
+    /// FrecencyUserSettings da demonstração (vazio até o primeiro pedido).
+    frecency: std.ArrayList(u8) = .empty,
 
     pub fn start(g: *Gateway) !void {
         g.thread = c.SDL_CreateThread(threadMain, "gateway", g) orelse return error.SdlThread;
@@ -223,6 +245,30 @@ pub const Gateway = struct {
             return;
         };
         g.voice = vc;
+    }
+
+    /// Os três primeiros GIFs da demonstração já favoritos, o mais novo primeiro.
+    fn seedFrecency(g: *Gateway) !void {
+        if (g.frecency.items.len > 0) return;
+        try g.frecency.appendSlice(alloc, frecency_head ++ "\x12\x00" ++ frecency_tail);
+        var i: usize = 3;
+        while (i > 0) {
+            i -= 1;
+            const it = try demoGifItem(demo_gifs[i], i);
+            defer freeGif(it);
+            const out = (try gif_favorites.edit(alloc, g.frecency.items, .{ .add = .{ .url = it.url, .src = it.src, .width = 480, .height = 270 } })) orelse continue;
+            defer alloc.free(out);
+            g.frecency.clearRetainingCapacity();
+            try g.frecency.appendSlice(alloc, out);
+        }
+    }
+
+    fn emitFavorites(g: *Gateway, req: u32) !void {
+        const favs = try gif_favorites.parse(alloc, g.frecency.items);
+        defer alloc.free(favs);
+        const items = try alloc.alloc(types.Gif, favs.len);
+        for (favs, items) |f, *it| it.* = .{ .url = try alloc.dupe(u8, f.url), .src = try alloc.dupe(u8, f.src) };
+        g.emit(.{ .gifs = .{ .req = req, .favorites = true, .items = items } });
     }
 
     pub fn stop(g: *Gateway) void {
@@ -389,6 +435,7 @@ pub const Gateway = struct {
         var cmds: std.ArrayList(ev.Command) = .empty;
         defer cmds.deinit(alloc);
         defer g.stopVoice();
+        defer g.frecency.deinit(alloc);
         while (true) {
             const now = nowMs();
             const wait: i32 = @intCast(std.math.clamp(g.nextDeadline() - now, 1, 2000));
@@ -449,16 +496,31 @@ pub const Gateway = struct {
                     g.emit(.{ .gifs = .{ .req = q.req, .items = try items.toOwnedSlice(alloc) } });
                 },
                 .gif_favorites => |req| {
-                    const items = try alloc.alloc(types.Gif, 3);
-                    for (items, demo_gifs[0..3], 0..) |*it, name, i| {
-                        it.* = try demoGifItem(name, i);
-                        // Favoritos só trazem a mídia, sem imagem parada à parte.
-                        alloc.free(it.preview);
-                        it.preview = "";
-                        alloc.free(it.title);
-                        it.title = "";
+                    try g.seedFrecency();
+                    try g.emitFavorites(req);
+                },
+                .gif_favorite => |f| {
+                    defer {
+                        alloc.free(f.url);
+                        alloc.free(f.src);
+                        alloc.free(f.shown);
                     }
-                    g.emit(.{ .gifs = .{ .req = req, .favorites = true, .items = items } });
+                    // Como o de verdade: lê, muda só os favoritos e grava.
+                    try g.seedFrecency();
+                    const change: gif_favorites.Change = if (f.add) .{ .add = .{ .url = f.url, .src = f.src, .width = f.width, .height = f.height, .format = if (f.video) .video else .image } } else .{ .remove = f.url };
+                    const res = gif_favorites.edit(alloc, g.frecency.items, change) catch blk: {
+                        g.emit(.{ .notice = try i18n.allocPrint(alloc, "não deu para salvar o GIF favorito", "couldn't save the favorite GIF", .{}) });
+                        break :blk null;
+                    };
+                    if (res) |out| {
+                        defer alloc.free(out);
+                        g.frecency.clearRetainingCapacity();
+                        try g.frecency.appendSlice(alloc, out);
+                        _ = sent.gif_favorite_writes.fetchAdd(1, .monotonic);
+                    }
+                    const items = g.frecency.items;
+                    sent.frecency_intact.store(@intFromBool(std.mem.startsWith(u8, items, frecency_head) and std.mem.endsWith(u8, items, frecency_tail)), .monotonic);
+                    try g.emitFavorites(f.req);
                 },
                 .forward_message => |f| {
                     // Como a de verdade: o texto vira um cartão marcado.

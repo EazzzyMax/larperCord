@@ -55,6 +55,18 @@ pub fn pin(dl: *c.ImDrawList, cx_in: f32, cy_in: f32, col: u32) void {
     line(dl, cx, cy + 4, cx, cy + 9, col, th);
 }
 
+/// Estrela de 5 pontas de raio `r`; cheia (favorito) ou só o contorno.
+pub fn star(dl: *c.ImDrawList, cx: f32, cy: f32, r: f32, col: u32, filled: bool) void {
+    var pts: [10]c.ImVec2 = undefined;
+    for (&pts, 0..) |*p, i| {
+        const a = -pi / 2.0 + @as(f32, @floatFromInt(i)) * pi / 5.0;
+        const rr = if (i % 2 == 0) r else r * 0.46;
+        p.* = v(cx + @cos(a) * rr, cy + @sin(a) * rr);
+    }
+    if (filled) c.ImDrawList_AddConcavePolyFilled(dl, &pts[0], pts.len, col);
+    c.ImDrawList_AddPolyline(dl, &pts[0], pts.len, col, 1.6, c.ImDrawFlags_Closed);
+}
+
 pub fn search(dl: *c.ImDrawList, cx: f32, cy: f32, col: u32) void {
     c.ImDrawList_AddCircleEx(dl, v(cx - 1.5, cy - 1.5), 5, col, 0, 1.7, 0);
     line(dl, cx + 2, cy + 2, cx + 6, cy + 6, col, 1.7);

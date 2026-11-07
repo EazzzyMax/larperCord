@@ -9,6 +9,7 @@ const qa = @import("qa.zig");
 const i18n = @import("i18n.zig");
 const icons = @import("icons.zig");
 const popup = @import("popup.zig");
+const gif_fav = @import("gif_fav.zig");
 const media_url = @import("../net/media_url.zig");
 const types = @import("../core/types.zig");
 const store_mod = @import("../core/store.zig");
@@ -56,8 +57,12 @@ fn nameOf(g: types.Gif) []const u8 {
     return g.url[start..end];
 }
 
-fn drawCell(ctx: *d.Ctx, dl: *c.ImDrawList, g: types.Gif, i: usize, r: d.Rect) bool {
+fn drawCell(ctx: *d.Ctx, dl: *c.ImDrawList, g: types.Gif, i: usize, r: d.Rect, favorites: bool) bool {
+    // A estrela (com o mouse em cima) vem antes: a de cima ganha o clique.
+    const star_r: ?d.Rect = if (gif_fav.shows(ctx, r)) gif_fav.rect(r) else null;
+    const star_hb: ?d.Hit = if (star_r) |sr| d.hit(ctx, 9500 + i, sr) else null;
     const hb = d.hit(ctx, 9000 + i, r);
+    const hovered = hb.hovered or (if (star_hb) |sh| sh.hovered else false);
     qa.mark(r, "gif:{d}", .{i});
     d.rect(dl, r, ctx.col(.elevated), 6);
     const scale = ctx.io.*.DisplayFramebufferScale.x;
@@ -65,7 +70,7 @@ fn drawCell(ctx: *d.Ctx, dl: *c.ImDrawList, g: types.Gif, i: usize, r: d.Rect) b
     const still = if (g.preview.len > 0) g.preview else g.src;
     var drawn = false;
     // Parado economiza memória: só anima o que está sob o mouse.
-    if (hb.hovered and (allowed or !external(g.src))) switch (ctx.images.get(g.src, r.w * scale, r.h * scale)) {
+    if (hovered and (allowed or !external(g.src))) switch (ctx.images.get(g.src, r.w * scale, r.h * scale)) {
         .ready => |t| {
             @import("embeds.zig").imageCover(dl, t, r, 1, 6, 0);
             drawn = true;
@@ -83,8 +88,15 @@ fn drawCell(ctx: *d.Ctx, dl: *c.ImDrawList, g: types.Gif, i: usize, r: d.Rect) b
         const f = ctx.ui.get(.medium);
         _ = d.textClipped(dl, f, 12, r.x + 8, d.centerY(r, 12), ctx.col(.muted), nameOf(g), r.w - 16);
     }
-    if (hb.hovered) d.border(dl, r, ctx.col(.accent), 6, 2);
+    if (hovered) d.border(dl, r, ctx.col(.accent), 6, 2);
     d.tip(ctx, r, nameOf(g), hb.hovered);
+    if (star_r) |sr| {
+        if (!favorites) gif_fav.want(ctx);
+        const on = favorites or gif_fav.isOn(ctx, g.url);
+        qa.mark(sr, "gif-star:{d}", .{i});
+        gif_fav.draw(ctx, dl, sr, star_hb.?, on);
+        if (star_hb.?.clicked) gif_fav.toggle(ctx, g.url, g.src, g.width, g.height, on);
+    }
     return hb.clicked;
 }
 
@@ -224,7 +236,7 @@ pub fn draw(ctx: *d.Ctx, x: f32, y: f32) void {
         const cell: d.Rect = .{ .x = body.x + col * (col_w + gap), .y = body.y - scroll + row * (cell_h + gap), .w = col_w, .h = cell_h };
         // Fora da tela não baixa nada.
         if (cell.bottom() < body.y or cell.y > body.bottom()) continue;
-        if (drawCell(ctx, gdl, g, i, cell)) chosen = g;
+        if (drawCell(ctx, gdl, g, i, cell, favorites)) chosen = g;
     };
     const my = body.y + 40;
     switch (list.state) {

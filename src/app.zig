@@ -1303,6 +1303,25 @@ pub const App = struct {
                 app.store.gif_favorites.state = .loading;
                 app.cmd(.{ .gif_favorites = app.store.gif_favorites.req });
             },
+            .gif_favorite => |f| {
+                defer {
+                    st.gpa.free(f.url);
+                    st.gpa.free(f.src);
+                    st.gpa.free(f.shown);
+                }
+                // A lista muda na hora; a resposta (com este `req`) confirma.
+                const list = &app.store.gif_favorites;
+                list.toggleLocal(f.url, f.shown, f.add);
+                const ca = std.heap.c_allocator;
+                const url = ca.dupe(u8, f.url) catch return;
+                const src = ca.dupe(u8, f.src) catch return ca.free(url);
+                var fav = f;
+                fav.req = list.req;
+                fav.url = url;
+                fav.src = src;
+                fav.shown = "";
+                app.cmd(.{ .gif_favorite = fav });
+            },
             .search_messages => |s| app.cmd(.{ .search_messages = s }),
             .join_invite => |code| app.cmd(.{ .join_invite = code }),
             .create_invite => |ci| app.cmd(.{ .create_invite = ci }),
