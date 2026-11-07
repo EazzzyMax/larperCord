@@ -1917,8 +1917,9 @@ fn searchParam(params: []const u8, name: []const u8, out: []u8) []const u8 {
     return "";
 }
 
-/// O servidor com regras e boas-vindas ("Minecraft SMP").
-pub const entrada_guild = 6;
+/// O servidor com regras e boas-vindas ("Arch Linux BR"). Não é o "Minecraft SMP"
+/// (`timeout_guild`): lá estamos de castigo, e quem acabou de entrar não está.
+pub const entrada_guild = 8;
 
 fn keepEntrada(body: []const u8) void {
     const n = @min(body.len, sent.entrada_body.len);
@@ -1927,45 +1928,45 @@ fn keepEntrada(body: []const u8) void {
 }
 
 const demo_form_pt =
-    \\{"version":"2026-10-01T12:00:00.000000+00:00","description":"Servidor de sobrevivência. Leia com calma antes de falar.",
+    \\{"version":"2026-10-01T12:00:00.000000+00:00","description":"Comunidade de Arch Linux. Leia com calma antes de falar.",
     \\ "form_fields":[
-    \\  {"field_type":"TERMS","label":"Leia e concorde com as regras","values":["Respeite todo mundo.","Sem spam e sem propaganda.","Nada de trapaça no servidor."],"required":true,"description":null,"automations":null},
-    \\  {"field_type":"TEXT_INPUT","label":"Seu nick no Minecraft","required":true,"placeholder":"Steve","description":null,"automations":null},
+    \\  {"field_type":"TERMS","label":"Leia e concorde com as regras","values":["Respeite todo mundo.","Sem spam e sem propaganda.","Procure na wiki antes de perguntar."],"required":true,"description":null,"automations":null},
+    \\  {"field_type":"TEXT_INPUT","label":"Como quer ser chamado?","required":true,"placeholder":"Tux","description":null,"automations":null},
     \\  {"field_type":"PARAGRAPH","label":"Como conheceu o servidor?","required":false,"placeholder":null,"description":"Opcional.","automations":null},
-    \\  {"field_type":"MULTIPLE_CHOICE","label":"Há quanto tempo joga?","choices":["Comecei agora","Uns anos","Desde o beta"],"required":true,"description":null,"automations":null}
+    \\  {"field_type":"MULTIPLE_CHOICE","label":"Há quanto tempo usa Arch?","choices":["Instalei agora","Uns anos","Desde antes do systemd"],"required":true,"description":null,"automations":null}
     \\ ]}
 ;
 const demo_form_en =
-    \\{"version":"2026-10-01T12:00:00.000000+00:00","description":"A survival server. Take your time reading before you talk.",
+    \\{"version":"2026-10-01T12:00:00.000000+00:00","description":"An Arch Linux community. Take your time reading before you talk.",
     \\ "form_fields":[
-    \\  {"field_type":"TERMS","label":"Read and agree to the rules","values":["Respect everyone.","No spam and no ads.","No cheating on the server."],"required":true,"description":null,"automations":null},
-    \\  {"field_type":"TEXT_INPUT","label":"Your Minecraft name","required":true,"placeholder":"Steve","description":null,"automations":null},
+    \\  {"field_type":"TERMS","label":"Read and agree to the rules","values":["Respect everyone.","No spam and no ads.","Search the wiki before asking."],"required":true,"description":null,"automations":null},
+    \\  {"field_type":"TEXT_INPUT","label":"What should we call you?","required":true,"placeholder":"Tux","description":null,"automations":null},
     \\  {"field_type":"PARAGRAPH","label":"How did you find the server?","required":false,"placeholder":null,"description":"Optional.","automations":null},
-    \\  {"field_type":"MULTIPLE_CHOICE","label":"How long have you played?","choices":["Just started","A few years","Since the beta"],"required":true,"description":null,"automations":null}
+    \\  {"field_type":"MULTIPLE_CHOICE","label":"How long have you used Arch?","choices":["Just installed it","A few years","Since before systemd"],"required":true,"description":null,"automations":null}
     \\ ]}
 ;
 const demo_onboarding_pt =
-    \\{"guild_id":"506000","enabled":true,"mode":0,"below_requirements":false,"default_channel_ids":[],"responses":[],
+    \\{"guild_id":"508000","enabled":true,"mode":0,"below_requirements":false,"default_channel_ids":[],"responses":[],
     \\ "prompts":[
-    \\  {"id":"9100","type":0,"title":"Como você joga?","single_select":true,"required":true,"in_onboarding":true,
-    \\   "options":[{"id":"9101","title":"Sobrevivência","description":"O mundo principal","emoji":{"id":null,"name":"⛏"},"role_ids":[],"channel_ids":[]},
-    \\              {"id":"9102","title":"Criativo","description":"Construções sem limite","emoji":{"id":null,"name":"🧱"},"role_ids":[],"channel_ids":[]},
+    \\  {"id":"9100","type":0,"title":"Onde você usa o Arch?","single_select":true,"required":true,"in_onboarding":true,
+    \\   "options":[{"id":"9101","title":"No desktop","description":"O computador do dia a dia","emoji":{"id":null,"name":"💻"},"role_ids":[],"channel_ids":[]},
+    \\              {"id":"9102","title":"No servidor","description":"Máquinas sem tela","emoji":{"id":null,"name":"🗄"},"role_ids":[],"channel_ids":[]},
     \\              {"id":"9103","title":"Só olhando","description":null,"emoji":null,"role_ids":[],"channel_ids":[]}]},
     \\  {"id":"9200","type":0,"title":"O que mais te interessa?","single_select":false,"required":false,"in_onboarding":true,
-    \\   "options":[{"id":"9201","title":"Redstone","description":null,"emoji":null,"role_ids":[],"channel_ids":[]},
-    \\              {"id":"9202","title":"Eventos","description":"Avisos dos eventos de sábado","emoji":null,"role_ids":[],"channel_ids":[]}]}
+    \\   "options":[{"id":"9201","title":"AUR","description":null,"emoji":null,"role_ids":[],"channel_ids":[]},
+    \\              {"id":"9202","title":"Eventos","description":"Avisos dos encontros de sábado","emoji":null,"role_ids":[],"channel_ids":[]}]}
     \\ ]}
 ;
 const demo_onboarding_en =
-    \\{"guild_id":"506000","enabled":true,"mode":0,"below_requirements":false,"default_channel_ids":[],"responses":[],
+    \\{"guild_id":"508000","enabled":true,"mode":0,"below_requirements":false,"default_channel_ids":[],"responses":[],
     \\ "prompts":[
-    \\  {"id":"9100","type":0,"title":"How do you play?","single_select":true,"required":true,"in_onboarding":true,
-    \\   "options":[{"id":"9101","title":"Survival","description":"The main world","emoji":{"id":null,"name":"⛏"},"role_ids":[],"channel_ids":[]},
-    \\              {"id":"9102","title":"Creative","description":"Unlimited building","emoji":{"id":null,"name":"🧱"},"role_ids":[],"channel_ids":[]},
+    \\  {"id":"9100","type":0,"title":"Where do you use Arch?","single_select":true,"required":true,"in_onboarding":true,
+    \\   "options":[{"id":"9101","title":"On the desktop","description":"The everyday computer","emoji":{"id":null,"name":"💻"},"role_ids":[],"channel_ids":[]},
+    \\              {"id":"9102","title":"On a server","description":"Headless machines","emoji":{"id":null,"name":"🗄"},"role_ids":[],"channel_ids":[]},
     \\              {"id":"9103","title":"Just looking","description":null,"emoji":null,"role_ids":[],"channel_ids":[]}]},
     \\  {"id":"9200","type":0,"title":"What are you into?","single_select":false,"required":false,"in_onboarding":true,
-    \\   "options":[{"id":"9201","title":"Redstone","description":null,"emoji":null,"role_ids":[],"channel_ids":[]},
-    \\              {"id":"9202","title":"Events","description":"Saturday event announcements","emoji":null,"role_ids":[],"channel_ids":[]}]}
+    \\   "options":[{"id":"9201","title":"AUR","description":null,"emoji":null,"role_ids":[],"channel_ids":[]},
+    \\              {"id":"9202","title":"Events","description":"Saturday meetup announcements","emoji":null,"role_ids":[],"channel_ids":[]}]}
     \\ ]}
 ;
 
