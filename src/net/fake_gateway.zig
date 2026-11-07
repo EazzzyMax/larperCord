@@ -236,6 +236,15 @@ pub const Gateway = struct {
         }
     }
 
+    /// Quem atende a call do grupo e quantos tocam: só quem está no grupo agora
+    /// (o menu do grupo põe e tira gente).
+    fn groupCaller(g: *const Gateway) ?Id {
+        return if (g.group_n > 0) g.group_now[0] else null;
+    }
+    fn groupRinging(g: *const Gateway) u8 {
+        return @intCast(@min(g.group_n, 255));
+    }
+
     /// Editar servidor ou grupo: volta como o gateway de verdade, com o
     /// servidor ou canal inteiro. O que não mudou vem da semente.
     fn editPlace(g: *Gateway, e: ev.EditPlace) !void {
@@ -571,8 +580,8 @@ pub const Gateway = struct {
                 .call_ring => |ch| {
                     _ = sent.rings.fetchAdd(1, .monotonic);
                     sent.ring_channel.store(ch, .release);
-                    const who = dmRecipient(ch) orelse if (ch == group_id) group_members[0] else continue;
-                    g.emit(.{ .call = .{ .channel = ch, .ringing = if (ch == group_id) group_members.len else 1 } });
+                    const who = dmRecipient(ch) orelse (if (ch == group_id) g.groupCaller() else null) orelse continue;
+                    g.emit(.{ .call = .{ .channel = ch, .ringing = if (ch == group_id) g.groupRinging() else 1 } });
                     // Do outro lado atendem logo depois.
                     g.call_answer = .{ .channel = ch, .user = who, .at_ms = nowMs() + 1500 };
                 },
@@ -583,7 +592,7 @@ pub const Gateway = struct {
                     g.emit(.{ .call = .{ .channel = ch } });
                 },
                 .demo_call => |dc| {
-                    const caller = dmRecipient(dc.channel) orelse if (dc.channel == group_id) group_members[0] else continue;
+                    const caller = dmRecipient(dc.channel) orelse (if (dc.channel == group_id) g.groupCaller() else null) orelse continue;
                     if (dc.ring) {
                         g.ringing_me = dc.channel;
                         g.call_peer = .{ .channel = dc.channel, .user = caller };
@@ -1125,7 +1134,7 @@ pub const Gateway = struct {
             g.call_answer = null;
             g.call_peer = .{ .channel = a.channel, .user = a.user };
             g.emit(.{ .voice_state = .{ .channel = a.channel, .user = a.user } });
-            g.emit(.{ .call = .{ .channel = a.channel, .ringing = if (a.channel == group_id) group_members.len - 1 else 0 } });
+            g.emit(.{ .call = .{ .channel = a.channel, .ringing = if (a.channel == group_id) g.groupRinging() -| 1 else 0 } });
         };
         var i: usize = 0;
         while (i < g.nonce_replies.items.len) {
