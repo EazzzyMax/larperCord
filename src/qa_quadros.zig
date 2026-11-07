@@ -135,7 +135,7 @@ fn limitsApplied(app: *App) bool {
 fn resetLimits(app: *App) void {
     const set = &app.st.settings;
     set.image_cache_mb = 32;
-    set.gif_limit_mb = 12;
+    set.gif_limit_mb = 32;
     set.message_budget = 2000;
 }
 

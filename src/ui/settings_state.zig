@@ -59,8 +59,10 @@ pub const Settings = struct {
     text_hinting: u8 = 0,
     /// Limites de memória, em Desempenho: imagens e cada GIF (MB), e mensagens somando os canais.
     image_cache_mb: f32 = 32,
-    gif_limit_mb: f32 = 12,
+    gif_limit_mb: f32 = 32,
     message_budget: f32 = 2000,
+    /// Revisão dos limites no arquivo: sem ela, ele é de antes da 0.6.2 (ver `migrateLimits`).
+    limits_rev: u8 = 1,
     compact: bool = false,
     show_avatars: bool = true,
     reduce_motion: bool = false,
@@ -330,6 +332,25 @@ pub fn write(s: *const Settings, theme_name: []const u8, out: *std.ArrayList(u8)
     try out.append(gpa, '\n');
 }
 
+/// Faixa aceita ao ler cada número quebrado. Escalas e pesos ficam entre 0,5 e 3; os
+/// limites de memória (MB, mensagens) não são escala (o app ainda aperta cada um no uso).
+fn floatRange(name: []const u8) [2]f64 {
+    if (std.mem.endsWith(u8, name, "_mb") or std.mem.eql(u8, name, "message_budget")) return .{ 0, 100_000 };
+    return .{ 0.5, 3 };
+}
+
+/// Arquivo de antes da 0.6.2. A 0.6.1 baixou o limite de cada GIF de 32 para 12 MB (as
+/// animações longas pulavam quadros) e, ao ler, apertava todo número quebrado entre 0,5
+/// e 3: reabrindo o app, os limites viravam o mínimo de cada um (4 MB por GIF, 16 MB de
+/// imagens, 500 mensagens). O padrão antigo e o que ficou estragado voltam ao padrão.
+fn migrateLimits(s: *Settings) void {
+    const defaults: Settings = .{};
+    if (s.gif_limit_mb == 12 or s.gif_limit_mb < 4) s.gif_limit_mb = defaults.gif_limit_mb;
+    if (s.image_cache_mb < 16) s.image_cache_mb = defaults.image_cache_mb;
+    if (s.message_budget < 500) s.message_budget = defaults.message_budget;
+    s.limits_rev = defaults.limits_rev;
+}
+
 pub fn apply(s: *Settings, node: anytype) void {
     const base: [*]u8 = @ptrCast(s);
     for (fields()) |f| {
@@ -338,7 +359,8 @@ pub fn apply(s: *Settings, node: anytype) void {
                 @as(*bool, @ptrCast(base + f.offset)).* = v;
             },
             .float => if (node.num(f.name)) |v| {
-                @as(*f32, @ptrCast(@alignCast(base + f.offset))).* = @floatCast(std.math.clamp(v, 0.5, 3));
+                const range = floatRange(f.name);
+                @as(*f32, @ptrCast(@alignCast(base + f.offset))).* = @floatCast(std.math.clamp(v, range[0], range[1]));
             },
             .byte => if (node.num(f.name)) |v| {
                 (base + f.offset)[0] = @intFromFloat(std.math.clamp(v, 0, 255));
@@ -351,6 +373,47 @@ pub fn apply(s: *Settings, node: anytype) void {
             },
         }
     }
+    if (node.num("limits_rev") == null) migrateLimits(s);
+}
+
+test "limites de memória voltam do arquivo como estavam e o arquivo da 0.6.1 é corrigido" {
+    const kdl = @import("../theme/kdl.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var s: Settings = .{};
+    s.gif_limit_mb = 20;
+    s.image_cache_mb = 64;
+    s.message_budget = 3000;
+    s.font_scale = 1.2;
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try write(&s, "vidro", &out, std.testing.allocator);
+    const nodes = try kdl.parse(arena.allocator(), out.items, null);
+    var back: Settings = .{};
+    apply(&back, &nodes[0]);
+    try std.testing.expectEqual(@as(f32, 20), back.gif_limit_mb);
+    try std.testing.expectEqual(@as(f32, 64), back.image_cache_mb);
+    try std.testing.expectEqual(@as(f32, 3000), back.message_budget);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.2), back.font_scale, 0.001);
+    // 0.6.1: o padrão antigo de cada GIF e os limites que o arredondamento estragou.
+    const old = try kdl.parse(arena.allocator(), "settings gif_limit_mb=12.000 image_cache_mb=3.000 message_budget=3.000 font_scale=9\n", null);
+    var fixed: Settings = .{};
+    apply(&fixed, &old[0]);
+    try std.testing.expectEqual(@as(f32, 32), fixed.gif_limit_mb);
+    try std.testing.expectEqual(@as(f32, 32), fixed.image_cache_mb);
+    try std.testing.expectEqual(@as(f32, 2000), fixed.message_budget);
+    try std.testing.expectEqual(@as(f32, 3), fixed.font_scale);
+    // 0.6.1 com escolhas que não são o padrão nem estragadas: ficam.
+    const chosen = try kdl.parse(arena.allocator(), "settings gif_limit_mb=24.000 image_cache_mb=96.000\n", null);
+    var kept: Settings = .{};
+    apply(&kept, &chosen[0]);
+    try std.testing.expectEqual(@as(f32, 24), kept.gif_limit_mb);
+    try std.testing.expectEqual(@as(f32, 96), kept.image_cache_mb);
+    // Depois da migração, 12 escolhido de propósito fica 12.
+    const now = try kdl.parse(arena.allocator(), "settings gif_limit_mb=12.000 limits_rev=1\n", null);
+    var later: Settings = .{};
+    apply(&later, &now[0]);
+    try std.testing.expectEqual(@as(f32, 12), later.gif_limit_mb);
 }
 
 test "configurações vão e voltam pelo KDL" {

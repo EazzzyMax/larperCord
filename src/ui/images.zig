@@ -18,6 +18,8 @@ const apng = @import("apng.zig");
 const ffmpeg = @import("../platform/ffmpeg.zig");
 const proxy = @import("../net/proxy.zig");
 const janela = @import("../core/janela.zig");
+const quadros = @import("../core/gif_quadros.zig");
+const gif_stream = @import("gif_stream.zig");
 
 const alloc = std.heap.c_allocator;
 
@@ -25,11 +27,15 @@ const alloc = std.heap.c_allocator;
 const idle_ms: i64 = 60_000;
 /// Maior arquivo que a gente baixa (o Discord aceita até 10 MB sem Nitro).
 const max_download: usize = 32 * 1024 * 1024;
-/// Limite de uma animação (GIF, WebP, APNG) já reduzida: passando disso,
+/// Limite de uma animação (GIF, WebP, APNG) já reduzida. Passando disso, GIF e WebP
+/// tocam decodificando aos poucos (gif_stream.zig), com todos os quadros; o resto
 /// pula quadros (o tempo total continua o mesmo, só fica menos fluido).
 /// As threads de mídia leem o limite, que vem das Configurações → Desempenho.
-pub var gif_limit_bytes: std.atomic.Value(usize) = .init(12 * 1024 * 1024);
+pub var gif_limit_bytes: std.atomic.Value(usize) = .init(32 * 1024 * 1024);
 const max_gif_frames: usize = 300;
+/// O GIF longo da demonstração ("demo:longgif"): mais memória que o limite, para o QA
+/// conferir que ele toca aos poucos com todos os quadros, 30 ms cada.
+pub const demo_long_frames = 96;
 /// Teto de quadros lidos e de tempo decodificando uma animação: um GIF feito
 /// para isso (centenas de milhares de quadros) para aqui, com o que já tem.
 const max_gif_seen: usize = 20_000;
@@ -59,18 +65,27 @@ const Frame = struct {
     end_ms: u32,
 };
 
-const Entry = struct {
+pub const Entry = struct {
     state: State = .loading,
     frames: []Frame = &.{},
     w: u16 = 0,
     h: u16 = 0,
     bytes: usize = 0,
     used_ms: i64 = 0,
+    /// Animação longa demais para caber inteira: `frames` tem só o primeiro quadro
+    /// (o parado) e ela toca por aqui.
+    stream: ?*gif_stream.Stream = null,
 
     fn free(e: *Entry) void {
         for (e.frames) |f| c.SDL_DestroyTexture(f.tex);
         if (e.frames.len > 0) alloc.free(e.frames);
         e.frames = &.{};
+        if (e.stream) |st| gif_stream.release(st);
+        e.stream = null;
+    }
+
+    fn animated(e: *const Entry) bool {
+        return e.frames.len > 1 or e.stream != null;
     }
 
     /// Nunca 0 (é divisor): `add`, `halve` e `pump` somam saturando.
@@ -121,10 +136,13 @@ const Pixels = struct {
     frames: []PixFrame = &.{},
     w: u16 = 0,
     h: u16 = 0,
+    /// Animação que vai tocar aos poucos: `frames` tem só o primeiro quadro.
+    seed: ?gif_stream.Seed = null,
 
     fn deinit(p: Pixels) void {
         for (p.frames) |f| alloc.free(f.data);
         if (p.frames.len > 0) alloc.free(p.frames);
+        if (p.seed) |sd| alloc.free(sd.data);
     }
 
     /// Uma imagem só.
@@ -194,6 +212,7 @@ pub const Cache = struct {
         if (curl_mutex == null) curl_mutex = c.SDL_CreateMutex() orelse return error.SdlMutex;
         if (recent_mutex == null) recent_mutex = c.SDL_CreateMutex() orelse return error.SdlMutex;
         if (decode_slots == null) decode_slots = c.SDL_CreateSemaphore(2) orelse return error.SdlSemaphore;
+        try gif_stream.init(wake_type);
         return .{
             .renderer = renderer,
             .wake_type = wake_type,
@@ -215,6 +234,7 @@ pub const Cache = struct {
         cache.stopping.store(true, .release);
         cache.jobs.wakeAll();
         for (cache.threads) |th| if (th) |t| c.SDL_WaitThread(t, null);
+        gif_stream.deinit();
         if (curl_inited) {
             c.curl_global_cleanup();
             curl_inited = false;
@@ -279,7 +299,7 @@ pub const Cache = struct {
             return switch (e.state) {
                 .loading => .loading,
                 .failed => .failed,
-                .ready => .{ .ready = .{ .ref = .{ ._TexData = null, ._TexID = @intFromPtr(cache.frameOf(e, play)) }, .w = e.w, .h = e.h, .animated = e.frames.len > 1 } },
+                .ready => .{ .ready = .{ .ref = .{ ._TexData = null, ._TexID = @intFromPtr(cache.frameOf(e, play)) }, .w = e.w, .h = e.h, .animated = e.animated() } },
             };
         }
         // Modo economia: nada de rede até a pessoa pedir.
@@ -303,6 +323,7 @@ pub const Cache = struct {
     /// O quadro de agora (todos os GIFs andam no mesmo relógio) e quando
     /// o próximo vence.
     fn frameOf(cache: *Cache, e: *const Entry, play: bool) *c.SDL_Texture {
+        if (e.stream) |st| return if (play and st.frame(cache.now_ms, &cache.next_frame_ms)) st.tex else e.frames[0].tex;
         if (e.frames.len == 1 or !play) return e.frames[0].tex;
         const total = e.total();
         const t: u32 = @intCast(@mod(cache.now_ms, @as(i64, total)));
@@ -428,9 +449,13 @@ pub const Cache = struct {
             if (u.n < px.frames.len) return;
         }
         // Acabou (ou o SDL não criou mais: fica com o que deu).
-        const done = u.*;
+        var done = u.*;
         cache.uploading = null;
         cache.freed_bytes +|= @as(usize, px.w) * @as(usize, px.h) * 4 * px.frames.len;
+        // O arquivo da animação que toca aos poucos passa para ela (ou é solto aqui).
+        var seed = done.r.px.seed;
+        done.r.px.seed = null;
+        defer if (seed) |sd| alloc.free(sd.data);
         defer freeResult(done.r);
         const e = cache.map.getPtr(done.r.key) orelse {
             for (done.frames[0..done.n]) |f| c.SDL_DestroyTexture(f.tex);
@@ -442,8 +467,14 @@ pub const Cache = struct {
             e.state = .failed;
             return;
         }
-        const bytes = @as(usize, px.w) * px.h * 4 * done.n;
-        e.* = .{ .state = .ready, .frames = alloc.realloc(done.frames, done.n) catch done.frames[0..done.n], .w = px.w, .h = px.h, .bytes = bytes, .used_ms = cache.now_ms };
+        var bytes = @as(usize, px.w) * px.h * 4 * done.n;
+        var stream: ?*gif_stream.Stream = null;
+        if (seed) |sd| {
+            seed = null;
+            stream = gif_stream.create(cache.renderer, sd, px.w, px.h);
+            if (stream) |st| bytes += st.bytes;
+        }
+        e.* = .{ .state = .ready, .frames = alloc.realloc(done.frames, done.n) catch done.frames[0..done.n], .w = px.w, .h = px.h, .bytes = bytes, .used_ms = cache.now_ms, .stream = stream };
         cache.bytes += bytes;
     }
 
@@ -488,7 +519,7 @@ pub const Cache = struct {
             while (it.next()) |e| {
                 const v = e.value_ptr;
                 if (v.state == .loading) continue;
-                if (v.state == .ready and janela.keepsImageHidden(v.bytes, v.frames.len, cache.drawn_ms - v.used_ms)) continue;
+                if (v.state == .ready and janela.keepsImageHidden(v.bytes, if (v.animated()) 2 else v.frames.len, cache.drawn_ms - v.used_ms)) continue;
                 victim = e.key_ptr.*;
                 break;
             }
@@ -864,7 +895,7 @@ fn still(px: [*]const u8, w: c_int, h: c_int, max_w: u16, max_h: u16) Pixels {
 
 /// Navegadores tratam atraso < 20 ms de GIF como 100 ms; fazemos igual
 /// (no WebP também, que quase sempre vem de um GIF).
-fn gifDelay(ms: i64) u32 {
+pub fn gifDelay(ms: i64) u32 {
     return if (ms < 20) 100 else @intCast(@min(ms, 60_000));
 }
 
@@ -881,6 +912,14 @@ const FrameSink = struct {
     /// Guarda 1 de cada `step` quadros (sobe quando passa do limite).
     step: usize = 1,
     seen: usize = 0,
+    /// GIF e WebP podem tocar aos poucos em vez de pular quadros: o formato e o
+    /// tamanho do arquivo (para saber se o anel cabe no limite).
+    stream_kind: ?quadros.Kind = null,
+    compressed_len: usize = 0,
+    /// Passou do limite e vai tocar aos poucos: parou de juntar quadros.
+    streaming: bool = false,
+    src_w: usize = 0,
+    src_h: usize = 0,
 
     fn bytes(g: *const FrameSink) usize {
         return g.frames.items.len * g.w * g.h * 4;
@@ -923,8 +962,36 @@ const FrameSink = struct {
             alloc.free(out);
             return false;
         };
-        if (g.bytes() > gif_limit_bytes.load(.monotonic) or g.frames.items.len > max_gif_frames) g.halve();
+        const limit = gif_limit_bytes.load(.monotonic);
+        if (g.bytes() > limit or g.frames.items.len > max_gif_frames) {
+            const sb: ?usize = if (g.stream_kind) |k| quadros.streamBytes(g.compressed_len, k, sw, sh, g.w, g.h) else null;
+            switch (quadros.decide(g.bytes(), g.frames.items.len, limit, max_gif_frames, sb)) {
+                .full => {},
+                .stream => {
+                    g.streaming = true;
+                    g.src_w = sw;
+                    g.src_h = sh;
+                    return false;
+                },
+                .halve => g.halve(),
+            }
+        }
         return true;
+    }
+
+    /// Passou do limite: fica só o primeiro quadro (o parado), e o arquivo vai junto
+    /// para tocar aos poucos. Sem memória para a cópia, fica com os quadros que já tem.
+    fn seedFrom(g: *FrameSink, data: []const u8) Pixels {
+        const copy = alloc.dupe(u8, data) catch return g.finish();
+        for (g.frames.items[1..]) |f| alloc.free(f.data);
+        g.frames.shrinkRetainingCapacity(1);
+        var px = g.finish();
+        if (px.frames.len == 0) {
+            alloc.free(copy);
+            return px;
+        }
+        px.seed = .{ .data = copy, .kind = g.stream_kind.?, .src_w = @intCast(g.src_w), .src_h = @intCast(g.src_h) };
+        return px;
     }
 
     fn finish(g: *FrameSink) Pixels {
@@ -952,8 +1019,10 @@ fn newSink(max_w: u16, max_h: u16, stop: *std.atomic.Value(bool)) FrameSink {
 
 fn decodeGif(data: []const u8, max_w: u16, max_h: u16, stop: *std.atomic.Value(bool)) Pixels {
     var sink = newSink(max_w, max_h, stop);
+    sink.stream_kind = .gif;
+    sink.compressed_len = data.len;
     _ = c.larper_gif_frames(data.ptr, @intCast(data.len), FrameSink.gifCb, &sink);
-    return sink.finish();
+    return if (sink.streaming) sink.seedFrom(data) else sink.finish();
 }
 
 /// "RIFF", tamanho, "WEBP".
@@ -988,6 +1057,8 @@ fn decodeWebp(data: []const u8, max_w: u16, max_h: u16, stop: *std.atomic.Value(
     const cw: usize = info.canvas_width;
     const ch: usize = info.canvas_height;
     var sink = newSink(max_w, max_h, stop);
+    sink.stream_kind = .webp;
+    sink.compressed_len = data.len;
     var last: c_int = 0;
     while (c.WebPAnimDecoderHasMoreFrames(dec) != 0) {
         var buf: [*c]u8 = null;
@@ -996,7 +1067,7 @@ fn decodeWebp(data: []const u8, max_w: u16, max_h: u16, stop: *std.atomic.Value(
         defer last = ts;
         if (!sink.add(buf[0 .. cw * ch * 4], cw, ch, gifDelay(ts - last))) break;
     }
-    return sink.finish();
+    return if (sink.streaming) sink.seedFrom(data) else sink.finish();
 }
 
 /// Um vídeo curto virando animação (como um GIF): até 30 qps, 60 s e o
@@ -1092,7 +1163,7 @@ fn decodeApng(data: []const u8, max_w: u16, max_h: u16, stop: *std.atomic.Value(
 
 /// Redução por média de área (sem serrilhado), com alpha pré-multiplicado
 /// para as bordas transparentes não ficarem escuras.
-fn resize(src: []const u8, sw: usize, sh: usize, dst: []u8, dw: usize, dh: usize) void {
+pub fn resize(src: []const u8, sw: usize, sh: usize, dst: []u8, dw: usize, dh: usize) void {
     for (0..dh) |dy| {
         const y0 = dy * sh / dh;
         const y1 = @max(y0 + 1, (dy + 1) * sh / dh);
@@ -1132,6 +1203,14 @@ fn demo(jb: Job, stop: *std.atomic.Value(bool)) Pixels {
     if (std.mem.startsWith(u8, spec, "av:")) return demoAvatar(std.fmt.parseInt(u64, spec[3..], 10) catch 0, jb, false);
     if (std.mem.startsWith(u8, spec, "icon:")) return demoAvatar(std.fmt.parseInt(u64, spec[5..], 10) catch 0, jb, true);
     if (std.mem.eql(u8, spec, "gif")) return demoGif(jb, stop);
+    // GIF longo de verdade (passa pelo decodificador e toca aos poucos).
+    if (std.mem.eql(u8, spec, "longgif")) {
+        const data = quadros.demoGif(alloc, 400, 240, demo_long_frames, 3) catch return .{};
+        defer alloc.free(data);
+        c.SDL_WaitSemaphore(decode_slots);
+        defer c.SDL_SignalSemaphore(decode_slots);
+        return decode(data, jb.max_w, jb.max_h, stop, false);
+    }
     // "emoji:<id>:<0|1>" e "sticker:<id>:<0|1>": a carinha da demonstração.
     if (std.mem.startsWith(u8, spec, "emoji:") or std.mem.startsWith(u8, spec, "sticker:")) return demoEmoji(spec);
     // "GIF em MP4" da demonstração: o vídeo embutido, pelo FFmpeg.
