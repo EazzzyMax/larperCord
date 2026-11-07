@@ -3,7 +3,7 @@
 //! permissão, castigo, quarentena), Ctrl+Tab segurado e o op 14 que espera a
 //! escolha parar. O "servidor" é a demonstração (net/fake_gateway.zig): o
 //! #memes do "Rice do Hyprland" tem modo lento de 5 s, o #bugs do nosso tem
-//! 30 s (somos donos), estamos de castigo em "os larpers" e em quarentena no
+//! 30 s (somos donos), estamos de castigo no "Minecraft SMP" e em quarentena no
 //! "CTF da madrugada".
 const std = @import("std");
 const c = @import("c");

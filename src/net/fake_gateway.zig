@@ -261,7 +261,7 @@ pub const Gateway = struct {
             g.emit(.{ .roles = .{ .guild = guildId(locked_guild), .roles = rs2 } });
         }
         for (relations, 0..) |rel, i| g.emit(.{ .relationship = .{ .user = rel.user, .kind = rel.kind, .since_ms = nowMs() - @as(i64, @intCast(i + 1)) * 97 * 86_400_000 } });
-        // Nosso membro em dois servidores: de castigo por 3 h em "os larpers" e
+        // Nosso membro em dois servidores: de castigo por 3 h no "Minecraft SMP" e
         // em quarentena do AutoMod (nome) no "CTF da madrugada".
         g.emit(.{ .my_limits = .{ .guild = guildId(timeout_guild), .timeout_until_ms = nowMs() + 3 * 3_600_000 } });
         g.emit(.{ .my_limits = .{ .guild = guildId(quarantine_guild), .member_flags = 1 << 7 } });
@@ -1233,8 +1233,9 @@ pub fn mediaId(guild_index: usize) Id {
 pub const thread_guild = 5;
 /// Aqui só vale o @everyone: as threads herdam a falta de permissão.
 pub const locked_guild = 7;
-/// "os larpers": estamos de castigo. "CTF da madrugada": quarentena do AutoMod.
-pub const timeout_guild = 3;
+/// "Minecraft SMP": estamos de castigo. "CTF da madrugada": quarentena do AutoMod.
+/// (Em "os larpers" ficam as enquetes, onde é preciso poder escrever.)
+pub const timeout_guild = 6;
 pub const quarantine_guild = 4;
 
 /// Modo lento da demonstração (s): o #memes do "Rice do Hyprland" (vale para
