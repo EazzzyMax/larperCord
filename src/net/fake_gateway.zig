@@ -1654,7 +1654,6 @@ pub const webhook_user: Id = types.webhook_id_bit | 0x77;
 
 const GuildSeed = struct { name: []const u8, acronym: []const u8, color: u8, name_en: ?[]const u8 = null, acronym_en: ?[]const u8 = null, icon: bool = false };
 
-/// Cargos de cada servidor da demonstração (cor 0 = sem cor).
 /// Mudo/surdo de quem já está em call ao conectar.
 const demo_vflags = [_]struct { user: Id, flags: ev.VoiceFlags }{
     .{ .user = 1001, .flags = .{ .self_mute = true } },
@@ -1669,6 +1668,7 @@ pub const mod_perms = types.perm.kick_members | types.perm.ban_members | types.p
 /// Já banido do primeiro servidor quando a demonstração começa.
 pub const banned_user: Id = 1010;
 
+/// Cargos de cada servidor da demonstração (cor 0 = sem cor).
 const demo_roles = [_]struct { name: []const u8, name_en: []const u8, color: u32 }{
     .{ .name = "Fundação", .name_en = "Founders", .color = 0xF0B232 },
     .{ .name = "Moderação", .name_en = "Moderators", .color = 0x3BA55C },

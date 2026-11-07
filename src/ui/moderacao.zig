@@ -19,6 +19,7 @@ const Store = @import("../core/store.zig").Store;
 const types = @import("../core/types.zig");
 const ev = @import("../core/event.zig");
 const mod = @import("../core/moderacao.zig");
+const send_limits = @import("composer_limits.zig");
 const Id = types.Id;
 
 const ca = std.heap.c_allocator;
@@ -44,10 +45,16 @@ pub fn castigoAte(ctx: *const d.Ctx, guild: Id, uid: Id) i64 {
     return if (ms > ctx.now_ms) ms else 0;
 }
 
+/// Nós mesmos de castigo nesse servidor (ui/composer_limits.zig sabe): até
+/// acabar, o Discord só deixa ver o canal e ler o histórico, nada de moderar.
+fn euDeCastigo(ctx: *const d.Ctx, guild: Id) bool {
+    return send_limits.state.member(guild).timeout_until_ms > ctx.now_ms;
+}
+
 /// O que dá para fazer com `uid` no servidor aberto, já como entradas do menu.
 pub fn entradas(ctx: *d.Ctx, uid: Id, out: *[5]Entrada) []const Entrada {
     const g = ctx.st.guild;
-    if (g == 0) return out[0..0];
+    if (g == 0 or euDeCastigo(ctx, g)) return out[0..0];
     const p = mod.podeNoStore(ctx.store, g, uid);
     var n: usize = 0;
     const vf = ctx.store.voiceFlags(uid);
@@ -76,7 +83,7 @@ pub fn entradas(ctx: *d.Ctx, uid: Id, out: *[5]Entrada) []const Entrada {
 
 /// "Banimentos" no menu do servidor: só para quem pode banir.
 pub fn podeVerBans(ctx: *const d.Ctx, guild: Id) bool {
-    return mod.podeBanir(ctx.store.permissions(guild));
+    return !euDeCastigo(ctx, guild) and mod.podeBanir(ctx.store.permissions(guild));
 }
 
 /// Clicou numa entrada do menu (`id`: a pessoa, ou o servidor em "Banimentos").
