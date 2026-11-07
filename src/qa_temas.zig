@@ -145,8 +145,13 @@ pub const ops_window = [_]Op{
     expect("restaurar não quebra a tela", stillUsable),
 };
 
+fn settingsInReach(_: *App) bool {
+    return qa.find("user-btn:2") != null or qa.find("header-settings") != null;
+}
+
 pub const ops_static = [_]Op{
     expect("primitivas do tema estão na tela", themeMarks),
+    expect("o botão de configurações está à vista", settingsInReach),
     .{ .hover = .{ .mark = "composer" } },
     .{ .wait = 400 },
     expect("fundo no hover acende", hoverLit),

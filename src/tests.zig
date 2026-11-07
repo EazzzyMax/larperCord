@@ -5,6 +5,7 @@ const theme = @import("theme/theme.zig");
 const layout = @import("theme/layout.zig");
 
 test {
+    _ = @import("net/retry.zig");
     _ = @import("core/resample.zig");
     _ = @import("core/plain_letters.zig");
     _ = @import("core/gif_favorites.zig");

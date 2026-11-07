@@ -32,7 +32,7 @@ pub const Fonts = struct {
     maps: std.StringHashMapUnmanaged([]u8) = .empty,
     faces: std.ArrayList(struct { data: [*]u8, index: c_int, font: *c.ImFont }) = .empty,
     emoji: ?[]u8 = null,
-    text_weight: f32 = 1.35,
+    text_weight: f32 = 1,
     text_mode: u8 = 0,
     text_hint: c_uint = light_hinting,
     /// Fonte reserva para símbolos que a fonte principal não tem (⌁ ▣ ◐ ♪ …).
@@ -104,8 +104,8 @@ pub const Fonts = struct {
         cfg.FontNo = @intCast(index);
         cfg.PixelSnapH = true;
         // Por padrão, hinting leve: encaixa só na vertical (como o ClearType), sem mudar o desenho
-        // da letra. E um traço mais cheio, porque o SDL mistura em sRGB e o texto claro no fundo
-        // escuro sai fino demais. Configurações → Avançado muda os dois.
+        // da letra. E o traço como a fonte desenhou: multiplicar a cobertura engrossa, mas corta
+        // os tons da borda e serrilha. Configurações → Avançado muda os dois.
         cfg.FontLoaderFlags = f.text_hint;
         cfg.RasterizerMultiply = f.text_weight;
         cfg.FontDataOwnedByAtlas = false;

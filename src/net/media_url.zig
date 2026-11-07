@@ -90,6 +90,34 @@ pub fn sizeBucket(v: f32) u16 {
     return @intFromFloat(@min(@ceil(clamped / step) * step, 4096));
 }
 
+/// Um GIF de poucos bytes pode declarar um quadro enorme, e quem mandou escolhe quanta memória
+/// o app de todo mundo aloca. Até 4096 de lado e 8 megapixels (32 MB por quadro) no total.
+pub fn gifSizeAllowed(data: []const u8) bool {
+    if (data.len < 10) return false;
+    const w: u32 = std.mem.readInt(u16, data[6..8], .little);
+    const h: u32 = std.mem.readInt(u16, data[8..10], .little);
+    return w > 0 and h > 0 and w <= 4096 and h <= 4096 and w * h <= 8_000_000;
+}
+
+test "gif que declara tamanho enorme nem começa a decodificar" {
+    const header = struct {
+        fn of(w: u16, h: u16) [10]u8 {
+            var b = "GIF89a\x00\x00\x00\x00".*;
+            std.mem.writeInt(u16, b[6..8], w, .little);
+            std.mem.writeInt(u16, b[8..10], h, .little);
+            return b;
+        }
+    };
+    try std.testing.expect(gifSizeAllowed(&header.of(498, 280)));
+    try std.testing.expect(gifSizeAllowed(&header.of(4096, 1024)));
+    try std.testing.expect(!gifSizeAllowed(&header.of(65535, 65535)));
+    try std.testing.expect(!gifSizeAllowed(&header.of(4097, 10)));
+    // Cada lado passa, mas a área não.
+    try std.testing.expect(!gifSizeAllowed(&header.of(4096, 4096)));
+    try std.testing.expect(!gifSizeAllowed(&header.of(0, 10)));
+    try std.testing.expect(!gifSizeAllowed("GIF89a"));
+}
+
 test "imagem pequena fica no tamanho exato, grande anda em passos" {
     try std.testing.expectEqual(40, sizeBucket(40));
     try std.testing.expectEqual(32, sizeBucket(31.5));

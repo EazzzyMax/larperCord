@@ -49,8 +49,15 @@ pub fn keys(ctx: *d.Ctx) void {
         return;
     }
     const shift = io.*.KeyShift;
-    if (pressed(c.ImGuiKey_J)) if (shift) nextChannel(ctx, 1) else scroll(ctx, line_step);
-    if (pressed(c.ImGuiKey_K)) if (shift) nextChannel(ctx, -1) else scroll(ctx, -line_step);
+    // Trocar de canal não repete: segurar a tecla varreria o servidor, com pedidos ao Discord
+    // por canal. Só a rolagem anda sozinha.
+    if (shift) {
+        if (c.ImGui_IsKeyPressedEx(c.ImGuiKey_J, false)) nextChannel(ctx, 1);
+        if (c.ImGui_IsKeyPressedEx(c.ImGuiKey_K, false)) nextChannel(ctx, -1);
+    } else {
+        if (pressed(c.ImGuiKey_J)) scroll(ctx, line_step);
+        if (pressed(c.ImGuiKey_K)) scroll(ctx, -line_step);
+    }
     if (pressed(c.ImGuiKey_G)) {
         if (shift) {
             edge(ctx, false);

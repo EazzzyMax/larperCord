@@ -90,6 +90,8 @@ pub const Theme = struct {
     transparent: bool = false,
     styles: std.StringHashMapUnmanaged(Style) = .empty,
     layout: ?*const kdl.Node = null,
+    /// O layout tem o painel com o botão de configurações? Sem ele, o cabeçalho põe um.
+    has_user_panel: bool = true,
     /// Sobrescritas efetivas de cada nó (já incluindo as dos pais).
     node_colors: std.AutoHashMapUnmanaged(*const kdl.Node, []const Override) = .empty,
     /// Primitivas novas dos nós que usam alguma (`fx.zig`). Vazio na maioria.
@@ -134,6 +136,12 @@ pub const Theme = struct {
 /// Texto secundário legível em qualquer tema, inclusive os de outras pessoas: o traço fino das
 /// letras pequenas já perde contraste, e abaixo disto ele some no fundo. Sobe em direção à cor
 /// do texto só o quanto precisa, então a hierarquia texto > muted > faint continua.
+fn hasNode(n: *const kdl.Node, name: []const u8) bool {
+    if (std.mem.eql(u8, n.name, name)) return true;
+    for (n.children) |*ch| if (hasNode(ch, name)) return true;
+    return false;
+}
+
 fn legibleText(t: *Theme) void {
     const wanted = [_]struct { tok: Token, min: f32 }{ .{ .tok = .muted, .min = 5.5 }, .{ .tok = .faint, .min = 4.5 } };
     const backs = [_]Token{ .bg, .surface, .sidebar, .elevated };
@@ -321,6 +329,7 @@ pub fn loadWith(gpa: std.mem.Allocator, src: []const u8, lo: LoadOptions, diag: 
         }
     }
     legibleText(&t);
+    t.has_user_panel = if (t.layout) |root| hasNode(root, "user-panel") else true;
     if (t.layout == null) return fail(diag, null, "o tema precisa de um nó `layout`");
     try collectOverrides(&t, a, t.layout.?, &.{}, resolver, lo.mode, diag);
     collectFx(&t, a, t.layout.?, &fcx) catch |err| return fxFail(err, fcx, diag);

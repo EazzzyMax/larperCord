@@ -358,6 +358,8 @@ pub const App = struct {
             .commands = try Queue(ev.Command).init(app.gpa),
             .sink = .{ .ctx = app, .push = pushEvent },
             .token = token,
+            // Já no IDENTIFY: quem está invisível não pode piscar online ao abrir o app.
+            .status = @fromBackingInt(@intCast(@min(app.st.settings.my_status, 3))),
         } };
         // Falhou: o token volta para quem chamou (nada de liberar de novo no stop).
         app.net.real.start() catch |err| {
@@ -1950,8 +1952,10 @@ pub const App = struct {
         // As salvas desta conta (o QA e os prints começam sem nenhuma).
         saved_ui.load(&app.st.saved, app.gpa, app.store.me, !app.opts.qa and app.opts.shot == null);
         app.plugins.setAccount(app.store.me);
-        // O status escolhido da última vez (o Discord começa em online).
-        if (app.st.settings.my_status != 0) app.handle(.{ .set_status = @fromBackingInt(@intCast(@min(app.st.settings.my_status, 3))) });
+        // O status escolhido já foi no IDENTIFY; falta a nossa própria linha, que veio online.
+        if (app.st.settings.my_status != 0) if (app.store.users.getPtr(app.store.me)) |me| {
+            me.status = @fromBackingInt(@intCast(@min(app.st.settings.my_status, 3)));
+        };
         if (!app.store.demo) {
             // Conta real: começa pelas DMs (ou pelo primeiro servidor).
             const g0: types.Id = if (app.store.channelsOf(0).len > 0) 0 else if (app.store.guilds.items.len > 0) app.store.guilds.items[0].id else 0;

@@ -21,6 +21,7 @@ const Queue = @import("queue.zig").Queue;
 const Sink = @import("fake_gateway.zig").Sink;
 const nowMs = @import("fake_gateway.zig").nowMs;
 const j = @import("jsonx.zig");
+const Retry = @import("retry.zig").Retry;
 const timeline = @import("../platform/timeline.zig");
 const i18n = @import("../ui/i18n.zig");
 const image_uri = @import("../core/image_uri.zig");
@@ -118,6 +119,7 @@ pub const Gateway = struct {
     ws_live: bool = false,
     /// O gateway já respondeu READY ou RESUMED nesta conexão.
     ws_ready: bool = false,
+    ws_ready_ms: i64 = 0,
     /// Como a conexão acabou, visto de dentro de uma espera do REST.
     ws_end: ?End = null,
     servicing: bool = false,
@@ -207,7 +209,9 @@ pub const Gateway = struct {
         g.rest = c.curl_easy_init();
         if (g.rest) |r| sys.curlTls(r);
         defer if (g.rest) |h| c.curl_easy_cleanup(h);
-        var backoff: u32 = 2000;
+        var retry: Retry = .{};
+        var prng = std.Random.DefaultPrng.init(@bitCast(nowMs()));
+        const random = prng.random();
         while (!g.stopping) {
             // Com sessão válida o cliente oficial mostra "reconectando", não
             // "conectando": ele está retomando uma sessão, não abrindo outra.
@@ -219,10 +223,10 @@ pub const Gateway = struct {
                 g.ws = null;
             }
             if (g.stopping) break;
-            // A conexão chegou a funcionar: a próxima queda começa do zero.
-            const worked = g.ws_ready;
+            const lived: ?i64 = if (g.ws_ready) nowMs() - g.ws_ready_ms else null;
             g.ws_ready = false;
-            if (worked) backoff = 2000;
+            retry.sessionEnded(lived);
+            if (retry.justStartedFlapping() and lived != null) g.notice("a conexão está caindo logo depois de conectar; vou tentar com mais calma", "the connection keeps dropping right after connecting; retrying more slowly", .{});
             switch (result) {
                 .fatal => {
                     g.emit(.{ .status = .failed });
@@ -244,23 +248,20 @@ pub const Gateway = struct {
                 },
                 .retry => {
                     g.emit(.{ .status = .reconnecting });
-                    g.sleepServing(backoff);
-                    backoff = @min(backoff * 2, 60_000);
+                    g.sleepServing(retry.next(random));
                 },
                 .reconnect => {
                     g.emit(.{ .status = .reconnecting });
-                    // Caiu antes de valer: nada de um IDENTIFY por segundo.
-                    g.sleepServing(if (worked) 1000 else backoff);
-                    if (!worked) backoff = @min(backoff * 2, 60_000);
+                    // O Discord pediu depois de uma sessão estável: volta logo. Caindo sem parar:
+                    // nada de um IDENTIFY por segundo.
+                    g.sleepServing(if (retry.fresh) 1000 + random.uintLessThan(u32, 500) else retry.next(random));
                 },
                 .new_session => {
                     // Sessão inválida/expirada: o Discord manda esperar de
                     // 1 a 5 segundos antes de abrir uma nova.
                     g.clearSession();
                     g.emit(.{ .status = .reconnecting });
-                    var prng = std.Random.DefaultPrng.init(@bitCast(nowMs()));
-                    g.sleepServing(1000 + prng.random().uintLessThan(u32, 4000) + (if (worked) 0 else backoff));
-                    if (!worked) backoff = @min(backoff * 2, 60_000);
+                    g.sleepServing(1000 + random.uintLessThan(u32, 4000) + (if (retry.fresh) 0 else retry.next(random)));
                 },
             }
         }
@@ -2288,6 +2289,7 @@ pub const Gateway = struct {
     /// READY/RESUMED: o que esperava o gateway volta para a fila.
     fn gatewayReady(g: *Gateway) void {
         g.ws_ready = true;
+        g.ws_ready_ms = nowMs();
         g.pending.appendSlice(alloc, g.held.items) catch {};
         g.held.clearRetainingCapacity();
     }
@@ -3185,6 +3187,7 @@ pub const Gateway = struct {
                 g.emit(.{ .app_icon = .{ .app = app, .icon = icon } });
             },
             .set_status => |st| {
+                if (st == g.status) return;
                 g.status = st;
                 var buf: [128]u8 = undefined;
                 const payload = std.fmt.bufPrint(&buf, "{{\"op\":3,\"d\":{{\"status\":\"{s}\",\"since\":0,\"activities\":[],\"afk\":false}}}}", .{statusName(st)}) catch return;

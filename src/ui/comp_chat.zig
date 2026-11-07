@@ -70,10 +70,19 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         _ = w.botTag(ctx, dl, r.x + 4 + d.width(fam.get(.bold), 22, t), r.y + r.h / 2 - 9, dm_user, false, 1);
         const sub = if (ch.guild == 0) i18n.tr("mensagem direta", "direct message") else d.printClip(&buf, "{s}  ·  {s}", .{ if (g) |x| x.name else "", ch.topic });
         const has_panels = plugin_panel.available();
-        _ = d.textClipped(dl, fam.get(.regular), 13, r.x + 4, r.y + r.h / 2 + 5, ctx.col(.faint), sub, r.w - (if (has_panels) @as(f32, 156) else 120));
+        const needs_gear = !ctx.th.has_user_panel;
+        _ = d.textClipped(dl, fam.get(.regular), 13, r.x + 4, r.y + r.h / 2 + 5, ctx.col(.faint), sub, r.w - (if (has_panels) @as(f32, 156) else 120) - (if (needs_gear) @as(f32, 36) else 0));
         inboxButtons(ctx, dl, r.right() - 32, r.y + r.h / 2 - 14);
         pinsButton(ctx, dl, ch_id, r.right() - 104, r.y + r.h / 2 - 14);
         if (has_panels) panelsButton(ctx, dl, r.right() - 140, r.y + r.h / 2 - 14);
+        if (needs_gear) {
+            const gr: d.Rect = .{ .x = r.right() - (if (has_panels) @as(f32, 176) else 140), .y = r.y + r.h / 2 - 14, .w = 28, .h = 28 };
+            const gh = d.hit(ctx, 9, gr);
+            qa.mark(gr, "header-settings", .{});
+            if (gh.clicked) ctx.act(.open_settings);
+            icons.gear(dl, gr.x + 14, gr.y + 14, (if (gh.hovered) ctx.col(.text) else ctx.col(.muted)).u());
+            d.tip(ctx, gr, i18n.tr("Configurações  (Ctrl+,)", "User Settings  (Ctrl+,)"), gh.hovered);
+        }
         return;
     }
 

@@ -492,7 +492,7 @@ fn textStyleApplied(app: *App) bool {
 }
 fn textStyleDefault(app: *App) bool {
     const src = app.fonts.faces.items[0].font.Sources.Data[0];
-    return app.st.settings.text_weight == 1.35 and src.*.RasterizerMultiply == 1.35 and src.*.FontLoaderFlags & 31 == 8 and textWidth(app) == text_width_before;
+    return app.st.settings.text_weight == 1 and src.*.RasterizerMultiply == 1 and src.*.FontLoaderFlags & 31 == 8 and textWidth(app) == text_width_before;
 }
 /// Sem foto de 128 px reduzida na placa de vídeo: a textura tem o tamanho em que aparece.
 fn imageExactSize(app: *App) bool {

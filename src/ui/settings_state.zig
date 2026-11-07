@@ -54,7 +54,7 @@ pub const Settings = struct {
     font_scale: f32 = 1.0,
     /// Limites de memória, em Desempenho: imagens e cada GIF (MB), e mensagens somando os canais.
     /// Traço e encaixe das letras nos pixels (ui/fonts.zig).
-    text_weight: f32 = 1.35,
+    text_weight: f32 = 1,
     text_hinting: u8 = 0,
     image_cache_mb: f32 = 32,
     gif_limit_mb: f32 = 12,

@@ -823,7 +823,7 @@ fn decode(data: []const u8, max_w: u16, max_h: u16, stop: *std.atomic.Value(bool
     if (data.len > 6 and std.mem.startsWith(u8, data, "GIF8")) {
         // a tiny gif can allocate alot of memory
         // check the size first and skip if too big
-        if (!gifSizeAllowed(data)) return .{};
+        if (!media_url.gifSizeAllowed(data)) return .{};
         const anim_px = decodeGif(data, max_w, max_h, stop);
         if (anim_px.frames.len > 0) return anim_px;
     }
@@ -837,14 +837,6 @@ fn decode(data: []const u8, max_w: u16, max_h: u16, stop: *std.atomic.Value(bool
     const px = c.stbi_load_from_memory(data.ptr, @intCast(data.len), &w, &h, &comp, 4) orelse return .{};
     defer c.stbi_image_free(px);
     return still(px, w, h, max_w, max_h);
-}
-
-/// true if the gif w and h are between 1-4096
-fn gifSizeAllowed(data: []const u8) bool {
-    if (data.len < 10) return false;
-    const w = std.mem.readInt(u16, data[6..8], .little);
-    const h = std.mem.readInt(u16, data[8..10], .little);
-    return w > 0 and h > 0 and w <= 4096 and h <= 4096;
 }
 
 /// Uma imagem só (RGBA w×h), copiada e reduzida.
