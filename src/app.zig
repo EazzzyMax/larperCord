@@ -181,7 +181,11 @@ pub const App = struct {
         const app = try gpa.create(App);
         errdefer gpa.destroy(app);
 
-        app.win = try platform.Window.init("larperCord", 1280, 800);
+        // O fontconfig se prepara enquanto a janela abre (ver fc_warm.zig).
+        const fc_warm = @import("platform/fc_warm.zig").start();
+        const win = platform.Window.init("larperCord", 1280, 800);
+        @import("platform/fc_warm.zig").join(fc_warm);
+        app.win = try win;
         wake_type_global = app.win.wake_type;
         timeline.mark(.janela);
 
@@ -2260,6 +2264,34 @@ pub const App = struct {
                 app.handle(.{ .toggle_voice = gw.channelId(0, 13) });
                 app.st.popup = .{ .mixer = .{ .x = 90, .y = 410 } };
             }
+            return;
+        }
+        // "rolar": a roda sobe e desce sem parar sobre a conversa (com LARPER_BENCH,
+        // mede o custo de rolar).
+        if (std.mem.eql(u8, which, "rolar")) {
+            const R = struct {
+                var n: u32 = 0;
+            };
+            R.n +%= 1;
+            c.ImGuiIO_AddMousePosEvent(app.io, 700, 400);
+            c.ImGuiIO_AddMouseWheelEvent(app.io, 0, if (R.n % 160 < 80) 1 else -1);
+            return;
+        }
+        // "digitar": uma letra a cada 4 quadros na caixa de texto, apagando tudo a
+        // cada 400 (mede o custo de digitar).
+        if (std.mem.eql(u8, which, "digitar")) {
+            const T = struct {
+                var n: u32 = 0;
+            };
+            T.n +%= 1;
+            if (T.n % 400 == 0) {
+                @memset(&app.st.input, 0);
+                app.st.input_sync = true;
+            }
+            if (T.n % 4 != 0) return;
+            app.st.focus_input = true;
+            const s = "olha isso aqui que legal ";
+            c.ImGuiIO_AddInputCharacter(app.io, s[(T.n / 4) % s.len]);
             return;
         }
         // As outras cenas esperam a conversa carregar.

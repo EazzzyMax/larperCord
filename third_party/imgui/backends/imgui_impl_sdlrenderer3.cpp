@@ -108,15 +108,36 @@ void ImGui_ImplSDLRenderer3_NewFrame()
 // https://github.com/libsdl-org/SDL/issues/9009
 static int SDL_RenderGeometryRaw8BitColor(SDL_Renderer* renderer, ImVector<SDL_FColor>& colors_out, SDL_Texture* texture, const float* xy, int xy_stride, const SDL_Color* color, int color_stride, const float* uv, int uv_stride, int num_vertices, const void* indices, int num_indices, int size_indices)
 {
+    // larperCord: tabela com as 256 divisões feitas uma vez (o mesmo float, bit a
+    // bit), e a cor do vértice anterior reaproveitada quando se repete (as letras
+    // de um texto têm todas a mesma). Eram 4 divisões por vértice a cada quadro.
+    static float to_float[256];
+    static bool to_float_ready = false;
+    if (!to_float_ready)
+    {
+        for (int i = 0; i < 256; i++)
+            to_float[i] = i / 255.0f;
+        to_float_ready = true;
+    }
     const Uint8* color2 = (const Uint8*)color;
     colors_out.resize(num_vertices);
     SDL_FColor* color3 = colors_out.Data;
+    // to_float[0] == 0: a cor 0 (transparente) já está pronta.
+    Uint32 prev = 0;
+    SDL_FColor last = { 0.0f, 0.0f, 0.0f, 0.0f };
     for (int i = 0; i < num_vertices; i++)
     {
-        color3[i].r = color->r / 255.0f;
-        color3[i].g = color->g / 255.0f;
-        color3[i].b = color->b / 255.0f;
-        color3[i].a = color->a / 255.0f;
+        Uint32 packed;
+        memcpy(&packed, color2, sizeof(packed));
+        if (packed != prev)
+        {
+            prev = packed;
+            last.r = to_float[color->r];
+            last.g = to_float[color->g];
+            last.b = to_float[color->b];
+            last.a = to_float[color->a];
+        }
+        color3[i] = last;
         color2 += color_stride;
         color = (const SDL_Color*)color2;
     }
