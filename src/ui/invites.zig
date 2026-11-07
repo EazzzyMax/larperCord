@@ -19,6 +19,7 @@ const forum = @import("forum.zig");
 const inbox = @import("inbox.zig");
 const w_ui = @import("widgets.zig");
 const att = @import("attachments.zig");
+const entrada = @import("entrada.zig");
 const Id = types.Id;
 
 // --- Entrar -----------------------------------------------------------------------------
@@ -37,7 +38,14 @@ pub fn openJoin(ctx: *d.Ctx, link: []const u8) void {
     const head = d.utf8Prefix(link, join_buf.len - 1);
     @memcpy(join_buf[0..head.len], head);
     join_state = .idle;
+    entrada.warning_open = false;
     ctx.st.popup = .join_invite;
+}
+
+fn startJoin(ctx: *d.Ctx, code: []const u8) void {
+    join_state = .joining;
+    join_last_ms = ctx.now_ms;
+    ctx.act(.{ .join_invite = links.InviteCode.init(code) });
 }
 
 /// Para o QA: a próxima entrada não espera o intervalo.
@@ -81,6 +89,13 @@ pub fn drawJoin(ctx: *d.Ctx) void {
     defer c.ImGui_End();
     ctx.dl = dl;
     inbox.panelFrame(ctx, dl, r);
+    // O aviso de antes de entrar fica no lugar do resto até a pessoa escolher (ui/entrada.zig).
+    if (entrada.warning_open) {
+        if (entrada.joinWarning(ctx, dl, r) == .join and join_state != .joining) {
+            if (parseCode(std.mem.sliceTo(&join_buf, 0))) |cd| startJoin(ctx, cd);
+        }
+        return;
+    }
     const fam = ctx.ui;
     d.text(dl, fam.get(.bold), 17, r.x + 18, r.y + 16, ctx.col(.text), i18n.tr("Entrar em um servidor", "Join a server"));
     d.text(dl, fam.get(.semibold), 12.5, r.x + 18, r.y + 50, ctx.col(.muted), i18n.tr("Link do convite", "Invite link"));
@@ -131,9 +146,9 @@ pub fn drawJoin(ctx: *d.Ctx) void {
             ctx.act(.{ .select_guild = inv.?.guild });
             return popup.close(ctx);
         }
-        join_state = .joining;
-        join_last_ms = ctx.now_ms;
-        ctx.act(.{ .join_invite = links.InviteCode.init(code.?) });
+        // Uma vez, até marcar "não mostrar de novo": o aviso de entrar demais.
+        if (entrada.wantsWarning(ctx)) return entrada.openWarning();
+        startJoin(ctx, code.?);
     }
 }
 

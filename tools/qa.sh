@@ -23,6 +23,7 @@ run() {
 }
 run "geral (classico)" $bin --qa --theme classico
 QA_SUITE=extras LARPER_NO_FFMPEG=1 run "extras" $bin --qa --theme classico
+QA_SUITE=entrada run "entrada" $bin --qa --theme classico
 # Plugins: o que fica gravado ao fechar continua lá ao abrir de novo (outro processo).
 QA_SUITE=plugins-a run "plugins (antes)" $bin --qa
 sleep 2.5

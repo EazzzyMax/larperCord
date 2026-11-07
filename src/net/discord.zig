@@ -40,6 +40,7 @@ const Value = std.json.Value;
 
 const alloc = std.heap.c_allocator;
 const links = @import("../core/links.zig");
+const entrada = @import("../core/entrada.zig");
 const api = "https://discord.com/api/v10";
 /// A busca vai na versão que o cliente do Discord usa (o caminho já traz o /v9).
 const api_root = "https://discord.com/api";
@@ -326,6 +327,7 @@ pub const Gateway = struct {
             .join_invite => |code| g.emit(.{ .invite_joined = .{ .code = code, .status = .failed } }),
             .create_invite => |ci| g.emit(.{ .invite_created = .{ .req = ci.req, .status = .failed } }),
             .fetch_threads => |ft| g.emit(.{ .threads_page = .{ .channel = ft.channel, .archived = ft.archived, .failed = true } }),
+            .entrada => |e| g.emit(.{ .entrada = entrada.dropped(e) }),
             else => {},
         }
         freeCommand(cmd);
@@ -842,6 +844,7 @@ pub const Gateway = struct {
             var list: std.ArrayList(Id) = .empty;
             for (j.array(j.get(m, "roles"))) |rv| if (j.id(rv)) |rid| list.append(alloc, rid) catch {};
             if (list.toOwnedSlice(alloc)) |roles| g.emit(.{ .my_roles = .{ .guild = gid, .roles = roles } }) else |_| {}
+            g.emitPending(gid, m);
         }
         g.emit(.{ .member_info = .{ .guild = gid, .user = uid, .info = g.infoOf(j.array(j.get(m, "roles"))) } });
     }
@@ -1058,6 +1061,7 @@ pub const Gateway = struct {
                     .banner = guildBanner(d),
                     .can_banner = canBanner(d),
                     .description = guildDescription(d),
+                    .onboarding = hasFeature(d, "GUILD_ONBOARDING"),
                 },
                 .channels = try alloc.alloc(types.Channel, 0),
                 .voice = try alloc.alloc([2]Id, 0),
@@ -1632,6 +1636,7 @@ pub const Gateway = struct {
             try voice.append(alloc, .{ ch, uid });
         }
         g.ingestMembers(d);
+        g.minePending(gid, j.array(j.get(d, "members")));
         g.ingestRoles(gid, j.array(j.get(d, "roles")));
         g.ingestEmojis(gid, j.array(j.get(d, "emojis")));
         g.emit(.{ .guild_create = .{
@@ -1644,6 +1649,7 @@ pub const Gateway = struct {
                 .banner = guildBanner(d),
                 .can_banner = canBanner(d),
                 .description = guildDescription(d),
+                .onboarding = hasFeature(d, "GUILD_ONBOARDING"),
                 .owner = ownerOf(d),
                 .joined_id = read_json.joinedId(d),
             },
@@ -2214,7 +2220,7 @@ pub const Gateway = struct {
             const gid = j.id(j.get(gv, "id")) orelse continue;
             const props = j.get(gv, "properties");
             const name = j.str(j.get(gv, "name")) orelse (if (props) |p| j.str(j.get(p, "name")) else null) orelse i18n.tr("servidor", "server");
-            try guilds.append(alloc, .{ .id = gid, .name = dupe(name), .acronym = try j.acronym(alloc, name), .color = @intCast((gid >> 22) % 8), .icon = guildIcon(gv), .banner = guildBanner(gv), .can_banner = canBanner(gv), .description = guildDescription(gv), .owner = ownerOf(gv), .joined_id = read_json.joinedId(gv) });
+            try guilds.append(alloc, .{ .id = gid, .name = dupe(name), .acronym = try j.acronym(alloc, name), .color = @intCast((gid >> 22) % 8), .icon = guildIcon(gv), .banner = guildBanner(gv), .can_banner = canBanner(gv), .description = guildDescription(gv), .onboarding = hasFeature(gv, "GUILD_ONBOARDING"), .owner = ownerOf(gv), .joined_id = read_json.joinedId(gv) });
             g.ingestRoles(gid, j.array(j.get(gv, "roles")));
             g.ingestEmojis(gid, j.array(j.get(gv, "emojis")));
             try appendChannels(&channels, gid, j.array(j.get(gv, "channels")));
@@ -2725,6 +2731,7 @@ pub const Gateway = struct {
                 alloc.free(m.content);
                 alloc.free(m.tags);
             },
+            .entrada => |e| entrada.freeCmd(alloc, e),
             else => {},
         }
     }
@@ -3144,6 +3151,7 @@ pub const Gateway = struct {
                 defer resp.body.deinit(alloc);
                 g.inviteJoined(code, &resp) catch g.emit(failed);
             },
+            .entrada => |e| g.entradaCmd(e),
             .create_invite => |ci| {
                 const failed: ev.Event = .{ .invite_created = .{ .req = ci.req, .status = .failed } };
                 var body_buf: [128]u8 = undefined;
@@ -3545,7 +3553,77 @@ pub const Gateway = struct {
         else
             .failed;
         const guild = j.id(j.get(root, "guild_id")) orelse (if (j.get(root, "guild")) |gv| j.id(j.get(gv, "id")) else null) orelse 0;
+        // O servidor pede as regras antes de deixar falar: a caixa de texto explica.
+        if (status == .ok and guild != 0) if (j.get(root, "show_verification_form")) |sv| if (sv == .bool and sv.bool) {
+            g.emit(.{ .entrada = .{ .pending = .{ .guild = guild, .pending = true } } });
+        };
         g.emit(.{ .invite_joined = .{ .code = code, .status = status, .guild = guild } });
+    }
+
+    /// O `pending` do nosso membro, se veio (sem o campo, nada muda).
+    fn emitPending(g: *Gateway, gid: Id, m: Value) void {
+        const p = j.get(m, "pending") orelse return;
+        if (p != .bool) return;
+        g.emit(.{ .entrada = .{ .pending = .{ .guild = gid, .pending = p.bool } } });
+    }
+
+    /// No GUILD_CREATE de um servidor em que acabamos de entrar, o nosso membro vem na lista.
+    fn minePending(g: *Gateway, gid: Id, members: []const Value) void {
+        for (members) |m| {
+            const u = j.get(m, "user") orelse continue;
+            if (j.id(j.get(u, "id")) == g.me) return g.emitPending(gid, m);
+        }
+    }
+
+    fn hasFeature(v: Value, name: []const u8) bool {
+        const list = guildField(v, "features") orelse return false;
+        for (j.array(list)) |f| if (j.str(f)) |x| if (std.mem.eql(u8, x, name)) return true;
+        return false;
+    }
+
+    fn entradaEvent(g: *Gateway, e: entrada.Event) void {
+        g.emit(.{ .entrada = e });
+    }
+
+    /// Regras e boas-vindas (core/entrada.zig). Cada pedido sai de um clique de quem usa; a
+    /// resposta vai crua para a janela, que lê.
+    fn entradaCmd(g: *Gateway, cmd: entrada.Cmd) void {
+        var path_buf: [128]u8 = undefined;
+        switch (cmd) {
+            .form, .onboarding => |gid| {
+                const path = (if (cmd == .form)
+                    std.fmt.bufPrint(&path_buf, "/guilds/{d}/member-verification?with_guild=false", .{gid})
+                else
+                    std.fmt.bufPrint(&path_buf, "/guilds/{d}/onboarding", .{gid})) catch return g.entradaEvent(entrada.dropped(cmd));
+                var resp = g.request("GET", path, null) orelse return g.entradaEvent(entrada.dropped(cmd));
+                const status = entrada.statusOf(@as(i64, resp.status));
+                var body: []const u8 = "";
+                if (status == .ok and resp.body.items.len > 0) {
+                    body = resp.body.toOwnedSlice(alloc) catch blk: {
+                        resp.body.deinit(alloc);
+                        break :blk "";
+                    };
+                } else resp.body.deinit(alloc);
+                if (status == .ok and body.len == 0) return g.entradaEvent(entrada.dropped(cmd));
+                g.entradaEvent(if (cmd == .form) .{ .form = .{ .guild = gid, .status = status, .body = body } } else .{ .onboarding = .{ .guild = gid, .status = status, .body = body } });
+            },
+            .send_form => |sf| {
+                const path = std.fmt.bufPrint(&path_buf, "/guilds/{d}/requests/@me", .{sf.guild}) catch return g.entradaEvent(entrada.dropped(cmd));
+                var resp = g.request("PUT", path, sf.body) orelse return g.entradaEvent(entrada.dropped(cmd));
+                defer resp.body.deinit(alloc);
+                const status = entrada.statusOf(@as(i64, resp.status));
+                if (status != .ok) g.noticeHttp(i18n.tr("não consegui enviar as respostas das regras", "couldn't send the answers to the rules"), &resp);
+                g.entradaEvent(.{ .form_sent = .{ .guild = sf.guild, .status = status, .application = if (status == .ok) entrada.applicationStatus(alloc, resp.body.items) else .unknown } });
+            },
+            .send_onboarding => |so| {
+                const path = std.fmt.bufPrint(&path_buf, "/guilds/{d}/onboarding-responses", .{so.guild}) catch return g.entradaEvent(entrada.dropped(cmd));
+                var resp = g.request(if (so.first) "POST" else "PUT", path, so.body) orelse return g.entradaEvent(entrada.dropped(cmd));
+                defer resp.body.deinit(alloc);
+                const status = entrada.statusOf(@as(i64, resp.status));
+                if (status != .ok) g.noticeHttp(i18n.tr("não consegui salvar as boas-vindas", "couldn't save the onboarding answers"), &resp);
+                g.entradaEvent(.{ .onboarding_sent = .{ .guild = so.guild, .status = status } });
+            },
+        }
     }
 
     /// A página de uma busca. 202: o Discord ainda está indexando esse lugar, e diz quando

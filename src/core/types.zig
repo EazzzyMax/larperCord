@@ -233,6 +233,8 @@ pub const Guild = struct {
     /// O servidor tem o recurso de banner (o Discord recusa sem ele).
     can_banner: bool = false,
     description: []const u8 = "",
+    /// O servidor tem perguntas de boas-vindas (recurso GUILD_ONBOARDING).
+    onboarding: bool = false,
 };
 
 pub const Channel = struct {

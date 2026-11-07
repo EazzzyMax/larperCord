@@ -98,6 +98,8 @@ fn popupKey(p: state.Popup) u64 {
         .gif => 14,
         .join_invite => 12,
         .create_invite => |t| 13 +% t.channel *% 31,
+        .server_rules => |t| 15 +% t.guild *% 31,
+        .onboarding => |t| 16 +% t.guild *% 31,
     };
 }
 
@@ -167,6 +169,8 @@ pub fn draw(ctx: *d.Ctx) void {
         .edit_place => |t| @import("edit_place.zig").draw(ctx, t.id, t.group),
         .join_invite => @import("invites.zig").drawJoin(ctx),
         .create_invite => |t| @import("invites.zig").drawCreate(ctx, t.channel),
+        .server_rules => |t| @import("entrada.zig").drawRules(ctx, t.guild),
+        .onboarding => |t| @import("entrada.zig").drawOnboarding(ctx, t.guild),
         .none => {},
     }
     animateOpen(ctx);
@@ -396,6 +400,8 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
             add(&items, &n, .{ .label = "Marcar como lido", .en = "Mark As Read", .id = 60 });
             if (@import("invites.zig").channelFor(ctx, id) != null) add(&items, &n, .{ .label = "Convidar pessoas…", .en = "Invite People…", .id = 69 });
             if (ctx.store.can(id, types.perm.manage_guild)) add(&items, &n, .{ .label = "Editar servidor…", .en = "Edit Server…", .id = 64 });
+            if (ctx.store.isPending(id)) add(&items, &n, .{ .label = "Regras do servidor…", .en = "Server Rules…", .id = 78 });
+            if (ctx.store.guild(id)) |vg| if (vg.onboarding) add(&items, &n, .{ .label = "Boas-vindas do servidor…", .en = "Server Onboarding…", .id = 77 });
             if (ctx.store.guild(id)) |vg| {
                 if (vg.icon != null) add(&items, &n, .{ .label = "Ver ícone", .en = "View Icon", .id = 65 });
                 if (vg.banner != null) add(&items, &n, .{ .label = "Ver banner", .en = "View Banner", .id = 66 });
@@ -562,6 +568,8 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
         64 => @import("edit_place.zig").open(ctx, id, false),
         56 => @import("invites.zig").openCreate(ctx, id),
         69 => if (@import("invites.zig").channelFor(ctx, id)) |ch| @import("invites.zig").openCreate(ctx, ch),
+        77 => st.popup = .{ .onboarding = .{ .guild = id } },
+        78 => st.popup = .{ .server_rules = .{ .guild = id } },
         27 => @import("profile.zig").viewAvatar(ctx, id),
         54 => if (ctx.store.channel(id)) |cs| if (cs.info.icon) |h| {
             var ub: [192]u8 = undefined;

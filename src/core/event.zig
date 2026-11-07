@@ -6,6 +6,7 @@
 //! passam a pertencer ao Store.
 const types = @import("types.zig");
 const InviteCode = @import("links.zig").InviteCode;
+const entrada = @import("entrada.zig");
 const Id = types.Id;
 
 pub const Ready = struct {
@@ -95,6 +96,8 @@ pub const Event = union(enum) {
     pins_changed: Id,
     /// Resposta de GET /invites/{code}.
     invite: struct { code: InviteCode, invite: types.Invite },
+    /// Regras e boas-vindas de um servidor (core/entrada.zig).
+    entrada: entrada.Event,
     /// Reações removidas de uma vez (emoji = null limpa todas).
     reaction_clear: struct { channel: Id, id: Id, emoji: ?types.Reaction },
     /// Estado da conexão, para a barra de status.
@@ -275,6 +278,8 @@ pub const Command = union(enum) {
     fetch_invite: InviteCode,
     join_invite: InviteCode,
     create_invite: CreateInvite,
+    /// Regras e boas-vindas de um servidor, sempre de um clique (core/entrada.zig).
+    entrada: entrada.Cmd,
     /// Uma página de threads de um canal. Ativas: por `offset`; arquivadas:
     /// as de antes de `before` (s; 0 = as mais recentes).
     fetch_threads: struct { channel: Id, guild: Id, archived: bool, offset: u32 = 0, before: i64 = 0 },
@@ -361,6 +366,8 @@ pub const Action = union(enum) {
     forward_to: struct { id: Id, to: Id },
     join_invite: InviteCode,
     create_invite: CreateInvite,
+    /// Buscar ou enviar as regras e as boas-vindas (o corpo vai alocado com o c_allocator).
+    entrada: entrada.Cmd,
     /// Link de convite na tela: busca o cartão (uma vez por código).
     want_invite: InviteCode,
     /// Liga/desliga uma opção do tema atual (índice em `Theme.options`).

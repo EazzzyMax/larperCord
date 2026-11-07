@@ -36,6 +36,9 @@ pub const Popup = union(enum) {
     /// Entrar por convite e criar um (ui/invites.zig).
     join_invite,
     create_invite: struct { channel: Id },
+    /// Regras de um servidor que pede antes de deixar falar, e as boas-vindas (ui/entrada.zig).
+    server_rules: struct { guild: Id },
+    onboarding: struct { guild: Id },
 };
 
 /// Seleção de texto entre mensagens: âncora e cabeça (mensagem + byte).

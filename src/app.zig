@@ -1229,6 +1229,7 @@ pub const App = struct {
             },
             .search_messages => |s| app.cmd(.{ .search_messages = s }),
             .join_invite => |code| app.cmd(.{ .join_invite = code }),
+            .entrada => |e| if (app.net == .none) @import("core/entrada.zig").freeCmd(std.heap.c_allocator, e) else app.cmd(.{ .entrada = e }),
             .create_invite => |ci| app.cmd(.{ .create_invite = ci }),
             .open_pins => |id| {
                 st.popup = .{ .pins = .{ .channel = id } };
@@ -1815,11 +1816,19 @@ pub const App = struct {
         switch (e) {
             .search_results => |r| @import("ui/search.zig").deliver(r),
             .invite_created => |r| @import("ui/invites.zig").created(r),
+            .entrada => |ee| @import("ui/entrada.zig").deliver(ee),
             .invite_joined => |r| {
                 const invites = @import("ui/invites.zig");
                 invites.joined(r);
                 if (r.status != .ok) return;
                 if (st.popup == .join_invite) st.popup = .none;
+                // Servidor que pede as regras e ainda não chegou (sem prévia, só chega depois
+                // delas): as regras abrem para quem acabou de clicar em Entrar ler e responder.
+                if (app.store.isPending(r.guild) and app.store.guild(r.guild) == null) {
+                    invites.pending_guild = r.guild;
+                    st.popup = .{ .server_rules = .{ .guild = r.guild } };
+                    return;
+                }
                 // O servidor costuma chegar pelo gateway, às vezes depois desta resposta.
                 if (r.guild != 0 and app.store.guild(r.guild) != null) app.handle(.{ .select_guild = r.guild }) else invites.pending_guild = r.guild;
             },
