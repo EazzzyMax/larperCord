@@ -116,6 +116,9 @@ pub const Settings = struct {
     emoji_recent: Text = .{},
     /// Últimas mensagens de cada canal em disco (abrir na hora, busca offline).
     message_cache: bool = true,
+    /// Rich Presence: jogos e apps mostram a atividade pelo discord-ipc
+    /// (net/rpc_ipc.zig). Desligado, nada escuta.
+    rich_presence: bool = false,
 
     /// Nosso status: 0 online, 1 ausente, 2 não perturbe, 3 invisível.
     /// Reaplicado ao conectar.

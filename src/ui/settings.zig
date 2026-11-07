@@ -727,6 +727,7 @@ fn page(p: *Page, previews: []const Preview) void {
         .privacidade => {
             p.title(i18n.tr("Privacidade", "Privacy"));
             p.toggle(i18n.tr("Enviar indicador de digitação", "Send typing indicator"), i18n.tr("Os outros veem \"digitando…\" enquanto você escreve.", "Others see \"typing…\" while you write."), &s.send_typing);
+            p.toggle(i18n.tr("Compartilhar minha atividade (Rich Presence)", "Share my activity (Rich Presence)"), i18n.tr("Jogos e apps com Rich Presence mostram o que você está fazendo, como no Discord do computador. Desligado, nada fica escutando.", "Games and apps with Rich Presence show what you're doing, like the Discord desktop app. Off: nothing listens."), &s.rich_presence);
             p.toggle(i18n.tr("Animar GIFs do Tenor e do Giphy", "Animate Tenor and Giphy GIFs"), i18n.tr("Baixa do site deles, que vê o seu IP (o app oficial faz igual). Desligado: prévia parada pelo Discord.", "Downloads from their site, which sees your IP (the official app does too). Off: still preview via Discord."), &s.gif_hosts);
             p.toggle(i18n.tr("Modo streamer", "Streamer Mode"), i18n.tr("Esconde o e-mail e o nome de usuário nas configurações.", "Hides your email and username in settings."), &s.streamer_mode);
             p.toggle(i18n.tr("Registro de mensagens", "Message log"), i18n.tr("Apagadas continuam na tela (marcadas) e editadas guardam o original. Só aqui.", "Deleted messages stay visible (marked) and edits keep the original. Local only."), &s.message_log);

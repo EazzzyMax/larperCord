@@ -445,15 +445,19 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     var mb: [80]u8 = undefined;
     const modes = modeLine(ctx, &mb);
     if (modes != null) qa.mark(pr, "mode-line", .{});
-    // Status personalizado (vale até vencer), no lugar do texto do status.
+    // Status personalizado (vale até vencer), no lugar do texto do status; sem
+    // ele, a atividade do Rich Presence ocupa o mesmo lugar.
     var cb: [600]u8 = undefined;
     const custom = customLine(ctx, &cb);
     if (tty) {
-        var buf: [160]u8 = undefined;
+        var buf: [256]u8 = undefined;
         const t = if (modes) |ml|
             std.fmt.bufPrint(&buf, "{s} {s} [{s}]", .{ w.statusGlyph(me.status), me.name, ml }) catch ""
         else if (custom) |cl|
             std.fmt.bufPrint(&buf, "{s} {s} · {s}", .{ w.statusGlyph(me.status), me.name, d.utf8Prefix(cl, 100) }) catch ""
+        else if (me.activity) |act|
+            // A nossa atividade (Rich Presence), como a dos outros na lista.
+            std.fmt.bufPrint(&buf, "{s} {s} · {s}", .{ w.statusGlyph(me.status), me.name, d.utf8Prefix(act, 100) }) catch ""
         else
             std.fmt.bufPrint(&buf, "{s} {s}", .{ w.statusGlyph(me.status), me.name }) catch "";
         const tr: d.Rect = .{ .x = pr.x + 4, .y = pr.y + 2, .w = pr.w - 80, .h = pr.h - 4 };
@@ -461,7 +465,8 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         qa.mark(tr, "me", .{});
         if (hb.hovered) d.rect(ctx.dl, tr, ctx.col(.hover), 0);
         if (hb.clicked) ctx.popup(.{ .menu = .{ .kind = .status, .id = me.id, .x = tr.x, .y = tr.y - 190 } });
-        d.text(ctx.dl, fam.get(.bold), ctx.th.font_size - 1, pr.x + 10, d.centerY(pr, ctx.th.font_size - 1), w.statusColor(ctx, me.status), t);
+        if (modes == null and custom == null and me.activity != null) qa.mark(tr, "me-activity", .{});
+        _ = d.textClipped(ctx.dl, fam.get(.bold), ctx.th.font_size - 1, pr.x + 10, d.centerY(pr, ctx.th.font_size - 1), w.statusColor(ctx, me.status), t, tr.w - 6);
     } else {
         const card: d.Rect = .{ .x = pr.x + 6, .y = pr.y + pr.h / 2 - 18, .w = pr.w - 108, .h = 36 };
         const hb = d.hit(ctx, 1, card);
@@ -478,6 +483,10 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
             const cr: d.Rect = .{ .x = card.x + 44, .y = card.y + 19, .w = card.w - 48, .h = 15 };
             _ = d.textClipped(ctx.dl, fam.get(.regular), 12, cr.x, cr.y, ctx.col(.muted), cl, cr.w);
             qa.mark(cr, "me-custom-status", .{});
+        } else if (me.activity) |act| {
+            // A nossa atividade (Rich Presence) no lugar do status, como a dos outros na lista.
+            qa.mark(card, "me-activity", .{});
+            _ = d.textClipped(ctx.dl, fam.get(.regular), 12, card.x + 44, card.y + 19, ctx.col(.muted), act, card.w - 48);
         } else _ = d.textClipped(ctx.dl, fam.get(.regular), 12, card.x + 44, card.y + 19, ctx.col(.muted), switch (me.status) {
             .online => "Online",
             .idle => i18n.tr3("Ausente", "Idle", "退席中"),

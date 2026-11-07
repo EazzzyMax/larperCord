@@ -129,6 +129,7 @@ const toggle_names = [_]struct { field: []const u8, pt: []const u8, en: []const 
     .{ .field = "md_preview", .pt = "Prévia do markdown", .en = "Markdown preview" },
     .{ .field = "open_at_unread", .pt = "Abrir na primeira não lida", .en = "Open at the first unread" },
     .{ .field = "send_typing", .pt = "Enviar indicador de digitação", .en = "Send typing indicator" },
+    .{ .field = "rich_presence", .pt = "Compartilhar minha atividade (Rich Presence)", .en = "Share my activity (Rich Presence)" },
     .{ .field = "message_log", .pt = "Registro de mensagens", .en = "Message log" },
     .{ .field = "gif_hosts", .pt = "Animar GIFs do Tenor e do Giphy", .en = "Animate Tenor and Giphy GIFs" },
     .{ .field = "streamer_mode", .pt = "Modo streamer", .en = "Streamer Mode" },

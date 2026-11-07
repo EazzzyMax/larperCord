@@ -48,6 +48,7 @@ const fsutil = @import("platform/fsutil.zig");
 const accounts_store = @import("net/accounts_store.zig");
 const app_accounts = @import("app_accounts.zig");
 const app_chamada = @import("app_chamada.zig");
+const app_presenca = @import("app_presenca.zig");
 const voz_audio = @import("net/voz_audio.zig");
 const lsp_net = @import("net/lsp.zig");
 const updater = @import("net/updater.zig");
@@ -344,6 +345,7 @@ pub const App = struct {
         app.theme_colors.deinit(app.gpa);
         for (app.notifiers.items) |p| c.SDL_DestroyProcess(p);
         app.notifiers.deinit(app.gpa);
+        app_presenca.shutdown();
         app.stopNet();
         msg_cache.flushDirty(&app.store);
         msg_cache.deinit();
@@ -1796,6 +1798,7 @@ pub const App = struct {
     // --- Laço ----------------------------------------------------------------
 
     fn drainEvents(app: *App) void {
+        app_presenca.pump(app);
         var batch: std.ArrayList(ev.Event) = .empty;
         defer batch.deinit(app.gpa);
         app.events.drain(&batch);
@@ -2588,6 +2591,7 @@ pub const App = struct {
             @import("net/proxy.zig").set(set.proxy.slice(), set.proxy_all);
             voz_audio.apply(set);
             lsp_ui.apply(set);
+            app_presenca.frame(app);
             voz_audio.setPageOpen(set.open and set.page == .voz and app.store.ready);
             plugin_host.frame(app);
             @import("ui/attachments.zig").hide_embeds = !set.show_embeds;

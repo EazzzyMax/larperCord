@@ -73,6 +73,7 @@ test {
     _ = @import("core/thread_edit.zig");
     _ = @import("net/user_json.zig");
     _ = @import("net/call_json.zig");
+    _ = @import("net/rpc_proto.zig");
     _ = @import("ui/apng.zig");
     _ = @import("plugins/engine.zig");
     _ = @import("plugins/manifest.zig");
