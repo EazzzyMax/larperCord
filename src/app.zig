@@ -170,7 +170,11 @@ pub const App = struct {
         const app = try gpa.create(App);
         errdefer gpa.destroy(app);
 
-        app.win = try platform.Window.init("larperCord", 1280, 800);
+        // O fontconfig se prepara enquanto a janela abre (ver fc_warm.zig).
+        const fc_warm = @import("platform/fc_warm.zig").start();
+        const win = platform.Window.init("larperCord", 1280, 800);
+        @import("platform/fc_warm.zig").join(fc_warm);
+        app.win = try win;
         wake_type_global = app.win.wake_type;
         timeline.mark(.janela);
 
