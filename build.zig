@@ -80,6 +80,9 @@ pub fn build(b: *std.Build) void {
     const release = optimize != .debug;
     // Binário das releases: SDL3, curl e OpenSSL dentro dele (ver tools/linux_deps.sh).
     const portable = b.option(bool, "portable", "Liga SDL3, curl e OpenSSL estáticos") orelse false;
+    // Windows sem DLL ao lado (experimental, ver tools/windows_static_deps.sh). O padrão
+    // e as releases continuam com as DLLs, que o atualizador conhece.
+    const single_exe = b.option(bool, "single-exe", "Windows: SDL3, curl e OpenSSL dentro do .exe (experimental)") orelse false;
     // O robô de QA (--qa) e suas marcações só entram onde são usados.
     const qa = b.option(bool, "qa", "Inclui o robô de QA (--qa); padrão: só no debug") orelse !release;
     const build_options = b.addOptions();
@@ -250,10 +253,20 @@ pub fn build(b: *std.Build) void {
         mod.addCSourceFiles(.{ .root = ft.path(b, "src"), .files = &freetype_sources, .flags = &.{ "-DFT2_BUILD_LIBRARY", "-DFT_CONFIG_MODULES_H=\"ftmodule.h\"", "-O2", "-fno-sanitize=undefined" } });
         mod.addIncludePath(b.path("src/platform/win"));
         mod.addLibraryPath(win_deps.path(b, "lib"));
-        for ([_][]const u8{ "SDL3.dll", "curl.dll", "crypto.dll" }) |l| mod.linkSystemLibrary(l, .{ .use_pkg_config = .no });
+        if (single_exe) {
+            // O curl de lá é estático: sem o dllimport nos headers.
+            mod.addCMacro("CURL_STATICLIB", "1");
+            translate.defineCMacro("CURL_STATICLIB", "1");
+            mod.addLibraryPath(b.path(".deps/windows-static/lib"));
+            for ([_][]const u8{ "SDL3", "iconv", "curl", "ssl", "crypto" }) |l| mod.linkSystemLibrary(l, .{ .use_pkg_config = .no, .preferred_link_mode = .static, .search_strategy = .mode_first });
+            // O que a SDL3 e o curl estáticos pedem ao Windows.
+            for ([_][]const u8{ "gdi32", "winmm", "imm32", "oleaut32", "version", "uuid", "setupapi", "dinput8", "iphlpapi" }) |l| mod.linkSystemLibrary(l, .{ .use_pkg_config = .no });
+        } else {
+            for ([_][]const u8{ "SDL3.dll", "curl.dll", "crypto.dll" }) |l| mod.linkSystemLibrary(l, .{ .use_pkg_config = .no });
+        }
         for ([_][]const u8{ "opus", "z", "webp", "webpdemux", "sharpyuv" }) |l| mod.linkSystemLibrary(l, .{ .use_pkg_config = .no, .preferred_link_mode = .static });
         for ([_][]const u8{ "ws2_32", "advapi32", "crypt32", "shell32", "ole32", "bcrypt", "user32" }) |l| mod.linkSystemLibrary(l, .{ .use_pkg_config = .no });
-        for ([_][]const u8{ "SDL3.dll", "libcurl-x64.dll", "libcrypto-3-x64.dll" }) |dll| b.getInstallStep().dependOn(&b.addInstallBinFile(win_deps.path(b, b.pathJoin(&.{ "bin", dll })), dll).step);
+        if (!single_exe) for ([_][]const u8{ "SDL3.dll", "libcurl-x64.dll", "libcrypto-3-x64.dll" }) |dll| b.getInstallStep().dependOn(&b.addInstallBinFile(win_deps.path(b, b.pathJoin(&.{ "bin", dll })), dll).step);
     } else {
         mod.linkSystemLibrary("sdl3", .{});
         mod.linkSystemLibrary("freetype2", .{});
