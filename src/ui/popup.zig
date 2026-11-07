@@ -95,7 +95,7 @@ fn popupKey(p: state.Popup) u64 {
         .threads => |t| 8 +% t.parent *% 31,
         .new_thread => |t| 9 +% t.message *% 31,
         .new_post => |t| 10 +% t.forum *% 31,
-        .edit_thread => |t| 15 +% t.thread *% 31,
+        .edit_thread => |t| 21 +% t.thread *% 31,
         .edit_place => |t| 11 +% t.id *% 31,
         .gif => 14,
         .join_invite => 12,
@@ -592,7 +592,7 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
         47 => if (ctx.store.channel(id)) |cs| if (cs.info.thread) |t| {
             ctx.act(.{ .join_thread = .{ .thread = id, .join = !t.joined } });
         },
-        57, 58, 59 => thread_settings.choose(ctx, id, item),
+        35, 36, 37 => thread_settings.choose(ctx, id, item),
         // Apagar não tem volta: abre a confirmação no mesmo lugar.
         50 => st.popup = .{ .menu = .{ .kind = .thread_delete, .id = id, .x = r.x, .y = r.y } },
         51 => ctx.act(.{ .delete_thread = id }),

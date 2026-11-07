@@ -52,14 +52,14 @@ pub fn menuEntries(ctx: *const d.Ctx, ch: *const types.Channel) Entries {
     var out: Entries = .{};
     const t = ch.thread orelse return out;
     const r = rightsOf(ctx, ch);
-    if (r.edit()) out.add(.{ .label = "Editar thread…", .en = "Edit Thread…", .id = 57 });
+    if (r.edit()) out.add(.{ .label = "Editar thread…", .en = "Edit Thread…", .id = 35 });
     if (r.unarchive) {
-        out.add(.{ .label = "Desarquivar thread", .en = "Unarchive Thread", .id = 58 });
-    } else if (r.archive) out.add(.{ .label = "Arquivar thread", .en = "Archive Thread", .id = 58 });
+        out.add(.{ .label = "Desarquivar thread", .en = "Unarchive Thread", .id = 36 });
+    } else if (r.archive) out.add(.{ .label = "Arquivar thread", .en = "Archive Thread", .id = 36 });
     if (r.lock) out.add(if (t.locked)
-        .{ .label = "Destrancar thread", .en = "Unlock Thread", .id = 59 }
+        .{ .label = "Destrancar thread", .en = "Unlock Thread", .id = 37 }
     else
-        .{ .label = "Trancar thread", .en = "Lock Thread", .id = 59 });
+        .{ .label = "Trancar thread", .en = "Lock Thread", .id = 37 });
     return out;
 }
 
@@ -70,11 +70,11 @@ pub fn choose(ctx: *d.Ctx, id: Id, item: u8) void {
     const t = cs.info.thread orelse return;
     const r = rightsOf(ctx, &cs.info);
     switch (item) {
-        57 => if (r.edit()) open(ctx, id),
-        58 => if (r.unarchive) {
+        35 => if (r.edit()) open(ctx, id),
+        36 => if (r.unarchive) {
             ctx.act(.{ .edit_thread = .{ .thread = id, .archived = false } });
         } else if (r.archive) ctx.act(.{ .edit_thread = .{ .thread = id, .archived = true } }),
-        59 => if (r.lock) ctx.act(.{ .edit_thread = .{ .thread = id, .locked = !t.locked } }),
+        37 => if (r.lock) ctx.act(.{ .edit_thread = .{ .thread = id, .locked = !t.locked } }),
         else => {},
     }
 }
