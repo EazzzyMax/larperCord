@@ -1290,8 +1290,11 @@ pub const App = struct {
                 app.cmd(.fetch_sticker_packs);
             },
             .send_sticker => |sk| {
+                // Figurinha também é mensagem: castigo, thread trancada e modo lento valem.
+                if (!app.sendAllowed(sk.channel)) return;
                 st.nonce +%= 1;
                 app.cmd(.{ .send_sticker = .{ .channel = sk.channel, .sticker = sk.sticker, .nonce = st.nonce } });
+                send_limits.noteSent(&app.store, sk.channel, now());
             },
             .gif_favorites => {
                 app.store.gif_favorites.req +%= 1;

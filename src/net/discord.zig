@@ -3444,8 +3444,17 @@ pub const Gateway = struct {
                 const body = stickers.sendBody(&b, sk.sticker, sk.nonce) orelse return;
                 const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/messages", .{sk.channel}) catch return;
                 // A mensagem chega pelo gateway (MESSAGE_CREATE), como as outras.
-                var resp = g.request("POST", path, body) orelse return g.notice("a figurinha não foi enviada", "the sticker wasn't sent", .{});
+                // Modo lento: como no envio de texto, o 429 volta para cá (nada de
+                // segurar a fila esperando) e a caixa mostra quanto falta.
+                g.pass_429 = true;
+                const got = g.request("POST", path, body);
+                g.pass_429 = false;
+                var resp = got orelse return g.notice("a figurinha não foi enviada", "the sticker wasn't sent", .{});
                 defer resp.body.deinit(alloc);
+                if (resp.status == 429) {
+                    g.notice("a figurinha não foi enviada", "the sticker wasn't sent", .{});
+                    return g.emit(.{ .send_cooldown = .{ .channel = sk.channel, .ms = resp.retry_ms } });
+                }
                 if (resp.status >= 300) g.noticeHttp(i18n.tr("não deu para enviar a figurinha", "couldn't send the sticker"), &resp);
             },
             .gif_favorites => |req| {
