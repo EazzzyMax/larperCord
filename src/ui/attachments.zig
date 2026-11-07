@@ -192,7 +192,8 @@ fn image(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, scale:
         const on = gif_fav.isOn(ctx, fav_key);
         qa.mark(sr, "att-star:{d}:{d}", .{ msg_id, index });
         gif_fav.draw(ctx, dl, sr, star_hb.?, on);
-        if (star_hb.?.clicked) gif_fav.toggle(ctx, fav_key, a.url, a.width, a.height, on);
+        // Anexo com o link já renovado: o favorito guarda o novo (a chave continua a mesma).
+        if (star_hb.?.clicked) gif_fav.toggle(ctx, fav_key, res.resolve(a.url), a.width, a.height, on);
     }
     if (hb.clicked) {
         // Vídeo toca aqui (com FFmpeg) ou abre no navegador.
