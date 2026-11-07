@@ -181,6 +181,11 @@ static void ImGui_ImplSDL3_PlatformSetImeData(ImGuiContext*, ImGuiViewport*, ImG
 }
 
 // We discard viewport passed via ImGuiPlatformImeData and always call SDL_StartTextInput() on SDL_GetKeyboardFocus().
+// [larperCord] UI points to window coordinates, set by the app every frame (app.zig). The UI is drawn
+// scaled, and the IME window has to land on the text box. DisplayFramebufferScale can't tell: this runs
+// inside NewFrame, right after the backend resets it and before the app applies the scale.
+extern "C" { float larper_ime_scale = 1.0f; }
+
 static void ImGui_ImplSDL3_UpdateIme()
 {
     ImGui_ImplSDL3_Data* bd = ImGui_ImplSDL3_GetBackendData();
@@ -201,10 +206,11 @@ static void ImGui_ImplSDL3_UpdateIme()
     if (data->WantVisible)
     {
         SDL_Rect r;
-        r.x = (int)data->InputPos.x;
-        r.y = (int)data->InputPos.y;
+        const float k = larper_ime_scale;
+        r.x = (int)(data->InputPos.x * k);
+        r.y = (int)(data->InputPos.y * k);
         r.w = 1;
-        r.h = (int)data->InputLineHeight;
+        r.h = (int)(data->InputLineHeight * k);
         SDL_SetTextInputArea(window, &r, 0);
         bd->ImeWindow = window;
     }

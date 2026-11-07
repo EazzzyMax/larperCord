@@ -4,6 +4,7 @@
 const std = @import("std");
 const c = @import("c");
 const App = @import("app.zig").App;
+const larper_ime_scale = &@import("app.zig").larper_ime_scale;
 const R = @import("qa_runner.zig");
 const Op = R.Op;
 const qa = @import("ui/qa.zig");
@@ -385,6 +386,103 @@ fn scaleDown(app: *App) void {
     app.st.settings.font_scale = 1.0;
 }
 
+fn uiBig(app: *App) void {
+    app.st.settings.ui_scale = 1.5;
+}
+fn uiNormal(app: *App) void {
+    app.st.settings.ui_scale = 1;
+}
+/// A janela é a mesma: em pontos ela encolhe, e o desenho sai 1,5 vez maior.
+fn uiIsBig(app: *App) bool {
+    // As letras saem da resolução nova, não de um bitmap de 100% esticado.
+    for (app.fonts.faces.items) |e| if (e.font.*.CurrentRasterizerDensity != app.io.*.DisplayFramebufferScale.x) return false;
+    return @abs(app.io.*.DisplaySize.x - 1280.0 / 1.5) < 2 and @abs(app.io.*.DisplayFramebufferScale.x - 1.5) < 0.01;
+}
+fn uiIsNormal(app: *App) bool {
+    return app.io.*.DisplaySize.x == 1280 and app.io.*.DisplayFramebufferScale.x == 1;
+}
+/// O valor do slider já está valendo no desenho: o arraste terminou.
+fn uiDragged(app: *App) bool {
+    const v = app.st.settings.ui_scale;
+    return v > 1.2 and v < 1.8 and app.ui_size == v and @abs(app.io.*.DisplayFramebufferScale.x - v) < 0.01;
+}
+
+/// Antes de um texto pedir, nenhuma fonte de outra escrita foi procurada.
+pub fn scriptsNotLoaded(app: *App) bool {
+    return !app.fonts.scripts_tried;
+}
+/// As fontes reserva entraram em todas as fontes do atlas (sem CJK no sistema, como no CI, não há o que mesclar).
+pub fn scriptsLoaded(app: *App) bool {
+    if (!app.fonts.scripts_tried) return false;
+    if (app.fonts.cjk_n == 0) return true;
+    for (app.fonts.faces.items) |e| if (!c.ImFont_IsGlyphInFont(e.font, 0x3042)) return false;
+    return true;
+}
+
+const ui_slider = "slider:Tamanho da interface";
+
+pub const ops_ui_size = [_]Op{
+    s("tamanho da interface"),
+    expect("a página de idioma, com o nome em japonês, traz as fontes reserva", scriptsLoaded),
+    .{ .key = .{ .key = c.ImGuiKey_Comma, .ctrl = true } },
+    .{ .wait = 300 },
+    click("settings:Aparência"),
+    .{ .wait = 150 },
+    // O clique leva até o slider; o arraste é o de quem usa, e só vale ao soltar.
+    .{ .click = .{ .at = .{ .key = ui_slider, .fx = 0.2, .fy = 0.5 } } },
+    .{ .wait = 200 },
+    .{ .drag = .{ .from = .{ .at = .{ .key = ui_slider, .fx = 0.2, .fy = 0.5 } }, .to = .{ .at = .{ .key = ui_slider, .fx = 0.6, .fy = 0.5 } } } },
+    .{ .wait = 200 },
+    expect("arrastar o slider muda a interface ao soltar", uiDragged),
+    .{ .run = uiBig },
+    .{ .wait = 200 },
+    expect("aumenta a interface inteira", uiIsBig),
+    expect("nada se sobrepõe com a interface maior", noOverlap),
+    .{ .shot = "interface-150" },
+    .{ .run = uiNormal },
+    .{ .wait = 200 },
+    expect("volta ao normal", uiIsNormal),
+    key(c.ImGuiKey_Escape),
+    .{ .wait = 350 },
+};
+
+// --- A janela do IME ---------------------------------------------------------------------
+
+fn raiseWindow(app: *App) void {
+    _ = c.SDL_RaiseWindow(app.win.window);
+}
+
+/// O que o SDL entrega ao IME está em coordenadas da janela, e a interface, em pontos. Com
+/// escala do sistema, só num X de verdade: `QA_SUITE=ime` e SDL_VIDEO_X11_SCALING_FACTOR.
+/// (O cursor começa um pouco antes da marcação da caixa.)
+fn imeInPlace(app: *App) bool {
+    const k = app.uiScale();
+    if (@abs(larper_ime_scale.* - k) > 0.01) return false;
+    if (c.SDL_GetKeyboardFocus() == null) return true;
+    var r: c.SDL_Rect = undefined;
+    var cursor: c_int = 0;
+    if (!c.SDL_GetTextInputArea(app.win.window, &r, &cursor)) return false;
+    const box = qa.find("composer") orelse return false;
+    if (c.SDL_getenv("QA_DEBUG") != null) std.debug.print("[ime] escala {d:.2}, área {d},{d} altura {d}, caixa em pontos {d:.0},{d:.0} até {d:.0},{d:.0}\n", .{ k, r.x, r.y, r.h, box.x, box.y, box.right(), box.bottom() });
+    const x: f32 = @floatFromInt(r.x);
+    const y: f32 = @floatFromInt(r.y);
+    return x >= (box.x - 4) * k and x <= box.right() * k and y >= box.y * k and y <= box.bottom() * k and r.h > 0;
+}
+
+pub const ops_ime = [_]Op{
+    s("janela do IME"),
+    .{ .run = raiseWindow },
+    .{ .wait = 200 },
+    click("composer"),
+    expect("a janela do IME fica sobre a caixa de texto", imeInPlace),
+    .{ .run = uiBig },
+    .{ .wait = 200 },
+    expect("com a interface maior também", imeInPlace),
+    .{ .run = uiNormal },
+    .{ .wait = 200 },
+    key(c.ImGuiKey_Escape),
+};
+
 const check = expect("nada se sobrepõe na página", noOverlap);
 
 fn pageOps(comptime name: []const u8, comptime slug: []const u8) [4]Op {
@@ -756,4 +854,10 @@ pub const ops_icons = [_]Op{
     click("guild:500000"),
 };
 
-pub const all = ops ++ ops_pages ++ ops_changelog ++ ops_bots ++ ops_viewer ++ ops_icons;
+/// Só com esta bateria sozinha: na geral, um `/shrug` já mostrou um ツ antes.
+pub const ops_no_scripts = [_]Op{
+    s("fontes de outras escritas"),
+    expect("sem texto de outra escrita, nenhuma fonte reserva", scriptsNotLoaded),
+};
+
+pub const all = ops ++ ops_pages ++ ops_ui_size ++ ops_ime ++ ops_changelog ++ ops_bots ++ ops_viewer ++ ops_icons;

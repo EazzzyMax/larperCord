@@ -52,6 +52,8 @@ pub const Settings = struct {
 
     // Aparência / acessibilidade
     font_scale: f32 = 1.0,
+    /// Tamanho de toda a interface, por cima da escala do sistema.
+    ui_scale: f32 = 1.0,
     compact: bool = false,
     show_avatars: bool = true,
     reduce_motion: bool = false,

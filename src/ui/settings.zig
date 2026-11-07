@@ -669,6 +669,9 @@ fn page(p: *Page, previews: []const Preview) void {
             p.divider();
             p.heading(i18n.tr("Escala da fonte", "Font scaling"));
             p.slider(i18n.tr("Tamanho do texto", "Text size"), &s.font_scale, 0.8, 1.3, "{d:.0}%", 100);
+            p.slider(i18n.tr3("Tamanho da interface", "Interface size", "インターフェースの大きさ"), &s.ui_scale, 0.75, 2, "{d:.0}%", 100);
+            s.ui_scale = @round(s.ui_scale * 20) / 20;
+            p.note(i18n.tr3("Aumenta tudo, não só o texto. Vale ao soltar o mouse.", "Makes everything bigger, not just the text. Applies when you let go of the mouse.", "テキストだけでなく全体を拡大します。マウスを離すと反映されます。"));
             p.heading(i18n.tr("Exibição das mensagens", "Message display"));
             p.toggle(i18n.tr("Modo compacto", "Compact mode"), i18n.tr("Menos espaço entre grupos e avatares menores.", "Less space between groups and smaller avatars."), &s.compact);
             p.toggle(i18n.tr("Mostrar avatares", "Show avatars"), i18n.tr("Exibe a foto ao lado do nome.", "Shows the profile picture next to the name."), &s.show_avatars);
@@ -780,6 +783,10 @@ fn page(p: *Page, previews: []const Preview) void {
                 "Por padrão o app segue o idioma do sistema. A troca vale na hora.",
                 "By default the app follows your system language. Changes apply right away.",
                 "デフォルトではシステムの言語に従います。変更はすぐに反映されます。",
+            ));
+            if (ctx.fonts.scripts_tried and ctx.fonts.cjk_n == 0) p.note(i18n.tr(
+                "Nenhuma fonte de japonês, coreano ou chinês foi encontrada neste sistema, e esses textos aparecem como ???. Instale uma, como a Noto Sans CJK (pacote noto-fonts-cjk ou fonts-noto-cjk).",
+                "No Japanese, Korean or Chinese font was found on this system, so those texts show as ???. Install one, such as Noto Sans CJK (package noto-fonts-cjk or fonts-noto-cjk).",
             ));
         },
         .avancado => {

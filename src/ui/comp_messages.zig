@@ -1643,7 +1643,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         autocomplete.update(ctx, ch_id, active, .{ .x = r.x + inset, .y = top - tray_h, .w = r.w - inset * 2, .h = 0 });
     }
     // Ctrl+V com imagem copiada (print, imagem do navegador): vira anexo.
-    if (active and ctx.io.*.KeyCtrl and c.ImGui_IsKeyPressed(c.ImGuiKey_V) and c.SDL_HasClipboardData("image/png") and !c.SDL_HasClipboardText())
+    if (active and ctx.io.*.KeyCtrl and c.ImGui_IsKeyPressed(c.ImGuiKey_V) and @import("../platform/window.zig").clipboardImage() != null and !c.SDL_HasClipboardText())
         ctx.act(.paste_image);
     // Esc cancela a edição (ou a resposta), com ou sem foco na caixa. A lista de
     // sugestões aberta e os painéis por cima pegam o Esc primeiro.

@@ -37,7 +37,7 @@ pub const Window = struct {
         const window = c.SDL_CreateWindow(title, w, h, flags) orelse return error.SdlWindow;
         // On Windows the requested size is in pixels: at 150% the window would open at 2/3 size.
         const s = contentScale(window);
-        if (s != 1) _ = c.SDL_SetWindowSize(window, @intFromFloat(@as(f32, @floatFromInt(w)) * s), @intFromFloat(@as(f32, @floatFromInt(h)) * s));
+        if (s != 1) openScaled(window, w, h, s);
         if (decodeIcon(icon_64)) |icon| {
             _ = c.SDL_SetWindowIcon(window, icon);
             c.SDL_DestroySurface(icon);
@@ -79,6 +79,44 @@ pub fn contentScale(window: *c.SDL_Window) f32 {
     const density = c.SDL_GetWindowPixelDensity(window);
     if (display <= 0 or density <= 0) return 1;
     return display / density;
+}
+
+/// The opening size at this scale, up to what fits the display: 1280x800 at 150% is 1920x1200,
+/// taller than a 1080p laptop, and the text box would stay below the screen. SDL centered the
+/// window for the old size, so it is centered again.
+fn openScaled(window: *c.SDL_Window, w: c_int, h: c_int, s: f32) void {
+    var sw: c_int = @intFromFloat(@as(f32, @floatFromInt(w)) * s);
+    var sh: c_int = @intFromFloat(@as(f32, @floatFromInt(h)) * s);
+    const display = c.SDL_GetDisplayForWindow(window);
+    var area: c.SDL_Rect = undefined;
+    if (c.SDL_GetDisplayUsableBounds(display, &area)) {
+        var top: c_int = 0;
+        var left: c_int = 0;
+        var bottom: c_int = 0;
+        var right: c_int = 0;
+        _ = c.SDL_GetWindowBordersSize(window, &top, &left, &bottom, &right);
+        sw = @min(sw, area.w - left - right);
+        sh = @min(sh, area.h - top - bottom);
+    }
+    _ = c.SDL_SetWindowSize(window, sw, sh);
+    const centered: c_int = @intCast(@as(u32, c.SDL_WINDOWPOS_CENTERED_MASK) | display);
+    _ = c.SDL_SetWindowPosition(window, centered, centered);
+}
+
+/// Como uma imagem copiada pode estar na área de transferência. O print do Windows costuma vir
+/// como bitmap, que o Discord não mostra como imagem: esse vai como PNG (ver `App.pasteImage`).
+pub const ClipImage = struct { mime: [*:0]const u8, ext: []const u8, bitmap: bool = false };
+const clip_images = [_]ClipImage{
+    .{ .mime = "image/png", .ext = "png" },
+    .{ .mime = "image/bmp", .ext = "png", .bitmap = true },
+    .{ .mime = "image/jpeg", .ext = "jpg" },
+    .{ .mime = "image/gif", .ext = "gif" },
+    .{ .mime = "image/webp", .ext = "webp" },
+};
+
+pub fn clipboardImage() ?ClipImage {
+    for (clip_images) |k| if (c.SDL_HasClipboardData(k.mime)) return k;
+    return null;
 }
 
 /// Ícones embutidos (tools/gen_icons.py).

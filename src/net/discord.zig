@@ -36,7 +36,10 @@ const Id = types.Id;
 const Value = std.json.Value;
 
 const alloc = std.heap.c_allocator;
+const links = @import("../core/links.zig");
 const api = "https://discord.com/api/v10";
+/// A busca vai na versão que o cliente do Discord usa (o caminho já traz o /v9).
+const api_root = "https://discord.com/api";
 const gateway_host = "wss://gateway.discord.gg";
 /// Query do gateway: JSON + compressão zlib-stream (a mesma do cliente oficial).
 const gateway_query = "v=10&encoding=json&compress=zlib-stream";
@@ -310,11 +313,14 @@ pub const Gateway = struct {
         switch (cmd) {
             .send_message => |m| g.emit(.{ .send_failed = .{ .channel = m.channel, .nonce = m.nonce } }),
             .fetch_history => |ch| g.emit(.{ .history = .{ .channel = ch, .messages = &.{} } }),
+            .search_messages => |s| g.emit(.{ .search_results = .{ .req = s.req, .status = .failed } }),
             .fetch_older => |o| g.emit(.{ .history = .{ .channel = o.channel, .messages = &.{}, .older = true } }),
             .fetch_around => |o| g.emit(.{ .history = .{ .channel = o.channel, .messages = &.{}, .around = true } }),
             .fetch_newer => |o| g.emit(.{ .history = .{ .channel = o.channel, .messages = &.{}, .newer = true } }),
             .fetch_pins => |ch| g.emit(.{ .pins = .{ .channel = ch, .messages = &.{}, .ok = false } }),
             .fetch_invite => |code| g.emit(.{ .invite = .{ .code = code, .invite = .{ .state = .failed } } }),
+            .join_invite => |code| g.emit(.{ .invite_joined = .{ .code = code, .status = .failed } }),
+            .create_invite => |ci| g.emit(.{ .invite_created = .{ .req = ci.req, .status = .failed } }),
             .fetch_threads => |ft| g.emit(.{ .threads_page = .{ .channel = ft.channel, .archived = ft.archived, .failed = true } }),
             else => {},
         }
@@ -2487,8 +2493,8 @@ pub const Gateway = struct {
     /// `mime`: corpo multipart (envio de arquivos) no lugar do JSON.
     fn requestEx(g: *Gateway, method: [:0]const u8, path: []const u8, body: ?[]const u8, mime: ?*c.curl_mime) ?Response {
         const h = g.rest orelse return null;
-        var url_buf: [512]u8 = undefined;
-        const url = std.fmt.bufPrintSentinel(&url_buf, "{s}{s}", .{ api, path }, 0) catch return null;
+        var url_buf: [1400]u8 = undefined;
+        const url = std.fmt.bufPrintSentinel(&url_buf, "{s}{s}", .{ if (std.mem.startsWith(u8, path, "/v9/")) api_root else api, path }, 0) catch return null;
         var auth_buf: [256]u8 = undefined;
         defer std.crypto.secureZero(u8, &auth_buf);
         const auth = std.fmt.bufPrintSentinel(&auth_buf, "Authorization: {s}", .{g.token}, 0) catch return null;
@@ -2613,6 +2619,7 @@ pub const Gateway = struct {
 
     fn freeCommand(cmd: ev.Command) void {
         switch (cmd) {
+            .search_messages => |s| alloc.free(s.params),
             .set_note => |n| alloc.free(n.text),
             .send_message => |m| {
                 alloc.free(m.content);
@@ -2872,6 +2879,22 @@ pub const Gateway = struct {
                 }
                 g.history(ch, resp.body.items, .latest) catch g.emit(.{ .history = .{ .channel = ch, .messages = &.{} } });
             },
+            .search_messages => |s| {
+                const failed: ev.Event = .{ .search_results = .{ .req = s.req, .status = .failed } };
+                var search_path: [1200]u8 = undefined;
+                const path = (if (s.guild != 0)
+                    std.fmt.bufPrint(&search_path, "/v9/guilds/{d}/messages/search?{s}", .{ s.guild, s.params })
+                else
+                    std.fmt.bufPrint(&search_path, "/v9/channels/{d}/messages/search?{s}", .{ s.channel, s.params })) catch return g.emit(failed);
+                var resp = g.request("GET", path, null) orelse return g.emit(failed);
+                defer resp.body.deinit(alloc);
+                if (resp.status == 403) return g.emit(.{ .search_results = .{ .req = s.req, .status = .forbidden } });
+                if (resp.status != 200 and resp.status != 202) {
+                    g.noticeHttp(i18n.tr("não consegui buscar no Discord", "couldn't search Discord"), &resp);
+                    return g.emit(failed);
+                }
+                g.searchResults(s.req, s.guild, &resp) catch g.emit(failed);
+            },
             .fetch_older => |o| {
                 const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/messages?before={d}&limit=50", .{ o.channel, o.before }) catch return;
                 // Falha não é "acabou o histórico": `more` fica ligado (ver Store).
@@ -2968,6 +2991,35 @@ pub const Gateway = struct {
                     .members = @intCast(std.math.clamp(j.int(j.get(v, "approximate_member_count")) orelse 0, 0, std.math.maxInt(u32))),
                     .online = @intCast(std.math.clamp(j.int(j.get(v, "approximate_presence_count")) orelse 0, 0, std.math.maxInt(u32))),
                 } } });
+            },
+            .join_invite => |code| {
+                const failed: ev.Event = .{ .invite_joined = .{ .code = code, .status = .failed } };
+                var body_buf: [128]u8 = undefined;
+                const body = std.fmt.bufPrint(&body_buf, "{{\"session_id\":\"{s}\"}}", .{std.mem.sliceTo(&g.session_id, 0)}) catch return g.emit(failed);
+                const path = std.fmt.bufPrint(&path_buf, "/v9/invites/{s}", .{code.slice()}) catch return g.emit(failed);
+                var resp = g.request("POST", path, body) orelse return g.emit(failed);
+                defer resp.body.deinit(alloc);
+                g.inviteJoined(code, &resp) catch g.emit(failed);
+            },
+            .create_invite => |ci| {
+                const failed: ev.Event = .{ .invite_created = .{ .req = ci.req, .status = .failed } };
+                var body_buf: [128]u8 = undefined;
+                const body = std.fmt.bufPrint(&body_buf, "{{\"max_age\":{d},\"max_uses\":{d},\"target_type\":null,\"temporary\":{s},\"flags\":0}}", .{ ci.max_age, ci.max_uses, if (ci.temporary) "true" else "false" }) catch return g.emit(failed);
+                const path = std.fmt.bufPrint(&path_buf, "/v9/channels/{d}/invites", .{ci.channel}) catch return g.emit(failed);
+                var resp = g.request("POST", path, body) orelse return g.emit(failed);
+                defer resp.body.deinit(alloc);
+                if (resp.status == 403) return g.emit(.{ .invite_created = .{ .req = ci.req, .status = .forbidden } });
+                // O Discord desligou os convites desse servidor: responde 204, sem corpo.
+                if (resp.status == 204) return g.emit(.{ .invite_created = .{ .req = ci.req, .status = .disabled } });
+                if (resp.status >= 300) {
+                    g.noticeHttp(i18n.tr("não consegui criar o convite", "couldn't create the invite"), &resp);
+                    return g.emit(failed);
+                }
+                var arena = std.heap.ArenaAllocator.init(alloc);
+                defer arena.deinit();
+                const root = std.json.parseFromSliceLeaky(Value, arena.allocator(), resp.body.items, .{}) catch return g.emit(failed);
+                const new_code = j.str(j.get(root, "code")) orelse return g.emit(failed);
+                g.emit(.{ .invite_created = .{ .req = ci.req, .status = .ok, .code = links.InviteCode.init(new_code) } });
             },
             .forward_message => |f| {
                 var body_buf: [256]u8 = undefined;
@@ -3320,6 +3372,85 @@ pub const Gateway = struct {
             }
         }
         g.emit(.{ .pins = .{ .channel = ch, .messages = try list.toOwnedSlice(alloc) } });
+    }
+
+    /// Como terminou a entrada por convite. Captcha não é erro de rede: quem pede é o Discord,
+    /// e a resposta é abrir o convite no navegador (ver ui/invites.zig).
+    fn inviteJoined(g: *Gateway, code: links.InviteCode, resp: *const Response) !void {
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+        const root = std.json.parseFromSliceLeaky(Value, arena.allocator(), resp.body.items, .{}) catch Value{ .null = {} };
+        const err = j.int(j.get(root, "code")) orelse 0;
+        const status: ev.JoinStatus = if (resp.status < 300)
+            .ok
+        else if (j.get(root, "captcha_key") != null)
+            .captcha
+        else if (resp.status == 404 or err == 10006)
+            .invalid
+        else if (err == 30001)
+            .too_many
+        else if (resp.status == 403)
+            .forbidden
+        else
+            .failed;
+        const guild = j.id(j.get(root, "guild_id")) orelse (if (j.get(root, "guild")) |gv| j.id(j.get(gv, "id")) else null) orelse 0;
+        g.emit(.{ .invite_joined = .{ .code = code, .status = status, .guild = guild } });
+    }
+
+    /// A página de uma busca. 202: o Discord ainda está indexando esse lugar, e diz quando
+    /// tentar de novo. Cada item de `messages` é uma lista; a mensagem que casou vem com `hit`.
+    fn searchResults(g: *Gateway, req: u32, guild: Id, resp: *const Response) !void {
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+        const root = try std.json.parseFromSliceLeaky(Value, arena.allocator(), resp.body.items, .{});
+        if (resp.status == 202) {
+            var retry_ms: u32 = 2000;
+            if (j.get(root, "retry_after")) |ra| switch (ra) {
+                .float => |f| retry_ms = floatSecondsToMs(f) orelse retry_ms,
+                .integer => |i| retry_ms = floatSecondsToMs(@floatFromInt(i)) orelse retry_ms,
+                else => {},
+            };
+            const indexed = std.math.clamp(j.int(j.get(root, "documents_indexed")) orelse 0, 0, std.math.maxInt(u32));
+            return g.emit(.{ .search_results = .{ .req = req, .status = .indexing, .retry_ms = retry_ms, .indexed = @intCast(indexed) } });
+        }
+        // Resultado dentro de uma thread que ainda não conhecemos: pular até ele precisa dela.
+        for (j.array(j.get(root, "threads"))) |tv| {
+            if (g.channelValue(tv, guild) catch null) |ch| g.emit(.{ .channel_upsert = ch });
+        }
+        var hits: std.ArrayList(ev.SearchHit) = .empty;
+        for (j.array(j.get(root, "messages"))) |group| {
+            const items = j.array(group);
+            if (items.len == 0) continue;
+            var m = items[0];
+            for (items) |it| {
+                const h = j.get(it, "hit") orelse continue;
+                if (h == .bool and h.bool) m = it;
+            }
+            g.upsertUsers(m);
+            const id = j.id(j.get(m, "id")) orelse continue;
+            const channel = j.id(j.get(m, "channel_id")) orelse continue;
+            var files: std.ArrayList(u8) = .empty;
+            for (j.array(j.get(m, "attachments"))) |a| {
+                try files.appendSlice(alloc, j.str(j.get(a, "filename")) orelse continue);
+                try files.append(alloc, ' ');
+            }
+            var content = j.str(j.get(m, "content")) orelse "";
+            // Só uma prévia de link, sem texto: mostra o título dela.
+            if (content.len == 0) for (j.array(j.get(m, "embeds"))) |e| {
+                content = j.str(j.get(e, "title")) orelse j.str(j.get(e, "description")) orelse continue;
+                break;
+            };
+            try hits.append(alloc, .{
+                .channel = channel,
+                .id = id,
+                .author = user_json.authorId(m),
+                .author_name = dupe(if (j.get(m, "author")) |a| userName(a) else ""),
+                .content = dupe(content),
+                .files = try files.toOwnedSlice(alloc),
+            });
+        }
+        const total = std.math.clamp(j.int(j.get(root, "total_results")) orelse 0, 0, std.math.maxInt(u32));
+        g.emit(.{ .search_results = .{ .req = req, .status = .ok, .hits = try hits.toOwnedSlice(alloc), .total = @intCast(total) } });
     }
 
     const HistoryKind = enum { latest, older, around, newer };

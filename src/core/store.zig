@@ -855,6 +855,8 @@ pub const Store = struct {
             else => s.rev +%= 1,
         }
         switch (ev) {
+            // Quem cuida é a busca (ver App.afterEvent).
+            .search_results, .invite_joined, .invite_created => {},
             .ready => |r| {
                 s.me = r.me;
                 s.me_rev +%= 1;

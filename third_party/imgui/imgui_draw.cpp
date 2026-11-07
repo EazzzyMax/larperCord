@@ -6087,6 +6087,9 @@ static void ImFontAtlas_FontHookRemapCodepoint(ImFontAtlas* atlas, ImFont* font,
     *out_codepoint = (ImWchar)data;
 }
 
+// [larperCord] Told when no source has a codepoint: fonts.zig loads the fallback scripts on first need.
+extern "C" { void (*larper_glyph_missing)(unsigned int) = nullptr; }
+
 static ImFontGlyph* ImFontBaked_BuildLoadGlyph(ImFontBaked* baked, ImWchar codepoint, float* only_load_advance_x)
 {
     ImFont* font = baked->OwnerFont;
@@ -6157,6 +6160,9 @@ static ImFontGlyph* ImFontBaked_BuildLoadGlyph(ImFontBaked* baked, ImWchar codep
             return NULL;
         }
     }
+
+    if (larper_glyph_missing != nullptr)
+        larper_glyph_missing((unsigned int)codepoint);
 
     // Lazily load fallback glyph
     if (baked->LoadNoFallback)
@@ -6820,7 +6826,7 @@ ImFontGlyph* ImFontAtlasBakedAddFontGlyph(ImFontAtlas* atlas, ImFontBaked* baked
 
         // Snap to pixel
         if (src->PixelSnapH)
-            advance_x = IM_ROUND(advance_x);
+            advance_x = IM_ROUND(advance_x * baked->RasterizerDensity) / baked->RasterizerDensity; // [larperCord] Pixels, not points: see ImFontSnapQuad
 
         // Bake spacing
         glyph->AdvanceX = advance_x + src->GlyphExtraAdvanceX;
@@ -6852,7 +6858,7 @@ void ImFontAtlasBakedAddFontGlyphAdvancedX(ImFontAtlas* atlas, ImFontBaked* bake
 
         // Snap to pixel
         if (src->PixelSnapH)
-            advance_x = IM_ROUND(advance_x);
+            advance_x = IM_ROUND(advance_x * baked->RasterizerDensity) / baked->RasterizerDensity; // [larperCord] Pixels, not points: see ImFontSnapQuad
 
         // Bake spacing
         advance_x += src->GlyphExtraAdvanceX;
@@ -7309,6 +7315,20 @@ ImVec2 ImFont::CalcTextSizeA(float size, float max_width, float wrap_width, cons
 }
 
 // Note: as with every ImDrawList drawing function, this expects that the font atlas texture is bound.
+// [larperCord] Text is snapped to whole points, which at a fractional scale (125%, 150%) fall between
+// pixels: the atlas is sampled linearly and the glyph blurs. Each quad lands on the pixel grid instead.
+static inline void ImFontSnapQuad(float density, float& x1, float& x2, float& y1, float& y2)
+{
+    if (density == 1.0f)
+        return;
+    const float dx = IM_ROUND(x1 * density) / density - x1;
+    const float dy = IM_ROUND(y1 * density) / density - y1;
+    x1 += dx;
+    x2 += dx;
+    y1 += dy;
+    y2 += dy;
+}
+
 void ImFont::RenderChar(ImDrawList* draw_list, float size, const ImVec2& pos, ImU32 col, ImWchar c, const ImVec4* cpu_fine_clip)
 {
     ImFontBaked* baked = GetFontBaked(size);
@@ -7332,6 +7352,8 @@ void ImFont::RenderChar(ImDrawList* draw_list, float size, const ImVec2& pos, Im
         return;
     float y1 = y + glyph->Y0 * scale;
     float y2 = y + glyph->Y1 * scale;
+    if ((draw_list->Flags & ImDrawFlags_TextNoPixelSnap) == 0)
+        ImFontSnapQuad(baked->RasterizerDensity, x1, x2, y1, y2);
     float u1 = glyph->U0;
     float v1 = glyph->V0;
     float u2 = glyph->U1;
@@ -7484,6 +7506,8 @@ begin:
             float x2 = x + glyph->X1 * scale;
             float y1 = y + glyph->Y0 * scale;
             float y2 = y + glyph->Y1 * scale;
+            if ((flags & ImDrawFlags_TextNoPixelSnap) == 0)
+                ImFontSnapQuad(baked->RasterizerDensity, x1, x2, y1, y2);
             if (x1 <= clip_rect.z && x2 >= clip_rect.x)
             {
                 // Render a character

@@ -72,11 +72,12 @@ pub fn topbar(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         d.tip(ctx, br, i18n.tr(b.tip, b.tip_en), hb.hovered);
         x += 30;
     }
-    // Busca no meio (abre a paleta).
+    // Busca no meio.
     const sw = @min(560, r.w * 0.5);
     const sr: d.Rect = .{ .x = r.x + (r.w - sw) / 2, .y = r.y + r.h / 2 - 14, .w = sw, .h = 28 };
     const sh = d.hit(ctx, 10, sr);
-    if (sh.clicked) ctx.act(.open_palette);
+    qa.mark(sr, "header-find", .{});
+    if (sh.clicked) @import("search.zig").focusOrStart();
     const k = anim.to(anim.id("topsearch", @intFromPtr(n)), if (sh.hovered) 1 else 0, 20);
     d.rect(dl, sr, ctx.col(.text).alpha(0.12 + 0.06 * k), 7);
     d.border(dl, sr, ctx.col(.text).alpha(0.15 + 0.15 * k), 7, 1);
@@ -89,8 +90,8 @@ pub fn topbar(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         i18n.tr("Buscar em mensagens diretas", "Search Direct Messages");
     const label = if (label0.len == 0) i18n.tr("Buscar", "Search") else label0;
     _ = d.textClipped(dl, fam.get(.medium), 13, sr.x + 30, d.centerY(sr, 13), ctx.col(.muted), label, sr.w - 100);
-    const kw = d.width(fam.get(.semibold), 11, "Ctrl K");
-    d.text(dl, fam.get(.semibold), 11, sr.right() - kw - 12, d.centerY(sr, 11), ctx.col(.faint), "Ctrl K");
+    const kw = d.width(fam.get(.semibold), 11, "Ctrl F");
+    d.text(dl, fam.get(.semibold), 11, sr.right() - kw - 12, d.centerY(sr, 11), ctx.col(.faint), "Ctrl F");
     // Ajuda (abre os atalhos).
     const hr: d.Rect = .{ .x = r.right() - 40, .y = r.y + r.h / 2 - 13, .w = 26, .h = 26 };
     const hh = d.hit(ctx, 11, hr);

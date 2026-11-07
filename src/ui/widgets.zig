@@ -242,6 +242,13 @@ pub fn statusGlyph(s: types.Status) []const u8 {
 
 pub const LocalTime = struct { year: i32, month: u8, day: u8, hour: u8, minute: u8, day_index: i64 };
 
+/// Segundos a somar ao UTC para ter a hora local nesse instante.
+pub fn utcOffset(unix_s: i64) i64 {
+    var dt: c.SDL_DateTime = undefined;
+    _ = c.SDL_TimeToDateTime(unix_s * 1_000_000_000, &dt, true);
+    return dt.utc_offset;
+}
+
 pub fn localTime(unix_s: i64) LocalTime {
     var dt: c.SDL_DateTime = undefined;
     _ = c.SDL_TimeToDateTime(unix_s * 1_000_000_000, &dt, true);

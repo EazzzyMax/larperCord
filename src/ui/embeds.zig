@@ -187,8 +187,8 @@ pub fn block(ctx: *d.Ctx, dl: ?*c.ImDrawList, m: *const StoredMessage, x: f32, y
 }
 
 // --- Cartão de convite ----------------------------------------------------------
-// Mostra o servidor e abre no navegador. Não entra pelo app: POST de convite
-// por conta de usuário dispara captcha e arrisca a conta.
+// Mostra o servidor, com "Abrir no navegador" e "Entrar". Entrar pelo app pode disparar
+// captcha e pesa para a conta se for repetido: passa sempre pela confirmação de ui/invites.zig.
 
 pub const invite_w: f32 = 432;
 /// A faixa do topo (banner do servidor) e a parte de baixo. A altura não muda
@@ -266,23 +266,25 @@ fn inviteCard(ctx: *d.Ctx, dl: *c.ImDrawList, url: []const u8, x: f32, y_top: f3
     const narrow = wd < 360;
     const bw = d.width(bf, 13, browser) + 20;
     const member = ok and inv.?.guild != 0 and ctx.store.guild(inv.?.guild) != null;
-    const go = i18n.tr("Ir para o servidor", "Go to server");
+    const go = if (member) i18n.tr("Ir para o servidor", "Go to server") else i18n.tr("Entrar", "Join");
     var rx = r.right() - 10;
-    const br: d.Rect = .{ .x = rx - bw, .y = if (narrow or member) y + 8 else y + 42, .w = bw, .h = bh };
+    const br: d.Rect = .{ .x = rx - bw, .y = if (narrow or ok) y + 8 else y + 42, .w = bw, .h = bh };
     rx = br.x;
     const hb = d.hit(ctx, @truncate(hit_id *% 31 +% 1), br);
     qa.mark(br, "invite-open:{s}", .{code});
     d.rect(dl, br, (if (hb.hovered) ctx.col(.accent) else ctx.col(.hover)).alpha(alpha), bh / 2);
     d.text(dl, bf, 13, br.x + 10, d.centerY(br, 13), (if (hb.hovered) ctx.col(.accent_text) else ctx.col(.text)).alpha(alpha), browser);
     if (hb.clicked) att.openUrl(url);
-    if (member) {
+    if (ok) {
         const gr: d.Rect = .{ .x = r.right() - 10 - bw, .y = y + 44, .w = bw, .h = bh };
         const gh = d.hit(ctx, @truncate(hit_id *% 31 +% 2), gr);
-        qa.mark(gr, "invite-go:{s}", .{code});
+        if (member) qa.mark(gr, "invite-go:{s}", .{code}) else qa.mark(gr, "invite-join:{s}", .{code});
         d.rect(dl, gr, ctx.col(.accent).alpha(alpha), bh / 2);
         const gt = d.width(bf, 13, go);
         d.text(dl, bf, 13, gr.x + (bw - gt) / 2, d.centerY(gr, 13), ctx.col(.accent_text).alpha(alpha), go);
-        if (gh.clicked) ctx.act(.{ .select_guild = inv.?.guild });
+        if (gh.clicked) {
+            if (member) ctx.act(.{ .select_guild = inv.?.guild }) else @import("invites.zig").openJoin(ctx, url);
+        }
     }
 
     // Nome e membros.

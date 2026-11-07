@@ -14,6 +14,7 @@ const anim = @import("anim.zig");
 const w = @import("widgets.zig");
 const types = @import("../core/types.zig");
 const i18n = @import("i18n.zig");
+const icons = @import("icons.zig");
 
 pub fn draw(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     icon_style = std.meta.stringToEnum(IconStyle, d.pstr(n, "icon-style", "fill")) orelse .fill;
@@ -137,6 +138,15 @@ fn verticalBar(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect, shape: w.Shape) void 
         },
         .folder => |f| y = folder(ctx, dl, f, cx, y, size, shape, r, step),
     };
+    // Entrar em outro servidor, como no Discord.
+    const add_r: d.Rect = .{ .x = cx - size / 2, .y = y, .w = size, .h = size };
+    const add_h = d.hit(ctx, 0x7f00, add_r);
+    qa.mark(add_r, "guild-join", .{});
+    d.rect(dl, add_r, if (add_h.hovered) ctx.col(.accent) else ctx.col(.text).alpha(0.07), w.shapeRadius(shape, size));
+    icons.plus(dl, cx, y + size / 2, size * 0.2, (if (add_h.hovered) ctx.col(.accent_text) else ctx.col(.muted)).u());
+    tooltip(ctx, 0x7f01, add_r.right() + 14, y + size / 2, i18n.tr("Entrar em um servidor", "Join a server"), add_h.hovered);
+    if (add_h.clicked) @import("invites.zig").openJoin(ctx, "");
+    y += step;
     d.endRegion(ctx, y, r.x);
 }
 

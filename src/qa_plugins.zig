@@ -1303,7 +1303,41 @@ fn framesWhileBusy(app: *App) bool {
 
 // --- Roteiros -----------------------------------------------------------------------------
 
-/// Entra depois de "Instalar os incluídos" na bateria geral (configurações abertas).
+// --- Outras escritas nas mensagens: o print mostra se cada uma aparece --------------------
+
+fn sendScripts(app: *App) void {
+    // A frase de "your code displays Japanese wrong": muda de desenho entre japonês e chinês.
+    _ = inject(app, geral, 1002, "刃直海角骨入");
+    _ = inject(app, geral, 1001, "日本語: こんにちは、カタカナも漢字も表示されますか");
+    _ = inject(app, geral, 1002, "한국어: 안녕하세요, 한글이 잘 보이나요");
+    _ = inject(app, geral, 1001, "中文: 你好,世界。这是简体中文");
+    _ = inject(app, geral, 1002, "Русский: привет, мир. Ελληνικά: γειά σου κόσμε");
+    _ = inject(app, geral, 1001, "Türkçe: ğüşıöç İ. Tiếng Việt: xin chào thế giới");
+    _ = inject(app, geral, 1002, "Polski: zażółć gęślą jaźń. Čeština: příliš žluťoučký kůň");
+}
+
+fn preferJapanese(app: *App) void {
+    app.fonts_lang_changed = false;
+    app.fonts.preferLanguage("ja");
+    app.st.theme_gen +%= 1;
+}
+
+pub const ops_scripts = [_]Op{
+    s("outras escritas"),
+    run(toGeral),
+    .{ .wait = 300 },
+    expect("antes de um texto pedir, nenhuma fonte reserva", @import("qa_paineis.zig").scriptsNotLoaded),
+    run(sendScripts),
+    run(stickBottom),
+    expect("o texto pede e as fontes reserva entram em todas as fontes", @import("qa_paineis.zig").scriptsLoaded),
+    .{ .wait = 700 },
+    .{ .shot = "escritas" },
+    // Trocar para japonês com o app aberto: o desenho japonês passa para a frente.
+    run(preferJapanese),
+    .{ .wait = 700 },
+    .{ .shot = "escritas-ja" },
+};
+
 // --- Encaminhar: o menu, a escolha do destino e o cartão que chega ------------------------
 
 fn forwardPicking(app: *App) bool {
@@ -1352,6 +1386,7 @@ pub const ops_forward = [_]Op{
     key(c.ImGuiKey_Escape),
 };
 
+/// Entra depois de "Instalar os incluídos" na bateria geral (configurações abertas).
 pub const ops = [_]Op{
     s("plugins: a página"),
     run(writeFixtures),

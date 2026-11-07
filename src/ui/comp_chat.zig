@@ -109,27 +109,33 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         d.rect(dl, .{ .x = tx, .y = r.y + r.h / 2 - 10, .w = 1, .h = 20 }, ctx.col(.border).mix(ctx.col(.text), 0.05), 0);
         _ = d.textClipped(dl, fam.get(.regular), 14, tx + 14, d.centerY(r, 14), ctx.col(.muted), ch.topic, sx - tx - 214 - panels_w);
     }
-    inboxButtons(ctx, dl, sx - 112, r.y + r.h / 2 - 14);
-    pinsButton(ctx, dl, ch_id, sx - 184, r.y + r.h / 2 - 14);
-    if (has_panels) panelsButton(ctx, dl, sx - 220, r.y + r.h / 2 - 14);
+    // Com a caixa de busca, a lupa pequena não aparece, e os botões ocupam o lugar dela.
+    const no_find: f32 = if (search_w > 0) 36 else 0;
+    inboxButtons(ctx, dl, sx - 112 + no_find, r.y + r.h / 2 - 14);
+    pinsButton(ctx, dl, ch_id, sx - 184 + no_find, r.y + r.h / 2 - 14);
+    if (has_panels) panelsButton(ctx, dl, sx - 220 + no_find, r.y + r.h / 2 - 14);
     if (search_w > 0) {
         const sr: d.Rect = .{ .x = sx, .y = r.y + r.h / 2 - 13, .w = search_w, .h = 26 };
         const sh = d.hit(ctx, 1, sr);
-        qa.mark(sr, "header-search", .{});
-        if (sh.clicked) ctx.act(.open_palette);
-        d.tip(ctx, sr, i18n.tr("Buscar canais, servidores e ações", "Search channels, servers and actions"), sh.hovered);
-        const sk = anim.to(anim.id("search", @intFromPtr(n)), if (sh.hovered) 1 else 0, 20);
+        qa.mark(sr, "header-find", .{});
+        const search = @import("search.zig");
+        if (sh.clicked) search.focusOrStart();
+        d.tip(ctx, sr, i18n.tr("Buscar mensagens (Ctrl+F)", "Search messages (Ctrl+F)"), sh.hovered);
+        const sk = anim.to(anim.id("search", @intFromPtr(n)), if (sh.hovered or search.open) 1 else 0, 20);
         d.rect(dl, sr, ctx.col(.rail).mix(ctx.col(.sidebar), 0.3 + 0.3 * sk), ctx.th.radius);
-        d.text(dl, fam.get(.regular), 14, sr.x + 9, d.centerY(sr, 14), ctx.col(.faint).mix(ctx.col(.muted), sk), i18n.tr("Buscar  Ctrl+K", "Search  Ctrl+K"));
+        if (search.open) d.border(dl, sr, ctx.col(.accent).alpha(0.7), ctx.th.radius, 1);
+        const label: []const u8 = if (search.open and search.text().len > 0) search.text() else i18n.tr("Buscar  Ctrl+F", "Search  Ctrl+F");
+        _ = d.textClipped(dl, fam.get(.regular), 14, sr.x + 9, d.centerY(sr, 14), ctx.col(.faint).mix(ctx.col(.muted), sk), label, sr.w - 34);
         icons.search(dl, sr.right() - 15, sr.y + 13, ctx.col(.faint).mix(ctx.col(.muted), sk).u());
+    } else {
+        // Sem lugar para a caixa: a lupa.
+        const fr: d.Rect = .{ .x = sx - 76, .y = r.y + r.h / 2 - 14, .w = 28, .h = 28 };
+        const fh = d.hit(ctx, 5, fr);
+        qa.mark(fr, "header-find", .{});
+        if (fh.clicked) @import("search.zig").focusOrStart();
+        icons.search(dl, fr.x + 14, fr.y + 14, (if (fh.hovered) ctx.col(.text) else ctx.col(.muted)).u());
+        d.tip(ctx, fr, i18n.tr("Buscar mensagens (Ctrl+F)", "Search messages (Ctrl+F)"), fh.hovered);
     }
-    // Busca nas mensagens (local, também offline): Ctrl+F.
-    const fr: d.Rect = .{ .x = sx - 76, .y = r.y + r.h / 2 - 14, .w = 28, .h = 28 };
-    const fh = d.hit(ctx, 5, fr);
-    qa.mark(fr, "header-find", .{});
-    if (fh.clicked) @import("search.zig").start();
-    icons.search(dl, fr.x + 14, fr.y + 14, (if (fh.hovered) ctx.col(.text) else ctx.col(.muted)).u());
-    d.tip(ctx, fr, i18n.tr("Buscar mensagens (Ctrl+F)", "Search messages (Ctrl+F)"), fh.hovered);
     const mr: d.Rect = .{ .x = sx - 40, .y = r.y + r.h / 2 - 14, .w = 28, .h = 28 };
     const mh = d.hit(ctx, 2, mr);
     qa.mark(mr, "header-members", .{});

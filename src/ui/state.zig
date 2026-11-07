@@ -31,6 +31,9 @@ pub const Popup = union(enum) {
     new_post: struct { forum: Id },
     /// Editar um servidor ou um grupo de DM (ui/edit_place.zig).
     edit_place: struct { id: Id, group: bool },
+    /// Entrar por convite e criar um (ui/invites.zig).
+    join_invite,
+    create_invite: struct { channel: Id },
 };
 
 /// Seleção de texto entre mensagens: âncora e cabeça (mensagem + byte).

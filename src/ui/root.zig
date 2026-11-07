@@ -132,7 +132,7 @@ pub fn frame(ctx: *d.Ctx, placed: *std.ArrayList(layout.Placed), previews: []con
             n_hides += 1;
         }
         // Painel de plugin aberto: o tema inteiro cabe no que sobra da janela.
-        const bounds = plugin_panel.reserve(ctx.win);
+        const bounds = search.reserve(plugin_panel.reserve(ctx.win));
         // Largura dos painéis: a da pessoa, com a conversa sempre usável.
         var sizes = resize.sizes(&ctx.st.settings);
         layout.solveSized(ctx.st.gpa, root, bounds, bounds.w, .{ .ctx = ctx.th, .get = Look.get, .hides = hides[0..n_hides] }, &sizes, "messages", resize.min_chat, placed) catch {};
