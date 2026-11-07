@@ -26,6 +26,13 @@ var pending_scroll: ?f32 = null;
 var search_due: i64 = 0;
 /// O que está na lista de resultados agora.
 var listed: [96]u8 = @splat(0);
+/// A aba de figurinhas acabou de aparecer (volta a rolagem ao topo).
+var sticker_was_open = false;
+
+fn stickerAppearing() bool {
+    defer sticker_was_open = tab == 2;
+    return tab == 2 and !sticker_was_open;
+}
 
 fn request(ctx: *d.Ctx, q: []const u8) void {
     const owned = ctx.st.gpa.dupe(u8, q) catch return;
@@ -127,7 +134,9 @@ pub fn draw(ctx: *d.Ctx, x: f32, y: f32) void {
     c.ImGui_SetCursorScreenPos(d.v(sb.x + 28, sb.y + 5));
     c.ImGui_SetNextItemWidth(sb.w - 34);
     if (popup.appearing) c.ImGui_SetKeyboardFocusHere();
-    const enter = c.ImGui_InputTextWithHint("##gif-q", i18n.trZ("Buscar GIFs", "Search GIFs").ptr, &query, query.len, c.ImGuiInputTextFlags_EnterReturnsTrue);
+    const stickers_tab = tab == 2;
+    const hint = if (stickers_tab) i18n.trZ("Buscar figurinhas", "Search stickers") else i18n.trZ("Buscar GIFs", "Search GIFs");
+    const enter = c.ImGui_InputTextWithHint("##gif-q", hint.ptr, &query, query.len, c.ImGuiInputTextFlags_EnterReturnsTrue);
     c.ImGui_PopStyleColor();
     c.ImGui_PopFont();
     const q = std.mem.sliceTo(&query, 0);
@@ -135,15 +144,17 @@ pub fn draw(ctx: *d.Ctx, x: f32, y: f32) void {
         searched = query;
         search_due = ctx.now_ms + type_wait_ms;
     }
+    // Na aba de figurinhas a busca é local (pelo nome): nada vai ao Discord.
+    if (stickers_tab) search_due = 0;
     if (search_due != 0 and (enter or ctx.now_ms >= search_due)) request(ctx, q);
     // O app dorme sem entrada: acorda quando a espera acabar.
     if (search_due != 0) @import("anim.zig").at(search_due);
-    const searching = q.len > 0;
+    const searching = q.len > 0 and !stickers_tab;
 
     var ty = sb.bottom() + 8;
     if (!searching) {
         var tx = r.x + pad;
-        const tabs = [_][]const u8{ i18n.tr("Em alta", "Trending"), i18n.tr("Favoritos", "Favorites") };
+        const tabs = [_][]const u8{ i18n.tr("Em alta", "Trending"), i18n.tr("Favoritos", "Favorites"), i18n.tr("Figurinhas", "Stickers") };
         for (tabs, 0..) |t, i| {
             const f = ctx.ui.get(.semibold);
             const tw = d.width(f, 13, t) + 20;
@@ -154,6 +165,8 @@ pub fn draw(ctx: *d.Ctx, x: f32, y: f32) void {
             if (on) d.rect(dl, tr, ctx.col(.accent).alpha(0.18), 6) else if (hb.hovered) d.rect(dl, tr, ctx.col(.hover), 6);
             d.text(dl, f, 13, tr.x + 10, d.centerY(tr, 13), if (on) ctx.col(.accent).mix(ctx.col(.text), 0.4) else ctx.col(.muted), t);
             if (hb.clicked and !on) {
+                // Saindo das figurinhas com algo digitado: vira busca de GIFs.
+                if (tab == 2 and q.len > 0) search_due = ctx.now_ms;
                 tab = @intCast(i);
                 pending_scroll = 0;
                 if (i == 1 and ctx.store.gif_favorites.state != .ready and ctx.store.gif_favorites.state != .loading) ctx.act(.gif_favorites);
@@ -162,6 +175,8 @@ pub fn draw(ctx: *d.Ctx, x: f32, y: f32) void {
         }
         ty += 32;
     }
+    const sticker_fresh = stickerAppearing();
+    if (stickers_tab) return @import("sticker_picker.zig").body(ctx, r, ty, q, sticker_fresh);
     const favorites = tab == 1 and !searching;
     const list: store_mod.GifList = if (favorites) ctx.store.gif_favorites else ctx.store.gif_results;
 

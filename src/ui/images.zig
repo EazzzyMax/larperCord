@@ -1128,7 +1128,10 @@ fn resize(src: []const u8, sw: usize, sh: usize, dst: []u8, dw: usize, dh: usize
 // --- Imagens da demonstração (geradas, para não pesar no executável) -----------
 
 fn demo(jb: Job, stop: *std.atomic.Value(bool)) Pixels {
-    const spec = jb.url[5..];
+    // "?ex=…": a assinatura de mentira dos links que vencem (core/media_refresh.zig).
+    const spec = std.mem.sliceTo(jb.url[5..], '?');
+    // O link vencido da demonstração falha como o do CDN.
+    if (std.mem.startsWith(u8, spec, "expired:")) return .{};
     if (std.mem.startsWith(u8, spec, "av:")) return demoAvatar(std.fmt.parseInt(u64, spec[3..], 10) catch 0, jb, false);
     if (std.mem.startsWith(u8, spec, "icon:")) return demoAvatar(std.fmt.parseInt(u64, spec[5..], 10) catch 0, jb, true);
     if (std.mem.eql(u8, spec, "gif")) return demoGif(jb, stop);

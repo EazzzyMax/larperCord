@@ -43,6 +43,9 @@ const limits_json = @import("limits_json.zig");
 const debug_log = @import("../platform/debug_log.zig");
 const conta_net = @import("conta_net.zig");
 const social = @import("social.zig");
+const media_flags = @import("../core/media_flags.zig");
+const media_refresh = @import("../core/media_refresh.zig");
+const stickers = @import("../core/stickers.zig");
 const Id = types.Id;
 const Value = std.json.Value;
 
@@ -346,6 +349,8 @@ pub const Gateway = struct {
             .fetch_people => |fp| g.emit(.{ .people_page = .{ .req = fp.req, .ok = false } }),
             .gif_search => |q| g.emit(.{ .gifs = .{ .req = q.req, .ok = false } }),
             .gif_favorites => |req| g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } }),
+            .refresh_urls => g.emit(.{ .urls_refreshed = &.{} }),
+            .fetch_sticker_packs => g.emit(.{ .sticker_packs = .{ .ok = false } }),
             .fetch_invite => |code| g.emit(.{ .invite = .{ .code = code, .invite = .{ .state = .failed } } }),
             .join_invite => |code| g.emit(.{ .invite_joined = .{ .code = code, .status = .failed } }),
             .create_invite => |ci| g.emit(.{ .invite_created = .{ .req = ci.req, .status = .failed } }),
@@ -891,6 +896,65 @@ pub const Gateway = struct {
         } } });
     }
 
+    /// Figurinhas de um servidor (READY, GUILD_CREATE, GUILD_STICKERS_UPDATE).
+    fn ingestStickers(g: *Gateway, gid: Id, list: []const Value) void {
+        const items = list[0..@min(list.len, 500)];
+        const out = alloc.alloc(stickers.Sticker, items.len) catch return;
+        var n: usize = 0;
+        for (items) |sv| {
+            const sid = j.id(j.get(sv, "id")) orelse continue;
+            out[n] = .{
+                .id = sid,
+                .guild = gid,
+                .name = dupe(j.str(j.get(sv, "name")) orelse "?"),
+                .format = @intCast(std.math.clamp(j.int(j.get(sv, "format_type")) orelse 1, 0, 255)),
+                .available = if (j.get(sv, "available")) |a| a != .bool or a.bool else true,
+            };
+            n += 1;
+        }
+        g.emit(.{ .guild_stickers = .{ .guild = gid, .stickers = if (n > 0) (alloc.realloc(out, n) catch out[0..n]) else blk: {
+            alloc.free(out);
+            break :blk &.{};
+        } } });
+    }
+
+    /// GET /sticker-packs: os pacotes padrão com as figurinhas de cada um.
+    fn stickerPacks(body: []const u8) ![]stickers.Pack {
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+        const v = try std.json.parseFromSliceLeaky(Value, arena.allocator(), body, .{});
+        const found = j.array(j.get(v, "sticker_packs"));
+        var packs: std.ArrayList(stickers.Pack) = .empty;
+        errdefer stickers.freePacks(packs.toOwnedSlice(alloc) catch &.{});
+        for (found[0..@min(found.len, 200)]) |pv| {
+            const pid = j.id(j.get(pv, "id")) orelse continue;
+            const list = j.array(j.get(pv, "stickers"));
+            const items = try alloc.alloc(stickers.Sticker, @min(list.len, 200));
+            var n: usize = 0;
+            for (list[0..items.len]) |sv| {
+                const sid = j.id(j.get(sv, "id")) orelse continue;
+                items[n] = .{
+                    .id = sid,
+                    .name = dupe(j.str(j.get(sv, "name")) orelse "?"),
+                    .format = @intCast(std.math.clamp(j.int(j.get(sv, "format_type")) orelse 1, 0, 255)),
+                    .available = if (j.get(sv, "available")) |a| a != .bool or a.bool else true,
+                };
+                n += 1;
+            }
+            var owned: []stickers.Sticker = items[0..n];
+            if (n == 0) {
+                alloc.free(items);
+                owned = &.{};
+            }
+            packs.append(alloc, .{ .id = pid, .name = dupe(j.str(j.get(pv, "name")) orelse "?"), .stickers = owned }) catch |e| {
+                for (owned) |st| alloc.free(st.name);
+                if (owned.len > 0) alloc.free(items);
+                return e;
+            };
+        }
+        return packs.toOwnedSlice(alloc);
+    }
+
     /// Cargos de um membro, do mais alto para o mais baixo, e a cor do
     /// nome (a do cargo mais alto que tem cor).
     fn infoOf(g: *const Gateway, roles: []const Value) types.MemberInfo {
@@ -1165,6 +1229,7 @@ pub const Gateway = struct {
             // Reaproveita o merge do GUILD_CREATE para atualizar o nome.
             if (j.get(d, "roles")) |rl| g.ingestRoles(gid, j.array(rl));
             if (j.get(d, "emojis")) |el| g.ingestEmojis(gid, j.array(el));
+            if (j.get(d, "stickers")) |sl| g.ingestStickers(gid, j.array(sl));
             g.emit(.{ .guild_create = .{
                 .guild = .{
                     .id = gid,
@@ -1183,6 +1248,10 @@ pub const Gateway = struct {
         }
         if (std.mem.eql(u8, t, "GUILD_EMOJIS_UPDATE")) {
             g.ingestEmojis(j.id(j.get(d, "guild_id")) orelse return, j.array(j.get(d, "emojis")));
+            return;
+        }
+        if (std.mem.eql(u8, t, "GUILD_STICKERS_UPDATE")) {
+            g.ingestStickers(j.id(j.get(d, "guild_id")) orelse return, j.array(j.get(d, "stickers")));
             return;
         }
         if (std.mem.eql(u8, t, "CHANNEL_CREATE") or std.mem.eql(u8, t, "CHANNEL_UPDATE")) {
@@ -1784,6 +1853,7 @@ pub const Gateway = struct {
         g.ingestEmojis(gid, j.array(j.get(d, "emojis")));
         // Servidor em que acabamos de entrar: o nosso membro vem na lista.
         for (j.array(j.get(d, "members"))) |m| if (j.get(m, "user")) |u| if (j.id(j.get(u, "id")) == g.me) g.myLimits(gid, m);
+        g.ingestStickers(gid, j.array(j.get(d, "stickers")));
         g.emit(.{ .guild_create = .{
             .guild = .{
                 .id = gid,
@@ -1914,6 +1984,7 @@ pub const Gateway = struct {
     fn attachmentsOf(m: Value) ![]types.Attachment {
         var list: std.ArrayList(types.Attachment) = .empty;
         errdefer types.freeAttachments(alloc, list.toOwnedSlice(alloc) catch &.{});
+        const voice_msg = media_flags.flagsValue(j.int(j.get(m, "flags"))) & media_flags.msg_voice != 0;
         // Nos componentes, os arquivos aparecem nos próprios blocos.
         if (!isComponentsV2(m)) for (j.array(j.get(m, "attachments"))) |a| {
             if (list.items.len >= 10) break;
@@ -1929,16 +2000,32 @@ pub const Gateway = struct {
             // pode devolver parado); vídeo: um quadro pelo proxy, e o link.
             const url = if (image and !gif) j.str(j.get(a, "proxy_url")) orelse cdn else cdn;
             if (!isHttp(url)) continue;
-            try list.append(alloc, .{
+            const aflags = media_flags.flagsValue(j.int(j.get(a, "flags")));
+            // Mensagem de voz: o Ogg Opus com a duração e a forma de onda.
+            const voice = voice_msg and std.mem.startsWith(u8, ctype, "audio/");
+            var att: types.Attachment = .{
                 .url = try alloc.dupe(u8, url),
-                .filename = try alloc.dupe(u8, name),
+                .filename = undefined,
                 .width = @intCast(std.math.clamp(w, 0, 65535)),
                 .height = @intCast(std.math.clamp(h, 0, 65535)),
                 .size = @intCast(std.math.clamp(j.int(j.get(a, "size")) orelse 0, 0, std.math.maxInt(u32))),
                 .animated = gif,
                 .video = video and image,
-                .link = if (video and image) try alloc.dupe(u8, cdn) else "",
-            });
+                .link = "",
+                .spoiler = media_flags.spoilerAttachment(name, aflags),
+                .sensitive = media_flags.sensitive(aflags),
+                .voice = voice,
+            };
+            errdefer alloc.free(att.url);
+            att.filename = try alloc.dupe(u8, name);
+            errdefer alloc.free(att.filename);
+            if (video and image) att.link = try alloc.dupe(u8, cdn);
+            errdefer if (att.link.len > 0) alloc.free(att.link);
+            if (voice) {
+                att.voice_ms = media_flags.secondsToMs(floatOf(j.get(a, "duration_secs")));
+                _ = media_flags.waveBars(j.str(j.get(a, "waveform")) orelse "", &att.wave);
+            }
+            try list.append(alloc, att);
         };
         for (j.array(j.get(m, "sticker_items"))) |s| {
             if (list.items.len >= 10) break;
@@ -1985,8 +2072,20 @@ pub const Gateway = struct {
                 .animated = std.mem.eql(u8, kind, "gifv"),
                 .still = if (gif != null) try alloc.dupe(u8, url) else "",
                 .embed = true,
+                .spoiler = media_flags.urlInSpoiler(j.str(j.get(m, "content")) orelse "", j.str(j.get(e, "url")) orelse ""),
+                .sensitive = media_flags.sensitive(media_flags.flagsValue(j.int(j.get(e, "flags")))),
             });
         }
+    }
+
+    /// Número com fração do JSON (inteiro também vale); 0 = não veio.
+    fn floatOf(v: ?Value) f64 {
+        return switch (v orelse return 0) {
+            .float => |f| f,
+            .integer => |i| @floatFromInt(i),
+            .number_string, .string => |t| std.fmt.parseFloat(f64, t) catch 0,
+            else => 0,
+        };
     }
 
     fn isComponentsV2(m: Value) bool {
@@ -2121,7 +2220,8 @@ pub const Gateway = struct {
         errdefer types.freeBlocks(alloc, blocks.toOwnedSlice(alloc) catch &.{});
         for (j.array(j.get(sm, "attachments"))) |a| {
             const name = j.str(j.get(a, "filename")) orelse i18n.tr("arquivo", "file");
-            const it = (try mediaItem(a, name, false)) orelse continue;
+            const af = media_flags.flagsValue(j.int(j.get(a, "flags")));
+            const it = (try mediaItem(a, name, media_flags.spoilerAttachment(name, af) or media_flags.sensitive(af))) orelse continue;
             if (it.w > 0 and it.h > 0) {
                 if (images.items.len < 10) try images.append(alloc, it);
                 continue;
@@ -2190,6 +2290,9 @@ pub const Gateway = struct {
             out.author = try dupeOpt(sub(e, "author", "name"));
             out.title = try dupeOpt(j.str(j.get(e, "title")) orelse "");
             out.url = try dupeOpt(j.str(j.get(e, "url")) orelse "");
+            // Link escondido num ||spoiler||: a prévia fica coberta também.
+            out.spoiler = media_flags.urlInSpoiler(j.str(j.get(m, "content")) orelse "", out.url);
+            out.sensitive = media_flags.sensitive(media_flags.flagsValue(j.int(j.get(e, "flags"))));
             out.description = try dupeOpt(j.str(j.get(e, "description")) orelse "");
             out.footer = try dupeOpt(sub(e, "footer", "text"));
             var fields: std.ArrayList(types.EmbedField) = .empty;
@@ -2370,6 +2473,7 @@ pub const Gateway = struct {
             try guilds.append(alloc, .{ .id = gid, .name = dupe(name), .acronym = try j.acronym(alloc, name), .color = @intCast((gid >> 22) % 8), .icon = guildIcon(gv), .banner = guildBanner(gv), .can_banner = canBanner(gv), .description = guildDescription(gv), .owner = ownerOf(gv), .joined_id = read_json.joinedId(gv) });
             g.ingestRoles(gid, j.array(j.get(gv, "roles")));
             g.ingestEmojis(gid, j.array(j.get(gv, "emojis")));
+            g.ingestStickers(gid, j.array(j.get(gv, "stickers")));
             try appendChannels(&channels, gid, j.array(j.get(gv, "channels")));
             for (j.array(j.get(gv, "threads"))) |tv| if (try g.channelValue(tv, gid)) |ch| try channels.append(alloc, ch);
             for (j.array(j.get(gv, "voice_states"))) |vs| {
@@ -2886,6 +2990,10 @@ pub const Gateway = struct {
             .gif_search => |q| alloc.free(q.query),
             .forward_message => |f| alloc.free(f.text),
             .ack_bulk => |list| if (list.len > 0) alloc.free(list),
+            .refresh_urls => |list| {
+                for (list) |u| alloc.free(u);
+                if (list.len > 0) alloc.free(list);
+            },
             .create_thread => |m| alloc.free(m.name),
             .edit_thread => |e| if (e.name) |n| alloc.free(n),
             .edit_place => |e| freeEdit(e),
@@ -3311,6 +3419,34 @@ pub const Gateway = struct {
                     n += 1;
                 }
                 g.emit(.{ .gifs = .{ .req = q.req, .items = shrinkGifs(items, n) } });
+            },
+            .refresh_urls => |urls| {
+                const none: ev.Event = .{ .urls_refreshed = &.{} };
+                const body = media_refresh.body(alloc, urls) catch return g.emit(none);
+                defer alloc.free(body);
+                var resp = g.request("POST", "/attachments/refresh-urls", body) orelse return g.emit(none);
+                defer resp.body.deinit(alloc);
+                if (resp.status != 200) return g.emit(none);
+                g.emit(.{ .urls_refreshed = media_refresh.parse(resp.body.items) catch return g.emit(none) });
+            },
+            .fetch_sticker_packs => {
+                const failed: ev.Event = .{ .sticker_packs = .{ .ok = false } };
+                var resp = g.request("GET", "/sticker-packs", null) orelse return g.emit(failed);
+                defer resp.body.deinit(alloc);
+                if (resp.status != 200) {
+                    g.noticeHttp(i18n.tr("não deu para carregar as figurinhas", "couldn't load the stickers"), &resp);
+                    return g.emit(failed);
+                }
+                g.emit(.{ .sticker_packs = .{ .packs = stickerPacks(resp.body.items) catch return g.emit(failed) } });
+            },
+            .send_sticker => |sk| {
+                var b: [128]u8 = undefined;
+                const body = stickers.sendBody(&b, sk.sticker, sk.nonce) orelse return;
+                const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/messages", .{sk.channel}) catch return;
+                // A mensagem chega pelo gateway (MESSAGE_CREATE), como as outras.
+                var resp = g.request("POST", path, body) orelse return g.notice("a figurinha não foi enviada", "the sticker wasn't sent", .{});
+                defer resp.body.deinit(alloc);
+                if (resp.status >= 300) g.noticeHttp(i18n.tr("não deu para enviar a figurinha", "couldn't send the sticker"), &resp);
             },
             .gif_favorites => |req| {
                 const failed: ev.Event = .{ .gifs = .{ .req = req, .favorites = true, .ok = false } };

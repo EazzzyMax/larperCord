@@ -27,6 +27,7 @@ QA_SUITE=envio run "envio" $bin --qa --theme classico
 QA_SUITE=limites run "limites" $bin --qa --theme classico
 # Pedidos de mensagem e grupo: aceitar, recusar e sair mudam a lista de DMs para o resto.
 QA_SUITE=social run "social" $bin --qa --theme classico
+QA_SUITE=midia run "midia" $bin --qa --theme classico
 # Plugins: o que fica gravado ao fechar continua lá ao abrir de novo (outro processo).
 QA_SUITE=plugins-a run "plugins (antes)" $bin --qa
 sleep 2.5

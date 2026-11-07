@@ -352,6 +352,7 @@ pub const App = struct {
         app.clearUploads();
         app.picked.deinit();
         @import("ui/video.zig").shutdown();
+        @import("ui/voice_msg.zig").shutdown();
         // (Por último, lá dentro: as threads de mídia e de vídeo usam o libcurl.)
         app.images.deinit();
         app.st.saved.deinit(app.gpa);
@@ -1280,6 +1281,17 @@ pub const App = struct {
                 app.store.gif_results.req +%= 1;
                 app.store.gif_results.state = .loading;
                 app.cmd(.{ .gif_search = .{ .req = app.store.gif_results.req, .query = copy } });
+            },
+            .refresh_media => if (@import("core/media_refresh.zig").global.takeBatch()) |urls| app.cmd(.{ .refresh_urls = urls }),
+            .fetch_sticker_packs => {
+                const book = &app.store.stickers;
+                if (book.packs_state == .loading or book.packs_state == .ready) return;
+                book.packs_state = .loading;
+                app.cmd(.fetch_sticker_packs);
+            },
+            .send_sticker => |sk| {
+                st.nonce +%= 1;
+                app.cmd(.{ .send_sticker = .{ .channel = sk.channel, .sticker = sk.sticker, .nonce = st.nonce } });
             },
             .gif_favorites => {
                 app.store.gif_favorites.req +%= 1;

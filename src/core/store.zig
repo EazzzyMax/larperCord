@@ -226,6 +226,8 @@ pub const Store = struct {
     /// eles pelo ID (as cópias apontam para os mesmos nomes).
     guild_emojis: std.AutoHashMapUnmanaged(Id, []types.Emoji) = .empty,
     emoji_by_id: std.AutoHashMapUnmanaged(Id, types.Emoji) = .empty,
+    /// Figurinhas dos servidores e os pacotes padrão (core/stickers.zig).
+    stickers: @import("stickers.zig").Book = .{},
     users: std.AutoHashMapUnmanaged(Id, types.User) = .empty,
     guilds: std.ArrayList(types.Guild) = .empty,
     channels: std.AutoHashMapUnmanaged(Id, *ChannelState) = .empty,
@@ -306,6 +308,7 @@ pub const Store = struct {
         while (gei.next()) |list| freeEmojis(list.*);
         s.guild_emojis.deinit(s.gpa);
         s.emoji_by_id.deinit(s.gpa);
+        s.stickers.deinit();
         var it = s.channels.valueIterator();
         while (it.next()) |cs| {
             for (cs.*.messages.items) |*m| s.freeMessage(m);
@@ -815,6 +818,8 @@ pub const Store = struct {
             while (mi.next()) |k| if (k.*[0] == id) keys.append(s.gpa, k.*) catch {};
             for (keys.items) |k| _ = s.members.remove(k);
             s.setEmojis(id, &.{});
+            var no_stickers: [0]@import("stickers.zig").Sticker = .{};
+            s.stickers.setGuild(id, &no_stickers);
             return;
         }
     }
@@ -1376,6 +1381,9 @@ pub const Store = struct {
                 s.react(m, r.emoji, r.user == s.me, r.add);
             },
             .guild_emojis => |ge| s.setEmojis(ge.guild, ge.emojis),
+            .guild_stickers => |gs| s.stickers.setGuild(gs.guild, gs.stickers),
+            .sticker_packs => |sp| s.stickers.setPacks(sp.packs, sp.ok),
+            .urls_refreshed => |pairs| @import("media_refresh.zig").global.deliver(pairs),
             .premium => |p| s.premium_type = p,
             .roles => |rs| {
                 defer ev_alloc.free(rs.roles);

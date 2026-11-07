@@ -16,6 +16,7 @@ const video = @import("video.zig");
 const w_ui = @import("widgets.zig");
 const links = @import("../core/links.zig");
 const links_ui = @import("links.zig");
+const cover = @import("media_cover.zig");
 
 const max_w: f32 = 520;
 const gap: f32 = 6;
@@ -609,7 +610,10 @@ fn card(ctx: *d.Ctx, dl: ?*c.ImDrawList, e: *const types.Embed, spans: []const [
         const ih: f32 = @floatFromInt(e.image_h);
         const s = @min(1.0, @min((w - 4 - pad * 2) / iw, 300 / ih));
         const r: d.Rect = .{ .x = ix, .y = y, .w = @max(40, @round(iw * s)), .h = @max(30, @round(ih * s)) };
-        if (dl) |l| image(ctx, l, e, r, alpha, msg_id);
+        // Marcado como sensível: a capa no lugar, até o clique (nada é baixado).
+        if (dl) |l| {
+            if (cover.hidden(ctx, msg_id, false, e.sensitive)) |kind| cover.draw(ctx, l, r, kind, @intFromPtr(e), msg_id, alpha) else image(ctx, l, e, r, alpha, msg_id);
+        }
         y += r.h + 4;
     }
     if (e.footer.len > 0) {
@@ -620,16 +624,20 @@ fn card(ctx: *d.Ctx, dl: ?*c.ImDrawList, e: *const types.Embed, spans: []const [
     if (has_thumb) {
         const tr: d.Rect = .{ .x = x + w - pad - thumb_s, .y = y0 + pad, .w = thumb_s, .h = thumb_s };
         if (dl) |l| {
-            const scale = ctx.io.*.DisplayFramebufferScale.x;
-            switch (ctx.images.get(e.thumb, tr.w * scale, tr.h * scale)) {
-                .ready => |t| {
-                    // Cabe no quadrado sem distorcer.
-                    const k = @min(tr.w / @as(f32, @floatFromInt(t.w)), tr.h / @as(f32, @floatFromInt(t.h)));
-                    const dw = @as(f32, @floatFromInt(t.w)) * k;
-                    const dh = @as(f32, @floatFromInt(t.h)) * k;
-                    c.ImDrawList_AddImageRounded(l, t.ref, d.v(tr.right() - dw, tr.y), d.v(tr.right(), tr.y + dh), d.v(0, 0), d.v(1, 1), d.Rgba.white.col(alpha), 4, 0);
-                },
-                else => d.rect(l, tr, ctx.col(.text).alpha(0.05 * alpha), 4),
+            if (cover.hidden(ctx, msg_id, false, e.sensitive)) |kind| {
+                cover.draw(ctx, l, tr, kind, @intFromPtr(e) +% 1, msg_id, alpha);
+            } else {
+                const scale = ctx.io.*.DisplayFramebufferScale.x;
+                switch (ctx.images.get(e.thumb, tr.w * scale, tr.h * scale)) {
+                    .ready => |t| {
+                        // Cabe no quadrado sem distorcer.
+                        const k = @min(tr.w / @as(f32, @floatFromInt(t.w)), tr.h / @as(f32, @floatFromInt(t.h)));
+                        const dw = @as(f32, @floatFromInt(t.w)) * k;
+                        const dh = @as(f32, @floatFromInt(t.h)) * k;
+                        c.ImDrawList_AddImageRounded(l, t.ref, d.v(tr.right() - dw, tr.y), d.v(tr.right(), tr.y + dh), d.v(0, 0), d.v(1, 1), d.Rgba.white.col(alpha), 4, 0);
+                    },
+                    else => d.rect(l, tr, ctx.col(.text).alpha(0.05 * alpha), 4),
+                }
             }
         }
         y = @max(y, y0 + pad + thumb_s);

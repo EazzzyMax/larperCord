@@ -32,6 +32,10 @@ test {
     _ = @import("core/mentions.zig");
     _ = @import("ui/emoji_data.zig");
     _ = @import("core/cache_format.zig");
+    _ = @import("core/media_flags.zig");
+    _ = @import("core/media_refresh.zig");
+    _ = @import("core/ogg_opus.zig");
+    _ = @import("core/stickers.zig");
     _ = @import("core/search_query.zig");
     _ = @import("core/accounts.zig");
     _ = @import("core/limites.zig");

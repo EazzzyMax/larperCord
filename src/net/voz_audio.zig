@@ -234,6 +234,13 @@ fn resolve(recording: bool, name: []const u8) c.SDL_AudioDeviceID {
     return defaultDevice(recording);
 }
 
+/// A saída escolhida na página Voz (ou a padrão do sistema), para quem toca
+/// som fora da call (mensagens de voz). Só numa thread com o áudio iniciado.
+pub fn outputDevice() c.SDL_AudioDeviceID {
+    const name = chosenName(false);
+    return resolve(false, name.slice());
+}
+
 /// O microfone: um stream lido a cada 20 ms. Abre pelo nome salvo, confere de
 /// vez em quando se o dispositivo continua lá (e se a escolha mudou) e reabre
 /// sem que quem lê perceba mais do que um quadro faltando.
