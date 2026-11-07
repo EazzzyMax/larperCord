@@ -2094,6 +2094,34 @@ pub const App = struct {
             }
             return;
         }
+        // "rolar": a roda sobe e desce sem parar sobre a conversa (com LARPER_BENCH,
+        // mede o custo de rolar).
+        if (std.mem.eql(u8, which, "rolar")) {
+            const R = struct {
+                var n: u32 = 0;
+            };
+            R.n +%= 1;
+            c.ImGuiIO_AddMousePosEvent(app.io, 700, 400);
+            c.ImGuiIO_AddMouseWheelEvent(app.io, 0, if (R.n % 160 < 80) 1 else -1);
+            return;
+        }
+        // "digitar": uma letra a cada 4 quadros na caixa de texto, apagando tudo a
+        // cada 400 (mede o custo de digitar).
+        if (std.mem.eql(u8, which, "digitar")) {
+            const T = struct {
+                var n: u32 = 0;
+            };
+            T.n +%= 1;
+            if (T.n % 400 == 0) {
+                @memset(&app.st.input, 0);
+                app.st.input_sync = true;
+            }
+            if (T.n % 4 != 0) return;
+            app.st.focus_input = true;
+            const s = "olha isso aqui que legal ";
+            c.ImGuiIO_AddInputCharacter(app.io, s[(T.n / 4) % s.len]);
+            return;
+        }
         // As outras cenas esperam a conversa carregar.
         if (!settled) return;
         const ch = app.st.activeChannel() orelse return;
