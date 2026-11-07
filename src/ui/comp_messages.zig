@@ -34,6 +34,8 @@ const types = @import("../core/types.zig");
 const i18n = @import("i18n.zig");
 const inbox_ui = @import("inbox.zig");
 const plugins = @import("../plugins/engine.zig");
+const compose_opts = @import("compose_opts.zig");
+const reactors = @import("reactors.zig");
 const Id = types.Id;
 const StoredMessage = store_mod.StoredMessage;
 
@@ -1022,7 +1024,8 @@ fn reactions(ctx: *d.Ctx, dl: *c.ImDrawList, m: *StoredMessage, x: f32, y: f32, 
             if (cr.y + cr.h / 2 > lo.y and cr.y + cr.h / 2 < hi.y) qa.mark(cr, "chip:{d}:{d}", .{ m.msg.id, i });
         }
         if (hb.clicked) ctx.act(.{ .react = .{ .id = m.msg.id, .emoji = rc.* } });
-        if (hb.right) ctx.popup(.{ .menu = .{ .kind = .message, .id = m.msg.id, .x = ctx.mouse.x, .y = ctx.mouse.y } });
+        // Botão direito: quem reagiu (buscado só agora, ui/reactors.zig).
+        if (hb.right) reactors.openReactions(ctx, m.msg.id, i, ctx.mouse.x, ctx.mouse.y);
         const bg = if (rc.me) ctx.col(.accent).alpha(0.2) else ctx.col(.elevated);
         const cr_r = @min(8, ctx.th.radius + 2);
         d.rect(dl, cr, if (hb.hovered) bg.mix(ctx.col(.text), 0.06) else bg, cr_r);
@@ -1033,13 +1036,15 @@ fn reactions(ctx: *d.Ctx, dl: *c.ImDrawList, m: *StoredMessage, x: f32, y: f32, 
             if (emoji_img.enabled(ctx)) {
                 emoji_img.draw(ctx, dl, rc.custom, rc.animated, .{ .x = cr.x + 6, .y = cr.y + 3, .w = 18, .h = 18 }, 1, hb.hovered, true);
             } else d.text(dl, fam.get(.medium), 12, cr.x + 6, d.centerY(cr, 12), ctx.col(.text).mix(ctx.col(.muted), 0.3), shown);
-            d.tip(ctx, cr, shown, hb.hovered);
+            var tb: [96]u8 = undefined;
+            d.tip(ctx, cr, i18n.fmt(&tb, "{s}  ·  botão direito: quem reagiu", "{s}  ·  right-click: who reacted", .{shown}), hb.hovered);
         } else {
             // Sequência (família, bandeira): cada pedaço é um desenho; cabe no lugar.
             const pick = @import("emoji_picker.zig");
             const g = pick.drawable(rc.text());
             const es = pick.fitSize(fam.get(.regular), g.slice(), 15, 18);
             d.text(dl, fam.get(.regular), es, cr.x + 6, cr.y + 12 - es * 0.67, d.Rgba.white, g.slice());
+            d.tip(ctx, cr, i18n.tr("Botão direito: quem reagiu", "Right-click: who reacted"), hb.hovered);
         }
         d.text(dl, fam.get(.semibold), 13, cr.x + 12 + emojiW(ctx, rc), d.centerY(cr, 13), if (rc.me) ctx.col(.accent).mix(ctx.col(.text), 0.3) else ctx.col(.muted), cnt);
         xx += cr.w + 4;
@@ -1505,6 +1510,8 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         };
         d.text(dl, fam.get(.medium), 13, bar.x + 14, bar.y + 8, ctx.col(.muted), t);
         const xr: d.Rect = .{ .x = bar.right() - 30, .y = bar.y + 5, .w = 22, .h = 22 };
+        // Respondendo: mencionar ou não quem escreveu (ui/compose_opts.zig).
+        if (st.editing == 0) _ = compose_opts.replyToggle(ctx, dl, fam, bar, xr.x - 6);
         const hb = d.hit(ctx, 9, xr);
         qa.mark(xr, "compose-cancel", .{});
         const xc = if (hb.hovered) ctx.col(.text) else ctx.col(.faint);
@@ -1546,8 +1553,10 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         d.text(dl, fam.get(.bold), fs, r.x + 10, d.centerY(r, fs), ctx.col(.accent), p);
         input_x = r.x + 10 + d.width(fam.get(.bold), fs, p);
         const gw = d.width(fam.get(.bold), fs, "[gif]") + 8;
-        input_r = r.right() - 80 - gw;
+        const ow = d.width(fam.get(.bold), fs, "[~]") + 8;
+        input_r = r.right() - 84 - gw - ow;
         const gr: d.Rect = .{ .x = r.right() - 72 - gw, .y = r.y + r.h / 2 - 13, .w = gw, .h = 26 };
+        compose_opts.button(ctx, dl, fam, .{ .x = gr.x - ow - 4, .y = gr.y, .w = ow, .h = 26 }, true);
         const gh = d.hit(ctx, 40, gr);
         qa.mark(gr, "composer-gif", .{});
         d.text(dl, fam.get(.bold), fs, gr.x + 4, d.centerY(gr, fs), if (gh.hovered) ctx.col(.accent) else ctx.col(.muted), "[gif]");
@@ -1585,6 +1594,9 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         d.text(dl, fam.get(.bold), 11, gr.x + (gr.w - d.width(fam.get(.bold), 11, "GIF")) / 2, d.centerY(gr, 11), gif_ink, "GIF");
         if (gh.clicked) ctx.popup(.{ .gif = .{ .x = gr.right(), .y = r.y } });
         d.tip(ctx, gr, i18n.tr("GIFs", "GIFs"), gh.hovered);
+        // Opções da próxima mensagem (silenciosa, sem prévias, sem menções).
+        const opt_r: d.Rect = .{ .x = gr.x - 34, .y = r.y + r.h / 2 - 13, .w = 28, .h = 26 };
+        compose_opts.button(ctx, dl, fam, opt_r, false);
         const er: d.Rect = .{ .x = ex, .y = r.y + r.h / 2 - 14, .w = 28, .h = 28 };
         const eh = d.hit(ctx, 2, er);
         qa.mark(er, "composer-emoji", .{});
@@ -1604,7 +1616,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
             if (sh.clicked) submit(ctx);
             d.tip(ctx, sr, i18n.tr("Enviar  (Enter)", "Send  (Enter)"), sh.hovered);
         }
-        input_r = gr.x - 6;
+        input_r = opt_r.x - 4;
     }
 
     const fs = ctx.th.font_size;

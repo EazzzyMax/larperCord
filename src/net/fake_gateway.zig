@@ -11,6 +11,9 @@ const Queue = @import("queue.zig").Queue;
 const i18n = @import("../ui/i18n.zig");
 const leitura = @import("../core/leitura.zig");
 const jsonx = @import("jsonx.zig");
+const envio_json = @import("envio_json.zig");
+const envio = @import("../core/envio.zig");
+const polls = @import("../core/polls.zig");
 const Id = types.Id;
 
 const alloc = std.heap.c_allocator;
@@ -48,7 +51,41 @@ pub const sent = struct {
     pub var search_len: A = .init(0);
     /// A consulta da última busca (o QA confere o que iria para o Discord).
     pub var search_params: [1100]u8 = undefined;
+    /// Envio, votos, listas sob demanda e fixadas: o corpo ou o caminho do
+    /// último pedido, montado como o gateway de verdade monta (net/envio_json.zig).
+    pub var sends: A = .init(0);
+    pub var send_body: [8192]u8 = undefined;
+    pub var send_body_len: A = .init(0);
+    pub var votes: A = .init(0);
+    pub var vote_body: [160]u8 = undefined;
+    pub var vote_len: A = .init(0);
+    pub var people_fetches: A = .init(0);
+    pub var people_path: [400]u8 = undefined;
+    pub var people_path_len: A = .init(0);
+    pub var pin_pages: A = .init(0);
+    pub var pins_path: [320]u8 = undefined;
+    pub var pins_path_len: A = .init(0);
+
+    fn keep(buf: []u8, len: *A, text: []const u8) void {
+        const n = @min(buf.len, text.len);
+        @memcpy(buf[0..n], text[0..n]);
+        len.store(n, .release);
+    }
+
+    pub fn view(buf: []const u8, len: *const A) []const u8 {
+        return buf[0..@min(buf.len, len.load(.acquire))];
+    }
 };
+
+/// O canal das enquetes da demonstração (#geral de "os larpers"): uma de uma
+/// escolha, uma de várias, uma mensagem com muitas reações e 60 fixadas.
+pub const poll_channel: Id = 503_005;
+/// Onde ficam, contando do fim do histórico.
+const poll_backs = [_]usize{ 3, 7 };
+/// Votos dos outros em cada opção (a primeira tem página a mais de quem votou).
+const poll_counts = [_][4]u32{ .{ 30, 3, 2, 1 }, .{ 4, 6, 2, 0 } };
+/// Quantas reagiram com 🎉 na última mensagem do canal (e duas super reações).
+const party_count = 30;
 
 const demo_gifs = [_][]const u8{ "dancing cat", "thumbs up", "good morning", "laughing", "confused", "applause", "typing fast", "shrug" };
 
@@ -98,6 +135,10 @@ pub const Gateway = struct {
     mention_log: []types.Message = &.{},
     /// Threads e posts da demonstração: o que cada uma tem de conversa.
     threads: std.AutoHashMapUnmanaged(Id, DemoThread) = .empty,
+    /// Enquetes da demonstração: as mensagens e em que opções votamos (bits).
+    poll_ids: [poll_backs.len]Id = @splat(0),
+    poll_mine: [poll_backs.len]u16 = @splat(0),
+    party_msg: Id = 0,
 
     pub fn start(g: *Gateway) !void {
         g.thread = c.SDL_CreateThread(threadMain, "gateway", g) orelse return error.SdlThread;
@@ -233,6 +274,19 @@ pub const Gateway = struct {
             for (cmds.items) |cmd| switch (cmd) {
                 .shutdown => return,
                 .send_message => |m| {
+                    // O corpo que iria para o Discord (o QA confere flags,
+                    // menções, spoiler e texto alternativo).
+                    {
+                        var names: [10][]const u8 = undefined;
+                        const nf = @min(m.files.len, names.len);
+                        for (m.files[0..nf], 0..) |f, i| names[i] = std.fs.path.basename(f);
+                        var b: std.ArrayList(u8) = .empty;
+                        defer b.deinit(alloc);
+                        envio_json.messageBody(&b, alloc, .{ .content = m.content, .nonce = m.nonce, .reply_to = m.reply_to, .opts = m.opts, .names = names[0..nf], .files = m.file_opts }) catch {};
+                        sent.keep(&sent.send_body, &sent.send_body_len, b.items);
+                        _ = sent.sends.fetchAdd(1, .monotonic);
+                    }
+                    envio.freeFileOpts(alloc, m.file_opts);
                     // Os arquivos já aparecem na cópia pendente (o Store
                     // mantém os anexos dela na confirmação).
                     for (m.files) |f| alloc.free(f);
@@ -459,8 +513,16 @@ pub const Gateway = struct {
                 .fetch_pins => |channel| {
                     _ = sent.pin_fetches.fetchAdd(1, .monotonic);
                     try g.seedPins(channel);
-                    g.emit(.{ .pins = .{ .channel = channel, .messages = try g.buildPins(channel) } });
+                    try g.pinsPage(channel, 0);
                 },
+                .fetch_more_pins => |mp| {
+                    _ = sent.pin_pages.fetchAdd(1, .monotonic);
+                    try g.seedPins(mp.channel);
+                    // O cursor da demonstração é onde a página começa.
+                    try g.pinsPage(mp.channel, std.fmt.parseInt(usize, mp.before.slice(), 10) catch 0);
+                },
+                .poll_vote => |pv| g.demoVote(pv),
+                .fetch_people => |fp| try g.demoPeople(fp.req, fp.q, fp.after),
                 .pin => |p| {
                     _ = sent.pin_ops.fetchAdd(1, .monotonic);
                     try g.seedPins(p.channel);
@@ -785,7 +847,96 @@ pub const Gateway = struct {
         const latest = try buildHistory(channel, g.epoch_ms);
         defer freeMessages(latest);
         try g.pins.append(alloc, .{ .channel = channel, .id = oldPinId(channel, g.epoch_ms) });
+        // No canal das enquetes, fixadas que não cabem numa página só.
+        if (channel == poll_channel) for (0..57) |k| {
+            try g.pins.append(alloc, .{ .channel = channel, .id = types.makeSnowflake(g.epoch_ms - @as(i64, @intCast(41 + k)) * 86_400_000, demoSeq(channel, 2000 + k)) });
+        };
         for (pinned_backs) |back| try g.pins.append(alloc, .{ .channel = channel, .id = latest[latest.len - back].id });
+    }
+
+    /// Uma página de fixadas (50, como a API), a partir da posição `start`.
+    fn pinsPage(g: *Gateway, channel: Id, from: usize) !void {
+        var cb: [16]u8 = undefined;
+        var pb: [320]u8 = undefined;
+        const before = if (from > 0) std.fmt.bufPrint(&cb, "{d}", .{from}) catch "" else "";
+        sent.keep(&sent.pins_path, &sent.pins_path_len, envio_json.pinsPath(&pb, channel, before));
+        const all = try g.buildPins(channel);
+        const lo = @min(from, all.len);
+        const hi = @min(lo + envio_json.pins_page, all.len);
+        const page = try keepRange(all, lo, hi);
+        const next = std.fmt.bufPrint(&cb, "{d}", .{hi}) catch "";
+        g.emit(.{ .pins = .{ .channel = channel, .messages = page, .older = from > 0, .more = hi < all.len, .cursor = if (hi < all.len) envio.PinCursor.init(next) else .{} } });
+    }
+
+    fn notePollIds(g: *Gateway, msgs: []const types.Message) void {
+        const n = msgs.len;
+        for (poll_backs, 0..) |back, i| g.poll_ids[i] = msgs[n - back].id;
+        g.party_msg = msgs[n - 1].id;
+    }
+
+    /// As enquetes e a mensagem cheia de reações do canal delas, depois do histórico.
+    fn demoPollExtras(g: *Gateway) !void {
+        for (g.poll_ids, 0..) |id, i| g.emit(.{ .poll = .{ .channel = poll_channel, .id = id, .poll = try demoPoll(i, g.poll_mine[i], g.epoch_ms) } });
+        for (0..party_count) |k| g.emit(.{ .reaction = .{ .channel = poll_channel, .id = g.party_msg, .emoji = types.Reaction.init("🎉"), .user = demoVoter(k), .add = true } });
+        var burst = types.Reaction.init("🎉");
+        burst.burst = 1;
+        for (users[1..3]) |u| g.emit(.{ .reaction = .{ .channel = poll_channel, .id = g.party_msg, .emoji = burst, .user = u.id, .add = true } });
+    }
+
+    /// Voto: como o Discord, um evento por opção que entrou ou saiu.
+    fn demoVote(g: *Gateway, pv: ev.PollVote) void {
+        var vb: [160]u8 = undefined;
+        sent.keep(&sent.vote_body, &sent.vote_len, envio_json.pollVoteBody(&vb, pv.answers[0..@min(pv.n, pv.answers.len)]));
+        _ = sent.votes.fetchAdd(1, .monotonic);
+        const i = for (g.poll_ids, 0..) |id, k| {
+            if (id == pv.id) break k;
+        } else return;
+        var want: u16 = 0;
+        for (pv.answers[0..@min(pv.n, pv.answers.len)]) |a| if (a >= 1 and a <= 16) {
+            want |= @as(u16, 1) << @intCast(a - 1);
+        };
+        const had = g.poll_mine[i];
+        g.poll_mine[i] = want;
+        for (0..16) |b| {
+            const bit = @as(u16, 1) << @intCast(b);
+            if ((had ^ want) & bit == 0) continue;
+            g.emit(.{ .poll_vote = .{ .channel = pv.channel, .id = pv.id, .user = me_id, .answer = @intCast(b + 1), .add = want & bit != 0 } });
+        }
+    }
+
+    /// Quem votou ou reagiu, em páginas de 25 depois de `after`.
+    fn demoPeople(g: *Gateway, req: u32, q: ev.PeopleQuery, after: Id) !void {
+        var pb: [400]u8 = undefined;
+        const path = if (q.answer > 0) envio_json.votersPath(&pb, q.channel, q.id, q.answer, after) else envio_json.reactorsPath(&pb, q.channel, q.id, &q.emoji, q.burst, after);
+        sent.keep(&sent.people_path, &sent.people_path_len, path);
+        _ = sent.people_fetches.fetchAdd(1, .monotonic);
+        var all: std.ArrayList(Id) = .empty;
+        defer all.deinit(alloc);
+        if (q.answer > 0) {
+            const i = for (g.poll_ids, 0..) |id, k| {
+                if (id == q.id) break k;
+            } else null;
+            if (i) |pi| if (q.answer >= 1 and q.answer <= 4) {
+                // O nosso ID é o menor: vem primeiro, como na API.
+                if (g.poll_mine[pi] & (@as(u16, 1) << @intCast(q.answer - 1)) != 0) try all.append(alloc, me_id);
+                for (0..poll_counts[pi][q.answer - 1]) |k| try all.append(alloc, demoVoter(k));
+            };
+        } else if (q.id == g.party_msg and q.emoji.custom == 0 and std.mem.eql(u8, q.emoji.text(), "🎉")) {
+            if (q.burst) {
+                for (users[1..3]) |u| try all.append(alloc, u.id);
+            } else for (0..party_count) |k| try all.append(alloc, demoVoter(k));
+        } else for (users[1..5]) |u| try all.append(alloc, u.id);
+        // Como a API: em ordem de ID (a lista já está), a página depois de `after`.
+        const page = try alloc.alloc(Id, envio_json.people_page);
+        var n: usize = 0;
+        for (all.items) |uid| {
+            if (uid <= after or n == page.len) continue;
+            if (uid >= demo_voter_base) g.emit(.{ .user_upsert = .{ .id = uid, .name = try std.fmt.allocPrint(alloc, "{s}{d}", .{ pick("pessoa", "person"), uid - demo_voter_base + 1 }), .role = @intCast(uid % 8) } });
+            page[n] = uid;
+            n += 1;
+        }
+        if (n == 0) alloc.free(page);
+        g.emit(.{ .people_page = .{ .req = req, .users = if (n == 0) &.{} else alloc.realloc(page, n) catch page[0..n] } });
     }
 
     /// As fixadas do canal, da última fixada para a primeira, como a API manda.
@@ -836,6 +987,8 @@ pub const Gateway = struct {
                     continue;
                 }
                 const msgs = try buildHistory(r.channel, g.epoch_ms);
+                // Os IDs antes de a lista passar para o Store.
+                if (r.channel == poll_channel) g.notePollIds(msgs);
                 g.emit(.{ .history = .{ .channel = r.channel, .messages = msgs, .more = msgs.len > 0 } });
                 // Algumas reações nas mensagens recentes.
                 var prng = std.Random.DefaultPrng.init(r.channel ^ 0xABCD);
@@ -848,6 +1001,7 @@ pub const Gateway = struct {
                     for (0..n) |u| g.emit(.{ .reaction = .{ .channel = r.channel, .id = msgs[mi].id, .emoji = types.Reaction.init(emoji), .user = users[1 + (u + mi) % 7].id, .add = true } });
                 }
                 // Reações personalizadas (uma animada) na mensagem com emoji.
+                if (r.channel == poll_channel) try g.demoPollExtras();
                 if (r.channel == emoji_channel) {
                     const target = msgs[msgs.len - 2].id;
                     for (0..3) |u| g.emit(.{ .reaction = .{ .channel = r.channel, .id = target, .emoji = types.Reaction.initCustom("larper", demo_emojis[0].id, false), .user = users[1 + u].id, .add = true } });
@@ -1715,7 +1869,57 @@ fn buildHistory(channel: Id, now_ms: i64) ![]types.Message {
         try set(&msgs[n - 4], try i18n.allocPrint(alloc, "a regra fixada é esta: https://discord.com/channels/{d}/{d}/{d}", "the pinned rule is this one: https://discord.com/channels/{d}/{d}/{d}", .{ guildId(0), channel, oldPinId(channel, now_ms) }));
         try set(&msgs[n - 6], try i18n.allocPrint(alloc, "vejam <#{d}> e falem com <@1001>; o outro canal: https://ptb.discord.com/channels/{d}/{d}", "check <#{d}> and talk to <@1001>; the other channel: https://ptb.discord.com/channels/{d}/{d}", .{ channelId(0, 4), guildId(0), channelId(0, 5) }));
     }
+    // As enquetes: sem texto, com o cartão parado (o de votar usa a enquete
+    // que vem à parte, ver `demoPollExtras`).
+    if (channel == poll_channel) for (poll_backs, 0..) |back, pi| {
+        const m = &msgs[n - back];
+        alloc.free(m.content);
+        m.content = try alloc.dupe(u8, "");
+        m.reply_to = 0;
+        m.author = users[1 + pi].id;
+        const p = try demoPoll(pi, 0, now_ms);
+        defer polls.destroy(p);
+        types.freeEmbeds(alloc, m.embeds);
+        const e = try alloc.alloc(types.Embed, 1);
+        e[0] = try envio_json.pollEmbed(p);
+        m.embeds = e;
+    };
     return msgs;
+}
+
+/// Quem vota e reage na demonstração além do pessoal de sempre: pessoas
+/// inventadas (o nome chega junto com a página).
+const demo_voter_base: Id = 40_000;
+fn demoVoter(k: usize) Id {
+    return demo_voter_base + k;
+}
+
+/// As duas enquetes do canal delas. `mine`: em que opções votamos (bits).
+fn demoPoll(which: usize, mine: u16, epoch_ms: i64) !*polls.Poll {
+    const p = try polls.create();
+    errdefer polls.destroy(p);
+    const Seed = struct { q: []const u8, q_en: []const u8, a: [4][]const u8, a_en: [4][]const u8, emoji: [4][]const u8 };
+    const seeds = [_]Seed{
+        .{ .q = "Qual tema vocês mais usam?", .q_en = "Which theme do you use the most?", .a = .{ "vidro", "terminal", "zen", "papel" }, .a_en = .{ "glass", "terminal", "zen", "paper" }, .emoji = .{ "🪟", "💻", "🍃", "📄" } },
+        .{ .q = "Que dias ficam bons para a call?", .q_en = "Which days work for the call?", .a = .{ "sexta", "sábado", "domingo", "segunda" }, .a_en = .{ "friday", "saturday", "sunday", "monday" }, .emoji = .{ "", "", "", "" } },
+    };
+    const sd = seeds[which];
+    var texts: [4][]const u8 = undefined;
+    for (0..4) |k| {
+        const a = &p.answers[k];
+        a.id = @intCast(k + 1);
+        a.count = poll_counts[which][k];
+        a.me = mine & (@as(u16, 1) << @intCast(k)) != 0;
+        if (a.me) a.count += 1;
+        if (sd.emoji[k].len > 0) a.emoji = types.Reaction.init(sd.emoji[k]);
+        texts[k] = pick(sd.a[k], sd.a_en[k]);
+    }
+    p.n = 4;
+    p.multi = which == 1;
+    p.known = true;
+    p.expiry = @divTrunc(epoch_ms, 1000) + if (which == 0) @as(i64, 2 * 86400 + 3600) else 5 * 3600;
+    try p.setTexts(pick(sd.q, sd.q_en), &texts);
+    return p;
 }
 
 /// Emoji personalizado no meio do texto, mensagens só de emoji (grandes) e

@@ -80,10 +80,32 @@ pub fn draw(ctx: *d.Ctx, channel: Id) void {
                 if (i < heights.len) heights[i] = y1 - y;
                 y = y1;
             }
+            // Mais de 50: a página seguinte só quando pedir.
+            const l = list.?;
+            if (l.more) y = moreButton(ctx, bdl, body, y, channel, l.more_state);
         },
     }
     d.endRegion(ctx, y + 6, body.x);
     ctx.dl = dl;
+}
+
+/// "Carregar mais" no fim da lista (ou os pontinhos enquanto a página vem).
+fn moreButton(ctx: *d.Ctx, dl: *c.ImDrawList, body: d.Rect, y: f32, channel: Id, st: @import("../core/store.zig").History) f32 {
+    if (st == .loading) {
+        w.typingDots(dl, body.x + body.w / 2 - 7, y + 20, ctx.col(.muted), ctx.now_ms);
+        @import("anim.zig").active = true;
+        return y + 44;
+    }
+    const fam = ctx.ui;
+    const label = if (st == .failed) i18n.tr("Não deu. Tentar de novo", "Failed. Try again") else i18n.tr("Carregar mais", "Load more");
+    const bw = d.width(fam.get(.semibold), 13.5, label) + 32;
+    const br: d.Rect = .{ .x = body.x + (body.w - bw) / 2, .y = y + 4, .w = bw, .h = 32 };
+    const hb = d.hit(ctx, 0x71B, br);
+    qa.mark(br, "pins-more", .{});
+    d.rect(dl, br, if (hb.hovered) ctx.col(.accent) else ctx.col(.elevated), @max(ctx.th.radius, 4));
+    d.text(dl, fam.get(.semibold), 13.5, br.x + 16, d.centerY(br, 13.5), if (hb.hovered) ctx.col(.accent_text) else ctx.col(.text), label);
+    if (hb.clicked) ctx.act(.{ .more_pins = channel });
+    return y + 48;
 }
 
 fn message(ctx: *d.Ctx, dl: *c.ImDrawList, body: d.Rect, y: f32, t1: []const u8, t2: []const u8, mark: []const u8) f32 {

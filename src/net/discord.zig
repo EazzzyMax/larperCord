@@ -35,6 +35,8 @@ const read_json = @import("read_state_json.zig");
 const voice_mod = @import("voice.zig");
 const thread_json = @import("thread_json.zig");
 const user_json = @import("user_json.zig");
+const envio_json = @import("envio_json.zig");
+const envio = @import("../core/envio.zig");
 const Id = types.Id;
 const Value = std.json.Value;
 
@@ -320,6 +322,8 @@ pub const Gateway = struct {
             .fetch_around => |o| g.emit(.{ .history = .{ .channel = o.channel, .messages = &.{}, .around = true } }),
             .fetch_newer => |o| g.emit(.{ .history = .{ .channel = o.channel, .messages = &.{}, .newer = true } }),
             .fetch_pins => |ch| g.emit(.{ .pins = .{ .channel = ch, .messages = &.{}, .ok = false } }),
+            .fetch_more_pins => |mp| g.emit(.{ .pins = .{ .channel = mp.channel, .messages = &.{}, .ok = false, .older = true } }),
+            .fetch_people => |fp| g.emit(.{ .people_page = .{ .req = fp.req, .ok = false } }),
             .gif_search => |q| g.emit(.{ .gifs = .{ .req = q.req, .ok = false } }),
             .gif_favorites => |req| g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } }),
             .fetch_invite => |code| g.emit(.{ .invite = .{ .code = code, .invite = .{ .state = .failed } } }),
@@ -988,7 +992,10 @@ pub const Gateway = struct {
             g.upsertUsers(d);
             if (j.get(d, "member")) |m| g.memberColor(j.id(j.get(d, "guild_id")) orelse 0, j.id(j.get(j.get(d, "author") orelse .null, "id")) orelse 0, m);
             g.messageThread(d);
-            if (try g.message(d)) |m| g.emit(.{ .message_create = m });
+            if (try g.message(d)) |m| {
+                g.emit(.{ .message_create = m });
+                g.emitPoll(d);
+            }
             return;
         }
         if (std.mem.eql(u8, t, "MESSAGE_UPDATE")) {
@@ -1016,6 +1023,19 @@ pub const Gateway = struct {
                 .embeds = if (has_embeds) try embedsOf(d) else null,
                 .attachments = atts,
                 .pinned = if (j.get(d, "pinned")) |p| p == .bool and p.bool else null,
+            } });
+            // A enquete acabou (a contagem final chega assim).
+            g.emitPoll(d);
+            return;
+        }
+        const vote_add = std.mem.eql(u8, t, "MESSAGE_POLL_VOTE_ADD");
+        if (vote_add or std.mem.eql(u8, t, "MESSAGE_POLL_VOTE_REMOVE")) {
+            g.emit(.{ .poll_vote = .{
+                .channel = j.id(j.get(d, "channel_id")) orelse return,
+                .id = j.id(j.get(d, "message_id")) orelse return,
+                .user = j.id(j.get(d, "user_id")) orelse return,
+                .answer = @intCast(std.math.clamp(j.int(j.get(d, "answer_id")) orelse return, 0, std.math.maxInt(u32))),
+                .add = vote_add,
             } });
             return;
         }
@@ -1234,10 +1254,13 @@ pub const Gateway = struct {
             // A nossa volta aqui também: o Store ignora o que já aplicou na
             // hora, e o que veio de outro aparelho entra.
             const emoji = j.get(d, "emoji") orelse return;
+            var r = emojiOf(emoji);
+            // type 1 = super reação (BURST).
+            if (j.int(j.get(d, "type")) == 1) r.burst = 1;
             g.emit(.{ .reaction = .{
                 .channel = j.id(j.get(d, "channel_id")) orelse return,
                 .id = j.id(j.get(d, "message_id")) orelse return,
-                .emoji = emojiOf(emoji),
+                .emoji = r,
                 .user = user,
                 .add = add,
             } });
@@ -1991,29 +2014,29 @@ pub const Gateway = struct {
         for (inner) |e| try list.append(alloc, e);
     }
 
-    /// Enquete: a pergunta, as opções e os votos (votar é no Discord).
+    /// Enquete: o cartão parado (a pergunta, as opções e os votos). Votar é
+    /// no cartão da conversa, que usa a enquete que vem à parte (`emitPoll`).
     fn pollCard(m: Value, list: *std.ArrayList(types.Embed)) !void {
-        const p = j.get(m, "poll") orelse return;
-        var text: std.ArrayList(u8) = .empty;
-        defer text.deinit(alloc);
-        var total: i64 = 0;
-        const counts = if (j.get(p, "results")) |r| j.array(j.get(r, "answer_counts")) else &[_]Value{};
-        for (j.array(j.get(p, "answers"))) |a| {
-            const name = if (j.get(a, "poll_media")) |pm| j.str(j.get(pm, "text")) orelse "?" else "?";
-            var votes: i64 = 0;
-            for (counts) |cv| if (j.int(j.get(cv, "id")) == j.int(j.get(a, "answer_id"))) {
-                votes = j.int(j.get(cv, "count")) orelse 0;
-            };
-            total += votes;
-            try text.print(alloc, "- {s} (**{d}**)\n", .{ name, votes });
-        }
-        var fb: [64]u8 = undefined;
-        try list.append(alloc, .{
-            .provider = try alloc.dupe(u8, i18n.tr("Enquete", "Poll")),
-            .title = try dupeOpt(if (j.get(p, "question")) |q| j.str(j.get(q, "text")) orelse "" else ""),
-            .description = try dupeOpt(std.mem.trimEnd(u8, text.items, "\n")),
-            .footer = try alloc.dupe(u8, i18n.fmt(&fb, "{d} votos", "{d} votes", .{total})),
-        });
+        const pv = j.get(m, "poll") orelse return;
+        if (pv != .object) return;
+        const p = envio_json.parsePoll(pv) catch return error.OutOfMemory;
+        defer @import("../core/polls.zig").destroy(p);
+        const e = try envio_json.pollEmbed(p);
+        list.append(alloc, e) catch |err| {
+            types.freeEmbed(alloc, e);
+            return err;
+        };
+    }
+
+    /// A enquete da mensagem, para o Store (o cartão de votar). Só a da própria
+    /// mensagem: a de uma encaminhada não é dela para votar.
+    fn emitPoll(g: *Gateway, m: Value) void {
+        const pv = j.get(m, "poll") orelse return;
+        if (pv != .object) return;
+        const id = j.id(j.get(m, "id")) orelse return;
+        const ch = j.id(j.get(m, "channel_id")) orelse return;
+        const p = envio_json.parsePoll(pv) catch return;
+        g.emit(.{ .poll = .{ .channel = ch, .id = id, .poll = p } });
     }
 
     /// Cartões (embeds de bots, prévias de links, componentes, encaminhadas, enquetes).
@@ -2713,6 +2736,7 @@ pub const Gateway = struct {
                 alloc.free(m.content);
                 for (m.files) |f| alloc.free(f);
                 if (m.files.len > 0) alloc.free(m.files);
+                envio.freeFileOpts(alloc, m.file_opts);
             },
             .edit_message => |m| alloc.free(m.content),
             .gif_search => |q| alloc.free(q.query),
@@ -3047,15 +3071,53 @@ pub const Gateway = struct {
                 }
             },
             .fetch_pins => |ch| {
-                const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/pins", .{ch}) catch return;
+                // O caminho atual (o /channels/{id}/pins está marcado como obsoleto).
+                const path = envio_json.pinsPath(&path_buf, ch, "");
                 const none: ev.Event = .{ .pins = .{ .channel = ch, .messages = &.{}, .ok = false } };
                 var resp = g.request("GET", path, null) orelse return g.emit(none);
                 defer resp.body.deinit(alloc);
                 if (resp.status != 200) return g.emit(none);
-                g.pinList(ch, resp.body.items) catch g.emit(none);
+                g.pinList(ch, resp.body.items, false) catch g.emit(none);
+            },
+            .fetch_more_pins => |mp| {
+                const path = envio_json.pinsPath(&path_buf, mp.channel, mp.before.slice());
+                const none: ev.Event = .{ .pins = .{ .channel = mp.channel, .messages = &.{}, .ok = false, .older = true } };
+                var resp = g.request("GET", path, null) orelse return g.emit(none);
+                defer resp.body.deinit(alloc);
+                if (resp.status != 200) {
+                    g.noticeHttp(i18n.tr("não consegui carregar mais fixadas", "couldn't load more pinned messages"), &resp);
+                    return g.emit(none);
+                }
+                g.pinList(mp.channel, resp.body.items, true) catch g.emit(none);
+            },
+            .poll_vote => |pv| {
+                var body_buf: [160]u8 = undefined;
+                const body = envio_json.pollVoteBody(&body_buf, pv.answers[0..@min(pv.n, pv.answers.len)]);
+                const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/polls/{d}/answers/@me", .{ pv.channel, pv.id }) catch return;
+                var resp = g.request("PUT", path, body) orelse return g.notice("sem conexão: o voto não foi", "no connection: the vote didn't go through", .{});
+                defer resp.body.deinit(alloc);
+                // Os votos mudam quando o gateway confirma (MESSAGE_POLL_VOTE_*).
+                if (resp.status >= 300) g.noticeHttp(if (pv.n == 0) i18n.tr("não deu para tirar o voto", "couldn't remove the vote") else i18n.tr("não deu para votar", "couldn't vote"), &resp);
+            },
+            .fetch_people => |fp| {
+                const failed: ev.Event = .{ .people_page = .{ .req = fp.req, .ok = false } };
+                var big: [400]u8 = undefined;
+                const voters = fp.q.answer > 0;
+                const path = if (voters)
+                    envio_json.votersPath(&big, fp.q.channel, fp.q.id, fp.q.answer, fp.after)
+                else
+                    envio_json.reactorsPath(&big, fp.q.channel, fp.q.id, &fp.q.emoji, fp.q.burst, fp.after);
+                if (path.len == 0) return g.emit(failed);
+                var resp = g.request("GET", path, null) orelse return g.emit(failed);
+                defer resp.body.deinit(alloc);
+                if (resp.status != 200) {
+                    g.noticeHttp(if (voters) i18n.tr("não consegui ver quem votou", "couldn't load who voted") else i18n.tr("não consegui ver quem reagiu", "couldn't load who reacted"), &resp);
+                    return g.emit(failed);
+                }
+                g.peoplePage(fp.req, resp.body.items, voters) catch g.emit(failed);
             },
             .pin => |p| {
-                const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/pins/{d}", .{ p.channel, p.id }) catch return;
+                const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/messages/pins/{d}", .{ p.channel, p.id }) catch return;
                 var resp = g.request(if (p.add) "PUT" else "DELETE", path, null) orelse return g.pinFailed(p.channel, p.id, p.add);
                 defer resp.body.deinit(alloc);
                 if (resp.status < 300) return;
@@ -3176,22 +3238,17 @@ pub const Gateway = struct {
             .send_message => |m| {
                 var b: std.ArrayList(u8) = .empty;
                 defer b.deinit(alloc);
-                b.appendSlice(alloc, "{\"content\":") catch return;
-                j.writeString(&b, alloc, m.content) catch return;
-                b.print(alloc, ",\"nonce\":\"{d}\",\"tts\":false", .{m.nonce}) catch return;
-                if (m.reply_to != 0) b.print(alloc, ",\"message_reference\":{{\"message_id\":\"{d}\"}}", .{m.reply_to}) catch return;
-                if (m.files.len > 0) {
-                    // Como o cliente oficial: payload_json + files[n].
-                    b.appendSlice(alloc, ",\"attachments\":[") catch return;
-                    for (m.files, 0..) |f, i| {
-                        if (i > 0) b.append(alloc, ',') catch return;
-                        b.print(alloc, "{{\"id\":{d},\"filename\":", .{i}) catch return;
-                        j.writeString(&b, alloc, std.fs.path.basename(f)) catch return;
-                        b.append(alloc, '}') catch return;
-                    }
-                    b.append(alloc, ']') catch return;
-                }
-                b.append(alloc, '}') catch return;
+                var names: [10][]const u8 = undefined;
+                const nf = @min(m.files.len, names.len);
+                for (m.files[0..nf], 0..) |f, i| names[i] = std.fs.path.basename(f);
+                envio_json.messageBody(&b, alloc, .{
+                    .content = m.content,
+                    .nonce = m.nonce,
+                    .reply_to = m.reply_to,
+                    .opts = m.opts,
+                    .names = names[0..nf],
+                    .files = m.file_opts,
+                }) catch return;
                 const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/messages", .{m.channel}) catch return;
                 var mime: ?*c.curl_mime = null;
                 defer if (mime) |mp| c.curl_mime_free(mp);
@@ -3202,12 +3259,19 @@ pub const Gateway = struct {
                     _ = c.curl_mime_name(pj, "payload_json");
                     _ = c.curl_mime_data(pj, b.items.ptr, b.items.len);
                     _ = c.curl_mime_type(pj, "application/json");
-                    for (m.files, 0..) |f, i| {
+                    for (m.files[0..nf], 0..) |f, i| {
                         var nbuf: [32]u8 = undefined;
                         const field = std.fmt.bufPrintSentinel(&nbuf, "files[{d}]", .{i}, 0) catch return;
                         const fp = c.curl_mime_addpart(mp);
                         _ = c.curl_mime_name(fp, field.ptr);
                         _ = c.curl_mime_filedata(fp, f.ptr);
+                        // Spoiler: o nome do arquivo na parte também leva o SPOILER_.
+                        if (i < m.file_opts.len and m.file_opts[i].spoiler) {
+                            var sb: [300]u8 = undefined;
+                            var zb: [301]u8 = undefined;
+                            const sname = std.fmt.bufPrintSentinel(&zb, "{s}", .{envio_json.uploadName(&sb, names[i], true)}, 0) catch continue;
+                            _ = c.curl_mime_filename(fp, sname.ptr);
+                        }
                     }
                 }
                 const failed: ev.Event = .{ .send_failed = .{ .channel = m.channel, .nonce = m.nonce } };
@@ -3506,12 +3570,13 @@ pub const Gateway = struct {
     }
 
     /// GET pins: uma lista de mensagens, ou `{items:[{message}]}` no formato novo.
-    fn pinList(g: *Gateway, ch: Id, body: []const u8) !void {
+    fn pinList(g: *Gateway, ch: Id, body: []const u8, older: bool) !void {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         const root = try std.json.parseFromSliceLeaky(Value, arena.allocator(), body, .{});
         var list: std.ArrayList(types.Message) = .empty;
-        const items = if (root == .array) j.array(root) else j.array(j.get(root, "items"));
+        const page = envio_json.pinsPageOf(root);
+        const items = page.items;
         for (items) |it| {
             const m = j.get(it, "message") orelse it;
             g.upsertUsers(m);
@@ -3522,7 +3587,29 @@ pub const Gateway = struct {
                 try list.append(alloc, one);
             }
         }
-        g.emit(.{ .pins = .{ .channel = ch, .messages = try list.toOwnedSlice(alloc) } });
+        g.emit(.{ .pins = .{ .channel = ch, .messages = try list.toOwnedSlice(alloc), .older = older, .more = page.more, .cursor = page.cursor } });
+    }
+
+    /// Uma página de quem reagiu ou votou: os nomes e avatares entram como
+    /// usuários, e a lista só com os IDs.
+    fn peoplePage(g: *Gateway, req: u32, body: []const u8, voters: bool) !void {
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+        const root = try std.json.parseFromSliceLeaky(Value, arena.allocator(), body, .{});
+        const items = envio_json.peopleItems(root, voters);
+        const ids = try alloc.alloc(Id, @min(items.len, envio_json.people_page * 4));
+        var n: usize = 0;
+        for (items) |u| {
+            if (n == ids.len) break;
+            const uid = j.id(j.get(u, "id")) orelse continue;
+            g.upsert(u);
+            ids[n] = uid;
+            n += 1;
+        }
+        g.emit(.{ .people_page = .{ .req = req, .users = if (n == 0) blk: {
+            alloc.free(ids);
+            break :blk &.{};
+        } else alloc.realloc(ids, n) catch ids[0..n] } });
     }
 
     /// Como terminou a entrada por convite. Captcha não é erro de rede: quem pede é o Discord,
@@ -3629,15 +3716,17 @@ pub const Gateway = struct {
         const msgs = try list.toOwnedSlice(alloc);
         // Veio a página cheia: pode ter mais.
         g.emit(.{ .history = .{ .channel = ch, .messages = msgs, .older = kind == .older, .around = kind == .around, .newer = kind == .newer, .more = items.len >= 50 } });
-        // Reações já existentes.
+        // Reações e enquetes já existentes.
         for (items) |m| {
             const mid = j.id(j.get(m, "id")) orelse continue;
             for (j.array(j.get(m, "reactions"))) |rv| {
                 var r = emojiOf(j.get(rv, "emoji") orelse continue);
                 r.count = @intCast(std.math.clamp(j.int(j.get(rv, "count")) orelse 1, 0, 65535));
                 r.me = if (j.get(rv, "me")) |me| me == .bool and me.bool else false;
+                r.burst = @min(envio_json.burstCount(rv), r.count);
                 g.emit(.{ .reaction_set = .{ .channel = ch, .id = mid, .reaction = r } });
             }
+            g.emitPoll(m);
         }
     }
 };
