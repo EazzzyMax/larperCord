@@ -1237,7 +1237,8 @@ const Worker = struct {
         for (pcm) |v| peak = @max(peak, @as(i32, @intCast(@abs(@as(i32, v)))));
         if (peak >= 32000) w.stats.near_full += 1;
         const now = nowMs();
-        if (peak >= 8000 and peak > src.peak_prev * 3 and now - src.jump_ms >= 200) {
+        // Sílaba forte depois de uma fraca é normal: só o que passa bem disso.
+        if (peak >= 16000 and peak > src.peak_prev * 4 and now - src.jump_ms >= 200) {
             src.jump_ms = now;
             dbg("salto de volume: ssrc {d}, pessoa {d}: pico {d} -> {d}, {d} bytes, TOC {x:0>2}, {d} ms sem pacote, perdidos {d}, começo de fala {}, pausa {}", .{ src.ssrc, src.user, src.peak_prev, peak, frame.len, frame[0], since, plan.lost, spurt, plan.paused });
         }
@@ -1403,7 +1404,11 @@ const Dave = struct {
     /// O libdave escreve cada falha e os pacotes do MLS no stderr, e essa escrita
     /// para a thread de voz se o terminal estiver lento.
     fn logSink(_: c.DAVELoggingSeverity, file: [*c]const u8, line: c_int, message: [*c]const u8) callconv(.c) void {
-        if (debugOn()) std.log.info("[dave] {s}:{d} {s}", .{ std.mem.span(file), line, std.mem.span(message) });
+        // Sem as chaves públicas e os "welcome" inteiros, que só encheriam um arquivo feito para ser compartilhado.
+        if (debugOn()) {
+            const text = std.mem.span(message);
+            std.log.info("[dave] {s}:{d} {s}", .{ std.mem.span(file), line, text[0..@min(text.len, 80)] });
+        }
     }
 
     fn mlsFailure(source: [*c]const u8, reason: [*c]const u8, _: ?*anyopaque) callconv(.c) void {

@@ -51,6 +51,7 @@ const scenarios = [_]Scenario{
     .{ .name = "atraso de ate 80 ms", .file = "atraso80", .jitter_ms = 80 },
     .{ .name = "fora de ordem 3%", .file = "ordem", .jitter_ms = 5, .reorder_pct = 3 },
     .{ .name = "para 300 ms a cada 7 s", .file = "para300", .stall_every_ms = 7000, .stall_ms = 300 },
+    .{ .name = "fala com pausas, para 200 ms", .file = "para200", .gate = true, .jitter_ms = 5, .stall_every_ms = 12_000, .stall_ms = 200 },
     .{ .name = "wi-fi ruim (tudo junto)", .file = "wifi", .loss_pct = 3, .burst_pct = 0.3, .jitter_ms = 40, .reorder_pct = 1, .stall_every_ms = 11000, .stall_ms = 200 },
     .{ .name = "porta de ruido de quem fala", .file = "porta", .gate = true, .jitter_ms = 5 },
     .{ .name = "dispositivo de 85 ms", .file = "disp85", .jitter_ms = 10, .pull = 4096 },
