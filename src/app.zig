@@ -495,10 +495,14 @@ pub const App = struct {
         const path = i18n.fmtZ(&pbuf, "{s}/larpercord-colado-{d}-{d}.{s}", "{s}/larpercord-pasted-{d}-{d}.{s}", .{ dir, c.getpid(), app.paste_n, kind.ext });
         if (path.len == 0) return;
         const saved = if (kind.bitmap) blk: {
-            const surface = c.SDL_LoadBMP_IO(c.SDL_IOFromConstMem(data, size), true) orelse break :blk false;
+            const surface = c.SDL_LoadBMP_IO(c.SDL_IOFromConstMem(data, size), true) orelse {
+                std.log.warn("colar: bitmap de {d} bytes não abriu: {s}", .{ size, std.mem.span(c.SDL_GetError()) });
+                break :blk false;
+            };
             defer c.SDL_DestroySurface(surface);
             break :blk c.SDL_SavePNG(surface, path.ptr);
         } else c.SDL_SaveFile(path.ptr, data, size);
+        if (!saved) std.log.warn("colar: não salvou {s}: {s}", .{ path, std.mem.span(c.SDL_GetError()) });
         if (!saved) return app.st.showToast(now(), true, "não consegui colar a imagem", "couldn't paste the image", .{});
         app.attachFile(path);
     }
