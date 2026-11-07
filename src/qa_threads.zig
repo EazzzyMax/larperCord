@@ -831,7 +831,7 @@ pub const ops = [_]Op{
     .{ .sweep = &.{"thread-toggle:"} },
     click("guild:500000"),
     click("channel:500005"),
-};
+} ++ @import("qa_threads_edit.zig").ops;
 
 /// Para a bateria de cada tema: fórum e thread na tela, com print.
 fn act(app: *App, id: Id) void {

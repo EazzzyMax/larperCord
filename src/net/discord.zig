@@ -349,7 +349,7 @@ pub const Gateway = struct {
             .fetch_invite => |code| g.emit(.{ .invite = .{ .code = code, .invite = .{ .state = .failed } } }),
             .join_invite => |code| g.emit(.{ .invite_joined = .{ .code = code, .status = .failed } }),
             .create_invite => |ci| g.emit(.{ .invite_created = .{ .req = ci.req, .status = .failed } }),
-            .fetch_threads => |ft| g.emit(.{ .threads_page = .{ .channel = ft.channel, .archived = ft.archived, .failed = true } }),
+            .fetch_threads => |ft| g.emit(.{ .threads_page = .{ .channel = ft.channel, .archived = ft.archived, .private = ft.private, .failed = true } }),
             else => {},
         }
         freeCommand(cmd);
@@ -1695,7 +1695,7 @@ pub const Gateway = struct {
 
     /// Resposta com threads (busca do fórum, ativas, arquivadas): vira uma
     /// página. `parent` != 0 filtra (a lista do servidor traz todos os canais).
-    fn emitThreadsPage(g: *Gateway, channel: Id, guild: Id, archived: bool, body: []const u8, parent: Id) !void {
+    fn emitThreadsPage(g: *Gateway, channel: Id, guild: Id, archived: bool, body: []const u8, parent: Id, private: bool) !void {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         const root = try std.json.parseFromSliceLeaky(Value, arena.allocator(), body, .{});
@@ -1715,6 +1715,7 @@ pub const Gateway = struct {
         g.emit(.{ .threads_page = .{
             .channel = channel,
             .archived = archived,
+            .private = private,
             .threads = try threads.toOwnedSlice(alloc),
             .previews = try previews.toOwnedSlice(alloc),
             .joined = memberThreads(j.array(j.get(root, "members"))),
@@ -2886,6 +2887,7 @@ pub const Gateway = struct {
             .forward_message => |f| alloc.free(f.text),
             .ack_bulk => |list| if (list.len > 0) alloc.free(list),
             .create_thread => |m| alloc.free(m.name),
+            .edit_thread => |e| if (e.name) |n| alloc.free(n),
             .edit_place => |e| freeEdit(e),
             .conta => |cc| cc.deinit(alloc),
             .create_post => |m| {
@@ -3603,8 +3605,19 @@ pub const Gateway = struct {
                 g.mentionList(resp.body.items) catch g.emit(none);
             },
             .fetch_threads => |ft| {
-                const failed: ev.Event = .{ .threads_page = .{ .channel = ft.channel, .archived = ft.archived, .failed = true } };
+                const failed: ev.Event = .{ .threads_page = .{ .channel = ft.channel, .archived = ft.archived, .private = ft.private, .failed = true } };
                 var path_big: [320]u8 = undefined;
+                if (ft.private) {
+                    // Privadas arquivadas: só quando a pessoa abre a aba delas.
+                    const ppath = thread_json.privateArchivedPath(&path_big, ft.channel, ft.manage, ft.before, ft.before_id) orelse return g.emit(failed);
+                    var presp = g.request("GET", ppath, null) orelse return g.emit(failed);
+                    defer presp.body.deinit(alloc);
+                    if (presp.status != 200) {
+                        g.noticeHttp(i18n.tr("não consegui carregar as threads privadas", "couldn't load the private threads"), &presp);
+                        return g.emit(failed);
+                    }
+                    return g.emitThreadsPage(ft.channel, ft.guild, true, presp.body.items, 0, true) catch g.emit(failed);
+                }
                 var iso: [32]u8 = undefined;
                 const path = if (ft.archived)
                     (if (ft.before != 0)
@@ -3615,7 +3628,7 @@ pub const Gateway = struct {
                     std.fmt.bufPrint(&path_big, "/channels/{d}/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit=25&tag_setting=match_some&offset={d}", .{ ft.channel, ft.offset }) catch return;
                 var resp = g.request("GET", path, null) orelse return g.emit(failed);
                 defer resp.body.deinit(alloc);
-                if (resp.status == 200) return g.emitThreadsPage(ft.channel, ft.guild, ft.archived, resp.body.items, 0) catch g.emit(failed);
+                if (resp.status == 200) return g.emitThreadsPage(ft.channel, ft.guild, ft.archived, resp.body.items, 0, false) catch g.emit(failed);
                 // A busca não respondeu (202 = índice ainda não pronto): as ativas
                 // do servidor, filtradas, são o plano B (só tem uma página).
                 if (ft.archived or ft.offset != 0) {
@@ -3629,7 +3642,22 @@ pub const Gateway = struct {
                     g.noticeHttp(i18n.tr("não consegui carregar as threads", "couldn't load the threads"), &gresp);
                     return g.emit(failed);
                 }
-                g.emitThreadsPage(ft.channel, ft.guild, false, gresp.body.items, ft.channel) catch g.emit(failed);
+                g.emitThreadsPage(ft.channel, ft.guild, false, gresp.body.items, ft.channel, false) catch g.emit(failed);
+            },
+            .edit_thread => |et| {
+                if (et.empty()) return;
+                var b: std.ArrayList(u8) = .empty;
+                defer b.deinit(alloc);
+                thread_json.editBody(&b, alloc, et) catch return;
+                const path = std.fmt.bufPrint(&path_buf, "/channels/{d}", .{et.thread}) catch return;
+                var resp = g.request("PATCH", path, b.items) orelse return;
+                defer resp.body.deinit(alloc);
+                if (resp.status >= 300) return g.noticeHttp(i18n.tr("não deu para editar a thread", "couldn't edit the thread"), &resp);
+                // A resposta é a thread inteira: vale como um THREAD_UPDATE.
+                var arena = std.heap.ArenaAllocator.init(alloc);
+                defer arena.deinit();
+                const v = std.json.parseFromSliceLeaky(Value, arena.allocator(), resp.body.items, .{}) catch return;
+                if (g.channelValue(v, 0) catch null) |ch| g.emit(.{ .channel_upsert = ch });
             },
             .create_thread => |ct| {
                 var b: std.ArrayList(u8) = .empty;

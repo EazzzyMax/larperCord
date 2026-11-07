@@ -10,6 +10,7 @@ const Event = @import("event.zig").Event;
 const event = @import("event.zig");
 const polls_mod = @import("polls.zig");
 const envio = @import("envio.zig");
+const thread_edit = @import("thread_edit.zig");
 const Id = types.Id;
 
 /// LARPER_READ_DEBUG: conta no log por que cada canal ficou não lido (só IDs).
@@ -77,6 +78,8 @@ pub const ThreadPage = struct {
     offset: u32 = 0,
     /// A mais antiga já vista (s): é assim que as arquivadas paginam.
     before: i64 = 0,
+    /// O menor ID já visto: as privadas em que estamos paginam assim.
+    before_id: Id = 0,
 };
 
 /// Quantas threads um canal mostra na lista de canais (o resto: "mais N").
@@ -139,6 +142,8 @@ pub const ChannelState = struct {
     /// Threads deste canal buscadas sob demanda (ui/forum.zig).
     active_page: ThreadPage = .{},
     archived_page: ThreadPage = .{},
+    /// Privadas arquivadas (só canal de texto; vêm ao abrir a aba).
+    private_page: ThreadPage = .{},
     /// Post de fórum: a primeira mensagem, para a lista (ev_alloc; vazio = não veio).
     preview: []const u8 = "",
     preview_author: Id = 0,
@@ -1501,7 +1506,7 @@ pub const Store = struct {
                 }
                 s.threads_rev +%= 1;
                 const cs = s.channel(pg.channel) orelse return;
-                const page = if (pg.archived) &cs.archived_page else &cs.active_page;
+                const page = if (pg.private) &cs.private_page else if (pg.archived) &cs.archived_page else &cs.active_page;
                 if (pg.failed) {
                     page.state = .failed;
                     return;
@@ -1511,9 +1516,13 @@ pub const Store = struct {
                 page.offset += @intCast(pg.threads.len);
                 for (pg.threads) |ch| if (ch.thread) |t| {
                     if (t.archive_ts != 0 and (page.before == 0 or t.archive_ts < page.before)) page.before = t.archive_ts;
+                    if (page.before_id == 0 or ch.id < page.before_id) page.before_id = ch.id;
                 };
             },
-            .thread_joined => |tj| s.setJoined(tj.thread, tj.joined),
+            .thread_joined => |tj| {
+                s.setJoined(tj.thread, tj.joined);
+                if (!tj.joined) s.dropLostPrivate(tj.thread);
+            },
             .thread_members => |tm| {
                 defer {
                     ev_alloc.free(tm.added);
@@ -1530,13 +1539,57 @@ pub const Store = struct {
                 };
                 if (cs.info.thread) |*t| t.member_count = tm.count orelse @intCast(list.items.len);
                 if (std.mem.indexOfScalar(Id, tm.added, s.me) != null) s.setJoined(tm.thread, true);
-                if (std.mem.indexOfScalar(Id, tm.removed, s.me) != null) s.setJoined(tm.thread, false);
+                if (std.mem.indexOfScalar(Id, tm.removed, s.me) != null) {
+                    s.setJoined(tm.thread, false);
+                    s.dropLostPrivate(tm.thread);
+                }
             },
             // Quem abre é o app (só depois de o canal estar aqui).
             .thread_open => {},
             // Quem guarda é a caixa de texto (ui/composer_limits.zig, pelo App.afterEvent).
             .my_limits, .account_flags, .send_cooldown => {},
+            .thread_edited => |e| s.applyThreadEdit(e, now_ms),
         }
+    }
+
+    /// Edição confirmada de uma thread: só o que mudou (o nome passa a ser nosso).
+    fn applyThreadEdit(s: *Store, e: thread_edit.Edit, now_ms: i64) void {
+        const cs = s.channel(e.thread) orelse {
+            if (e.name) |n| ev_alloc.free(n);
+            return;
+        };
+        const t = if (cs.info.thread) |*t| t else {
+            if (e.name) |n| ev_alloc.free(n);
+            return;
+        };
+        if (e.name) |n| {
+            ev_alloc.free(cs.info.name);
+            cs.info.name = n;
+        }
+        if (e.archived) |a| {
+            if (a and !t.archived) t.archive_ts = @divTrunc(now_ms, 1000);
+            t.archived = a;
+        }
+        if (e.locked) |l| t.locked = l;
+        if (e.auto_archive) |m| t.auto_archive = m;
+        if (e.tags) |tg| {
+            const copy: []const Id = if (tg.n == 0) &.{} else ev_alloc.dupe(Id, tg.slice()) catch t.tags;
+            if (copy.ptr != t.tags.ptr) {
+                if (t.tags.len > 0) ev_alloc.free(t.tags);
+                t.tags = copy;
+            }
+        }
+        s.touchThreads(cs.info.parent);
+    }
+
+    /// Saímos (ou nos tiraram) de uma thread privada: sem gerenciar threads,
+    /// não a vemos mais, e o Discord não manda mais nada dela. Sai da lista.
+    fn dropLostPrivate(s: *Store, thread: Id) void {
+        const cs = s.channel(thread) orelse return;
+        const t = cs.info.thread orelse return;
+        if (!t.private or t.joined) return;
+        if (s.channelPermissions(&cs.info) & types.perm.manage_threads != 0) return;
+        s.removeChannel(thread);
     }
 
     fn setJoined(s: *Store, thread: Id, joined: bool) void {
@@ -2806,4 +2859,68 @@ test "grupo: gente entra e sai (repetido não muda nada) e pedido aceito sai do 
     // Tirarem a gente: o grupo some.
     try s.apply(.{ .recipient = .{ .channel = 60, .user = 1, .add = false } }, 0);
     try std.testing.expect(s.channel(60) == null);
+}
+
+test "editar thread: nome, tags, arquivar e trancar; privadas arquivadas paginam à parte" {
+    const c_alloc = std.heap.c_allocator;
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    _ = try testStore(&s);
+    try s.apply(.{ .channel_upsert = try testThread(100, 10, 0) }, 0);
+    try s.apply(.{ .thread_edited = .{ .thread = 100, .name = try c_alloc.dupe(u8, "novo nome"), .tags = thread_edit.Tags.from(&.{ 3, 4 }), .auto_archive = 60 } }, 0);
+    const t = s.channel(100).?.info.thread.?;
+    try std.testing.expectEqualStrings("novo nome", s.channel(100).?.info.name);
+    try std.testing.expectEqualSlices(Id, &.{ 3, 4 }, t.tags);
+    try std.testing.expectEqual(@as(u16, 60), t.auto_archive);
+    // Arquivar tira do recorte e guarda quando; trancar fica.
+    try s.apply(.{ .thread_edited = .{ .thread = 100, .archived = true, .locked = true, .tags = .{} } }, 90_000);
+    const t2 = s.channel(100).?.info.thread.?;
+    try std.testing.expect(t2.archived and t2.locked and t2.tags.len == 0);
+    try std.testing.expectEqual(@as(i64, 90), t2.archive_ts);
+    try std.testing.expectEqual(@as(u8, 0), s.threadIndex(10).?.n_shown);
+    // Thread que não conhecemos: o nome não vaza.
+    try s.apply(.{ .thread_edited = .{ .thread = 999, .name = try c_alloc.dupe(u8, "x") } }, 0);
+    // Página de privadas: estado e "antes de" próprios.
+    var priv = try testThread(150, 10, 0);
+    priv.thread.?.private = true;
+    priv.thread.?.archived = true;
+    priv.thread.?.archive_ts = 1000;
+    const list = try c_alloc.alloc(types.Channel, 1);
+    list[0] = priv;
+    try s.apply(.{ .threads_page = .{ .channel = 10, .archived = true, .private = true, .threads = list, .more = true } }, 0);
+    const cs = s.channel(10).?;
+    try std.testing.expect(cs.private_page.state == .loaded and cs.private_page.more);
+    try std.testing.expectEqual(@as(Id, 150), cs.private_page.before_id);
+    try std.testing.expectEqual(@as(i64, 1000), cs.private_page.before);
+    try std.testing.expect(cs.archived_page.state == .none);
+    try std.testing.expect(s.channel(150).?.info.thread.?.private);
+}
+
+test "privada: quem sai sem gerenciar threads deixa de vê-la; quem gerencia continua" {
+    const c_alloc = std.heap.c_allocator;
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    s.me = 1;
+    _ = try testStore(&s);
+    var priv = try testThread(100, 10, 0);
+    priv.thread.?.private = true;
+    priv.thread.?.joined = true;
+    priv.thread.?.joined_known = true;
+    try s.apply(.{ .channel_upsert = priv }, 0);
+    // Sem os cargos do servidor, tudo liberado: quem gerencia continua vendo.
+    try s.apply(.{ .thread_joined = .{ .thread = 100, .joined = false } }, 0);
+    try std.testing.expect(s.channel(100) != null);
+    const roles = try c_alloc.alloc(types.Role, 1);
+    roles[0] = .{ .id = 5, .guild = 5, .name = try c_alloc.dupe(u8, "@everyone"), .permissions = types.perm.view_channel | types.perm.send_messages_in_threads };
+    try s.apply(.{ .roles = .{ .guild = 5, .roles = roles } }, 0);
+    try s.apply(.{ .thread_joined = .{ .thread = 100, .joined = true } }, 0);
+    const removed = try c_alloc.alloc(Id, 1);
+    removed[0] = 1;
+    try s.apply(.{ .thread_members = .{ .thread = 100, .removed = removed } }, 0);
+    try std.testing.expect(s.channel(100) == null);
+    try std.testing.expectEqual(@as(usize, 0), s.threadsOf(10).len);
+    // Pública: sair não tira da lista.
+    try s.apply(.{ .channel_upsert = try testThread(101, 10, 0) }, 0);
+    try s.apply(.{ .thread_joined = .{ .thread = 101, .joined = false } }, 0);
+    try std.testing.expect(s.channel(101) != null);
 }

@@ -1648,12 +1648,23 @@ pub const App = struct {
             .join_thread => |jt| app.cmd(.{ .join_thread = .{ .thread = jt.thread, .join = jt.join } }),
             .fetch_threads => |ft| {
                 const cs = app.store.channel(ft.channel) orelse return;
-                const page = if (ft.archived) &cs.archived_page else &cs.active_page;
+                const page = if (ft.private) &cs.private_page else if (ft.archived) &cs.archived_page else &cs.active_page;
                 if (page.state == .loading) return;
                 // Sem nenhuma página ainda: começa do começo.
                 if (page.state != .loaded) page.* = .{};
                 page.state = .loading;
-                app.cmd(.{ .fetch_threads = .{ .channel = ft.channel, .guild = cs.info.guild, .archived = ft.archived, .offset = page.offset, .before = page.before } });
+                // Privadas: quem gerencia threads vê todas; os outros, as suas.
+                const manage = ft.private and app.store.channelPermissions(&cs.info) & types.perm.manage_threads != 0;
+                app.cmd(.{ .fetch_threads = .{ .channel = ft.channel, .guild = cs.info.guild, .archived = ft.archived or ft.private, .offset = page.offset, .before = page.before, .private = ft.private, .manage = manage, .before_id = page.before_id } });
+            },
+            .edit_thread => |et| {
+                var out = et;
+                if (et.name) |n| {
+                    defer app.gpa.free(n);
+                    out.name = std.heap.c_allocator.dupe(u8, n) catch return;
+                }
+                if (out.empty()) return;
+                app.cmd(.{ .edit_thread = out });
             },
             .toggle_category => |id| {
                 if (st.collapsed.contains(id)) _ = st.collapsed.remove(id) else st.collapsed.put(app.gpa, id, {}) catch {};

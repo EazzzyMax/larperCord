@@ -30,6 +30,8 @@ const View = struct {
     query: [96]u8 = @splat(0),
     by_creation: bool = false,
     archived: bool = false,
+    /// Só no painel: as privadas arquivadas (a terceira aba).
+    private: bool = false,
     /// O que aparece, já filtrado e na ordem. Só muda quando `key` muda.
     ids: std.ArrayList(Id) = .empty,
     key: u64 = 0,
@@ -47,7 +49,7 @@ pub var qa_scroll_end = false;
 pub fn qaState() u64 {
     var h = std.hash.Wyhash.init(0);
     for ([_]*const View{ &page_view, &panel_view }) |v| {
-        h.update(&.{ @intFromBool(v.by_creation), @intFromBool(v.archived) });
+        h.update(&.{ @intFromBool(v.by_creation), @intFromBool(v.archived), @intFromBool(v.private) });
         h.update(std.mem.sliceAsBytes(v.ids.items));
     }
     return h.final();
@@ -67,13 +69,13 @@ fn rebuild(ctx: *d.Ctx, v: *View) void {
     h.update(std.mem.asBytes(&v.parent));
     h.update(std.mem.asBytes(&ctx.store.threads_rev));
     h.update(queryOf(v));
-    h.update(&.{ @intFromBool(v.by_creation), @intFromBool(v.archived) });
+    h.update(&.{ @intFromBool(v.by_creation), @intFromBool(v.archived), @intFromBool(v.private) });
     const key = h.final() | 1;
     if (key == v.key) return;
     v.key = key;
     var fh = std.hash.Wyhash.init(0x52);
     fh.update(queryOf(v));
-    fh.update(&.{ @intFromBool(v.by_creation), @intFromBool(v.archived) });
+    fh.update(&.{ @intFromBool(v.by_creation), @intFromBool(v.archived), @intFromBool(v.private) });
     const filter_key = fh.final();
     if (filter_key != v.filter_key) {
         v.filter_key = filter_key;
@@ -87,10 +89,12 @@ fn rebuild(ctx: *d.Ctx, v: *View) void {
     for (ctx.store.threadsOf(v.parent)) |id| {
         const cs = ctx.store.channel(id) orelse continue;
         const t = cs.info.thread orelse continue;
-        if (t.archived != v.archived) continue;
+        if (v.private) {
+            if (!t.archived or !t.private) continue;
+        } else if (t.archived != v.archived or (v.archived and t.private)) continue;
         if (q.len > 0 and !sq.containsFold(cs.info.name, q) and !sq.containsFold(cs.preview, q)) continue;
         // Arquivadas: a arquivada por último primeiro, como o Discord pagina.
-        const k: i128 = if (v.by_creation) id else if (v.archived and t.archive_ts != 0) t.archive_ts else store_mod.Store.threadActivity(&cs.info);
+        const k: i128 = if (v.by_creation) id else if ((v.archived or v.private) and t.archive_ts != 0) t.archive_ts else store_mod.Store.threadActivity(&cs.info);
         tmp.append(alloc, .{ .key = k, .id = id }) catch return;
     }
     @import("../core/sort.zig").stable(Row, tmp.items, {}, struct {
@@ -150,27 +154,36 @@ fn toolbar(ctx: *d.Ctx, dl: *c.ImDrawList, fam: *d.Family, v: *View, cs: *Channe
     searchBox(ctx, dl, fam, v, .{ .x = bar.x, .y = bar.y, .w = @max(right - bar.x, 60), .h = bar.h }, "##forum-q");
 }
 
-/// Ativas / Arquivadas. `panel`: no painel, a aba fica no próprio popup.
+/// Ativas / Arquivadas (e, no painel, Privadas). `panel`: no painel, a aba
+/// fica no próprio popup.
 fn tabs(ctx: *d.Ctx, dl: *c.ImDrawList, fam: *d.Family, v: *View, bar: d.Rect, right_in: f32, panel_of: ?Id) f32 {
     var right = right_in;
-    // Posts num fórum, threads num canal de texto (o painel).
-    const names = if (panel_of == null)
-        [_][]const u8{ i18n.tr("Arquivados", "Archived"), i18n.tr("Ativos", "Active") }
-    else
-        [_][]const u8{ i18n.tr("Arquivadas", "Archived"), i18n.tr("Ativas", "Active") };
-    const keys = [_][]const u8{ "archived", "active" };
-    for (names, 0..) |name, i| {
-        const on = (i == 0) == v.archived;
-        const tw = d.width(fam.get(.semibold), 13, name) + 20;
+    const Tab = struct { name: []const u8, key: []const u8, archived: bool, private: bool = false };
+    // Posts num fórum, threads num canal de texto (o painel). Da direita para a esquerda.
+    const forum_tabs = [_]Tab{
+        .{ .name = i18n.tr("Arquivados", "Archived"), .key = "archived", .archived = true },
+        .{ .name = i18n.tr("Ativos", "Active"), .key = "active", .archived = false },
+    };
+    const panel_tabs = [_]Tab{
+        .{ .name = i18n.tr("Privadas", "Private"), .key = "private", .archived = true, .private = true },
+        .{ .name = i18n.tr("Arquivadas", "Archived"), .key = "archived", .archived = true },
+        .{ .name = i18n.tr("Ativas", "Active"), .key = "active", .archived = false },
+    };
+    const shown: []const Tab = if (panel_of == null) &forum_tabs else &panel_tabs;
+    for (shown, 0..) |tb, i| {
+        const on = tb.archived == v.archived and tb.private == v.private;
+        const tw = d.width(fam.get(.semibold), 13, tb.name) + 20;
         const tr: d.Rect = .{ .x = right - tw, .y = bar.y, .w = tw, .h = bar.h };
         const hb = d.hit(ctx, 50 + i, tr);
-        qa.mark(tr, "forum-tab:{s}", .{keys[i]});
+        qa.mark(tr, "forum-tab:{s}", .{tb.key});
         if (hb.clicked and !on) {
-            v.archived = i == 0;
-            if (panel_of) |p| ctx.st.popup = .{ .threads = .{ .parent = p, .archived = i == 0 } };
+            v.archived = tb.archived;
+            v.private = tb.private;
+            if (panel_of) |p| ctx.st.popup = .{ .threads = .{ .parent = p, .archived = tb.archived, .private = tb.private } };
         }
         if (on) d.rect(dl, tr, ctx.col(.selected), @max(ctx.th.radius, 2)) else if (hb.hovered) d.rect(dl, tr, ctx.col(.hover), @max(ctx.th.radius, 2));
-        d.text(dl, fam.get(.semibold), 13, tr.x + 10, d.centerY(tr, 13), if (on) ctx.col(.text) else ctx.col(.muted), name);
+        d.text(dl, fam.get(.semibold), 13, tr.x + 10, d.centerY(tr, 13), if (on) ctx.col(.text) else ctx.col(.muted), tb.name);
+        if (tb.private) d.tip(ctx, tr, i18n.tr("Threads privadas arquivadas", "Archived private threads"), hb.hovered);
         right -= tw + 2;
     }
     return right - 8;
@@ -193,8 +206,8 @@ const row_gap: f32 = 6;
 /// A lista rolável, com os estados de carregando, vazio e erro.
 fn list(ctx: *d.Ctx, fam: *d.Family, v: *View, cs: *ChannelState, r: d.Rect, region: [*:0]const u8, in_panel: bool) void {
     rebuild(ctx, v);
-    const pg = if (v.archived) &cs.archived_page else &cs.active_page;
-    if (pg.state == .none) ctx.act(.{ .fetch_threads = .{ .channel = cs.info.id, .archived = v.archived } });
+    const pg = if (v.private) &cs.private_page else if (v.archived) &cs.archived_page else &cs.active_page;
+    if (pg.state == .none) ctx.act(.{ .fetch_threads = .{ .channel = cs.info.id, .archived = v.archived, .private = v.private } });
     const dl = d.beginRegion(ctx, region, r, c.ImGuiWindowFlags_NoScrollbar);
     if (in_panel) popup.track(dl);
     if (v.reset_scroll) {
@@ -234,14 +247,14 @@ fn list(ctx: *d.Ctx, fam: *d.Family, v: *View, cs: *ChannelState, r: d.Rect, reg
         tail_h = 36;
     } else if (pg.state == .loaded and pg.more) {
         if (queryOf(v).len == 0) {
-            if (tail_y < r.bottom() + 200) ctx.act(.{ .fetch_threads = .{ .channel = cs.info.id, .archived = v.archived } });
+            if (tail_y < r.bottom() + 200) ctx.act(.{ .fetch_threads = .{ .channel = cs.info.id, .archived = v.archived, .private = v.private } });
             tail_h = 36;
         } else {
             const lbl = i18n.tr("Buscar em mais posts", "Search more posts");
             const bw = inbox.buttonWidth(ctx, lbl);
             const br: d.Rect = .{ .x = r.x + (r.w - bw) / 2, .y = tail_y + 4, .w = bw, .h = 28 };
             qa.mark(br, "forum-more", .{});
-            if (inbox.button(ctx, dl, 60, br, lbl, false)) ctx.act(.{ .fetch_threads = .{ .channel = cs.info.id, .archived = v.archived } });
+            if (inbox.button(ctx, dl, 60, br, lbl, false)) ctx.act(.{ .fetch_threads = .{ .channel = cs.info.id, .archived = v.archived, .private = v.private } });
             tail_h = 44;
         }
     }
@@ -267,12 +280,14 @@ fn emptyState(ctx: *d.Ctx, dl: *c.ImDrawList, fam: *d.Family, v: *const View, cs
         const bw = inbox.buttonWidth(ctx, lbl);
         const br: d.Rect = .{ .x = cx - bw / 2, .y = y + 30, .w = bw, .h = 28 };
         qa.mark(br, "forum-retry", .{});
-        if (inbox.button(ctx, dl, 61, br, lbl, false)) ctx.act(.{ .fetch_threads = .{ .channel = cs.info.id, .archived = v.archived } });
+        if (inbox.button(ctx, dl, 61, br, lbl, false)) ctx.act(.{ .fetch_threads = .{ .channel = cs.info.id, .archived = v.archived, .private = v.private } });
         return;
     }
     const forum = cs.info.kind == .forum;
     const t = if (queryOf(v).len > 0)
         i18n.tr("Nada encontrado.", "Nothing found.")
+    else if (v.private)
+        i18n.tr("Nenhuma thread privada arquivada.", "No archived private threads.")
     else if (v.archived)
         (if (forum) i18n.tr("Nenhum post arquivado.", "No archived posts.") else i18n.tr("Nenhuma thread arquivada.", "No archived threads."))
     else if (forum)
@@ -349,6 +364,7 @@ fn postRow(ctx: *d.Ctx, dl: *c.ImDrawList, fam: *d.Family, cs: *const ChannelSta
         };
     }
     if (t.joined) cx = plainChip(ctx, dl, fam, cx, y3, i18n.tr("Participando", "Joined"), limit, ctx.col(.accent));
+    if (t.private) cx = plainChip(ctx, dl, fam, cx, y3, i18n.tr("Privada", "Private"), limit, ctx.col(.muted));
     if (t.archived) cx = plainChip(ctx, dl, fam, cx, y3, if (t.locked) i18n.tr("Trancado", "Locked") else i18n.tr("Arquivado", "Archived"), limit, ctx.col(.faint));
 }
 
@@ -434,7 +450,7 @@ pub fn composerBand(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect, cs: *const Chann
 
 // --- Painel: as threads de um canal de texto --------------------------------------
 
-pub fn panel(ctx: *d.Ctx, parent: Id, archived: bool) void {
+pub fn panel(ctx: *d.Ctx, parent: Id, archived: bool, private: bool) void {
     const cs = ctx.store.channel(parent) orelse return popup.close(ctx);
     const v = &panel_view;
     if (v.parent != parent) {
@@ -444,6 +460,7 @@ pub fn panel(ctx: *d.Ctx, parent: Id, archived: bool) void {
         v.reset_scroll = true;
     }
     v.archived = archived;
+    v.private = private;
     const r = inbox.panelRect(ctx);
     const dl = popup.beginWindow("##threads", r);
     defer c.ImGui_End();

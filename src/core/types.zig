@@ -128,6 +128,8 @@ pub const ThreadInfo = struct {
     last_message: Id = 0,
     /// Quando foi arquivada (s); é por onde as arquivadas paginam.
     archive_ts: i64 = 0,
+    /// Minutos sem atividade até arquivar sozinha (0 = não veio).
+    auto_archive: u16 = 0,
     /// Tags aplicadas (alocadas com o c_allocator).
     tags: []const Id = &.{},
 };

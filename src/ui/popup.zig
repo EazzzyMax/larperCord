@@ -21,6 +21,7 @@ const mosaic = @import("mosaic.zig");
 const guild_color = @import("guild_color.zig");
 const accounts_menu = @import("accounts_menu.zig");
 const forum = @import("forum.zig");
+const thread_settings = @import("thread_settings.zig");
 const engine = @import("../plugins/engine.zig");
 
 const quick = [_][]const u8{ "👍", "😂", "😭", "🔥" };
@@ -94,6 +95,7 @@ fn popupKey(p: state.Popup) u64 {
         .threads => |t| 8 +% t.parent *% 31,
         .new_thread => |t| 9 +% t.message *% 31,
         .new_post => |t| 10 +% t.forum *% 31,
+        .edit_thread => |t| 15 +% t.thread *% 31,
         .edit_place => |t| 11 +% t.id *% 31,
         .gif => 14,
         .join_invite => 12,
@@ -167,9 +169,10 @@ pub fn draw(ctx: *d.Ctx) void {
         .inbox => |ib| @import("inbox.zig").draw(ctx, ib.tab),
         .saved => saved_ui.draw(ctx),
         .pins => |x| @import("pins.zig").draw(ctx, x.channel),
-        .threads => |t| forum.panel(ctx, t.parent, t.archived),
+        .threads => |t| forum.panel(ctx, t.parent, t.archived, t.private),
         .new_thread => |t| forum.newThread(ctx, t.message),
         .new_post => |t| forum.newPost(ctx, t.forum),
+        .edit_thread => |t| thread_settings.dialog(ctx, t.thread),
         .edit_place => |t| @import("edit_place.zig").draw(ctx, t.id, t.group),
         .join_invite => @import("invites.zig").drawJoin(ctx),
         .create_invite => |t| @import("invites.zig").drawCreate(ctx, t.channel),
@@ -339,6 +342,9 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
                 else
                     .{ .label = "Entrar na thread", .en = "Join Thread", .id = 47, .sep = true });
                 if (tcs.info.parent != null) add(&items, &n, .{ .label = "Threads arquivadas", .en = "Archived Threads", .id = 48 });
+                // Editar, arquivar e trancar: só o que dá (ui/thread_settings.zig).
+                const te = thread_settings.menuEntries(ctx, &tcs.info);
+                for (te.slice()) |e| add(&items, &n, .{ .label = e.label, .en = e.en, .id = e.id });
                 // Apagar pede a permissão de gerenciar threads, mesmo para quem criou.
                 if (ctx.store.channelPermissions(&tcs.info) & types.perm.manage_threads != 0)
                     add(&items, &n, .{ .label = "Excluir thread…", .en = "Delete Thread…", .id = 50, .danger = true });
@@ -586,6 +592,7 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
         47 => if (ctx.store.channel(id)) |cs| if (cs.info.thread) |t| {
             ctx.act(.{ .join_thread = .{ .thread = id, .join = !t.joined } });
         },
+        57, 58, 59 => thread_settings.choose(ctx, id, item),
         // Apagar não tem volta: abre a confirmação no mesmo lugar.
         50 => st.popup = .{ .menu = .{ .kind = .thread_delete, .id = id, .x = r.x, .y = r.y } },
         51 => ctx.act(.{ .delete_thread = id }),
@@ -614,6 +621,7 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
         48, 49 => if (ctx.store.channel(id)) |cs| {
             const parent = if (cs.info.thread != null) cs.info.parent orelse id else id;
             st.popup = .{ .threads = .{ .parent = parent, .archived = item == 48 } };
+            if (item == 48 and cs.info.thread != null and cs.info.thread.?.private) st.popup.threads.private = true;
         },
         80, 81, 82, 83 => ctx.act(.{ .set_status = @enumFromInt(item - 80) }),
         84 => st.popup = .{ .profile = .{ .user = id, .x = r.x, .y = r.y - 200 } },

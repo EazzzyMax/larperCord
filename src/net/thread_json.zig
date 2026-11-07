@@ -2,6 +2,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const j = @import("jsonx.zig");
+const thread_edit = @import("../core/thread_edit.zig");
 const Id = types.Id;
 const Value = std.json.Value;
 
@@ -33,8 +34,81 @@ pub fn threadInfo(cv: Value, kind_i: i64) ?types.ThreadInfo {
         .member_count = @intCast(std.math.clamp(j.int(j.get(cv, "member_count")) orelse 0, 0, std.math.maxInt(u32))),
         .last_message = j.id(j.get(cv, "last_message_id")) orelse 0,
         .archive_ts = if (meta) |m| j.isoTime(j.str(j.get(m, "archive_timestamp")) orelse "") else 0,
+        .auto_archive = if (meta) |m| @intCast(std.math.clamp(j.int(j.get(m, "auto_archive_duration")) orelse 0, 0, std.math.maxInt(u16))) else 0,
         .tags = tags.toOwnedSlice(alloc) catch &.{},
     };
+}
+
+/// Corpo do PATCH /channels/{thread}: só os campos que mudam.
+pub fn editBody(out: *std.ArrayList(u8), gpa: std.mem.Allocator, e: thread_edit.Edit) !void {
+    try out.append(gpa, '{');
+    var first = true;
+    const sep = struct {
+        fn f(o: *std.ArrayList(u8), a: std.mem.Allocator, fst: *bool, key: []const u8) !void {
+            if (!fst.*) try o.append(a, ',');
+            fst.* = false;
+            try o.print(a, "\"{s}\":", .{key});
+        }
+    }.f;
+    if (e.name) |n| {
+        try sep(out, gpa, &first, "name");
+        try j.writeString(out, gpa, n);
+    }
+    if (e.archived) |v| {
+        try sep(out, gpa, &first, "archived");
+        try out.appendSlice(gpa, if (v) "true" else "false");
+    }
+    if (e.locked) |v| {
+        try sep(out, gpa, &first, "locked");
+        try out.appendSlice(gpa, if (v) "true" else "false");
+    }
+    if (e.auto_archive) |m| {
+        try sep(out, gpa, &first, "auto_archive_duration");
+        try out.print(gpa, "{d}", .{m});
+    }
+    if (e.tags) |tg| {
+        try sep(out, gpa, &first, "applied_tags");
+        try out.append(gpa, '[');
+        for (tg.slice(), 0..) |id, i| try out.print(gpa, "{s}\"{d}\"", .{ if (i > 0) "," else "", id });
+        try out.append(gpa, ']');
+    }
+    try out.append(gpa, '}');
+}
+
+test "editar thread: corpo só com o que muda" {
+    const ga = std.testing.allocator;
+    var b: std.ArrayList(u8) = .empty;
+    defer b.deinit(ga);
+    try editBody(&b, ga, .{ .thread = 1, .name = "nome \"novo\"", .archived = false, .auto_archive = 4320, .tags = thread_edit.Tags.from(&.{ 5, 6 }) });
+    try std.testing.expectEqualStrings("{\"name\":\"nome \\\"novo\\\"\",\"archived\":false,\"auto_archive_duration\":4320,\"applied_tags\":[\"5\",\"6\"]}", b.items);
+    b.clearRetainingCapacity();
+    try editBody(&b, ga, .{ .thread = 1, .locked = true });
+    try std.testing.expectEqualStrings("{\"locked\":true}", b.items);
+    b.clearRetainingCapacity();
+    // Tirar todas as tags é uma lista vazia, não "sem campo".
+    try editBody(&b, ga, .{ .thread = 1, .tags = .{} });
+    try std.testing.expectEqualStrings("{\"applied_tags\":[]}", b.items);
+}
+
+/// Caminho das threads privadas arquivadas de um canal. Quem gerencia threads
+/// vê todas (pagina pelo horário de arquivamento); os outros, só aquelas em
+/// que estão (pagina pelo ID).
+pub fn privateArchivedPath(buf: []u8, channel: Id, manage: bool, before_s: i64, before_id: Id) ?[]const u8 {
+    if (manage) {
+        if (before_s == 0) return std.fmt.bufPrint(buf, "/channels/{d}/threads/archived/private?limit=50", .{channel}) catch null;
+        var iso: [32]u8 = undefined;
+        return std.fmt.bufPrint(buf, "/channels/{d}/threads/archived/private?limit=50&before={s}", .{ channel, isoFromUnix(&iso, before_s) }) catch null;
+    }
+    if (before_id == 0) return std.fmt.bufPrint(buf, "/channels/{d}/users/@me/threads/archived/private?limit=50", .{channel}) catch null;
+    return std.fmt.bufPrint(buf, "/channels/{d}/users/@me/threads/archived/private?limit=50&before={d}", .{ channel, before_id }) catch null;
+}
+
+test "privadas arquivadas: o caminho depende de gerenciar threads" {
+    var b: [160]u8 = undefined;
+    try std.testing.expectEqualStrings("/channels/9/threads/archived/private?limit=50", privateArchivedPath(&b, 9, true, 0, 0).?);
+    try std.testing.expectEqualStrings("/channels/9/threads/archived/private?limit=50&before=2026-11-02T23:21:12Z", privateArchivedPath(&b, 9, true, 1793661672, 77).?);
+    try std.testing.expectEqualStrings("/channels/9/users/@me/threads/archived/private?limit=50", privateArchivedPath(&b, 9, false, 1793661672, 0).?);
+    try std.testing.expectEqualStrings("/channels/9/users/@me/threads/archived/private?limit=50&before=77", privateArchivedPath(&b, 9, false, 0, 77).?);
 }
 
 /// Tags que um fórum oferece (quem recebe fica com a lista e os textos).
@@ -69,7 +143,7 @@ test "thread: o que vem do Discord" {
     defer arena.deinit();
     const v = try std.json.parseFromSliceLeaky(Value, arena.allocator(),
         \\{"id":"7","type":11,"owner_id":"3","message_count":4,"member_count":2,"last_message_id":"99","applied_tags":["5","6"],
-        \\"thread_metadata":{"archived":true,"locked":true,"archive_timestamp":"2026-11-02T23:21:12.345000+00:00"},"member":{"id":"7"}}
+        \\"thread_metadata":{"archived":true,"locked":true,"auto_archive_duration":4320,"archive_timestamp":"2026-11-02T23:21:12.345000+00:00"},"member":{"id":"7"}}
     , .{});
     const t = threadInfo(v, 11).?;
     defer alloc.free(t.tags);
@@ -78,6 +152,7 @@ test "thread: o que vem do Discord" {
     try std.testing.expectEqual(@as(Id, 99), t.last_message);
     try std.testing.expectEqual(@as(usize, 2), t.tags.len);
     try std.testing.expectEqual(@as(i64, 1793661672), t.archive_ts);
+    try std.testing.expectEqual(@as(u16, 4320), t.auto_archive);
     const u = try std.json.parseFromSliceLeaky(Value, arena.allocator(), "{\"id\":\"8\",\"type\":12}", .{});
     const t2 = threadInfo(u, 12).?;
     try std.testing.expect(!t2.joined_known and t2.private);
