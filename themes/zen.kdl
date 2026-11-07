@@ -8,7 +8,7 @@ options {
     option "jardim" label="Jardim de areia" description="Curvas rasteladas e um enso bem discretos atrás da conversa, parados." label-en="Sand garden" description-en="Very discreet raked lines and an enso behind the conversation, still." default=#true
     option "esconder" label="Esconder os servidores" description="A faixa da esquerda some até o mouse chegar perto." label-en="Hide servers" description-en="The left strip disappears until the mouse gets close." default=#true
     option "abas" label="Abas de canal" description="Os canais abertos em abas acima da conversa." label-en="Channel tabs" description-en="Open channels as tabs above the conversation." default=#true
-    option "status" label="Rodapé" description="Conexão, tema, RAM e relógio bem discretos embaixo." label-en="Footer" description-en="Connection, theme, RAM and clock, tucked away at the bottom." default=#true
+    option "status" label="Rodapé" description="Seu status, microfone e fone, conexão, tema, RAM e relógio, bem discretos embaixo." label-en="Footer" description-en="Your status, mic and headphones, connection, theme, RAM and clock, tucked away at the bottom." default=#true
     option "avatares" label="Avatares" description="Mostra as fotos ao lado das mensagens." label-en="Avatars" description-en="Shows profile pictures next to messages." default=#false
 }
 
@@ -38,7 +38,7 @@ layout {
     topography when=jardim seed=5 levels=30 color="alpha(@text, 0.045)"
     shape when=jardim kind=arc size=620 thickness=16 start=-55 sweep=325 color="alpha(@text, 0.035)"
     row {
-        guild-bar width=64 size=34 icon-style=soft shape=circle autohide="$esconder"
+        guild-bar width=64 size=34 icon-style=soft shape=circle autohide="$esconder" bg=elevated border-right="@border"
         column flex=1 {
             tabs height=48 variant=underline max-width=800 when=abas
             column flex=1 max-width=800 {
@@ -52,7 +52,7 @@ layout {
                     spacer height=28
                 }
             }
-            status-bar height=30 variant=plain when=status items="conn spacer theme ram clock"
+            status-bar height=30 variant=plain when=status items="me mic deaf voice spacer conn theme ram clock"
         }
     }
     }

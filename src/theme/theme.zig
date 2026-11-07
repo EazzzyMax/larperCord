@@ -92,6 +92,8 @@ pub const Theme = struct {
     layout: ?*const kdl.Node = null,
     /// O layout tem o painel com o botão de configurações? Sem ele, o cabeçalho põe um.
     has_user_panel: bool = true,
+    /// O layout tem lista de membros (o cabeçalho mostra o botão de esconder).
+    has_member_list: bool = true,
     /// Sobrescritas efetivas de cada nó (já incluindo as dos pais).
     node_colors: std.AutoHashMapUnmanaged(*const kdl.Node, []const Override) = .empty,
     /// Primitivas novas dos nós que usam alguma (`fx.zig`). Vazio na maioria.
@@ -330,6 +332,7 @@ pub fn loadWith(gpa: std.mem.Allocator, src: []const u8, lo: LoadOptions, diag: 
     }
     legibleText(&t);
     t.has_user_panel = if (t.layout) |root| hasNode(root, "user-panel") else true;
+    t.has_member_list = if (t.layout) |root| hasNode(root, "member-list") else true;
     if (t.layout == null) return fail(diag, null, "o tema precisa de um nó `layout`");
     try collectOverrides(&t, a, t.layout.?, &.{}, resolver, lo.mode, diag);
     collectFx(&t, a, t.layout.?, &fcx) catch |err| return fxFail(err, fcx, diag);

@@ -97,6 +97,8 @@ Containers: `row` (horizontal), `column` (vertical), `stack` (one on top of anot
 | `inset-x=` `inset-y=` | inner margin of a component |
 | `max-width=` | limits the width and centers |
 | `hide-below=` | hides when the window is narrower than this |
+| `hide-below-height=` | hides when the window is shorter than this |
+| `only-below-height=` | shows only when the window is shorter than this (a compact version of a tall header) |
 | `show=#false` | hides |
 | `style=` / `bg=` `radius=` | the node's background |
 | `font=mono` / `font=ui` / `font="Liberation Serif"` | the component's font: the mono one, the interface one or **any installed family** |
@@ -116,7 +118,7 @@ The child of a `row` that has a fixed `width=` and holds `channel-list` or `memb
 | `messages` | `variant=cozy\|irc\|bubbles` `avatar=circle\|squircle\|square\|none` `avatar-size=40` `spacing=16` `font-size=` |
 | `composer` | `variant=box\|pill\|prompt` `typing=#false` |
 | `member-list` | `variant=discord\|tty` |
-| `status-bar` | `variant=pills\|tty\|plain` `items="conn ping ram frame voice spacer theme keys clock"` |
+| `status-bar` | `variant=pills\|tty\|plain` `items="conn ping ram frame voice spacer theme keys clock"` (also `me mic deaf`: your status and the mute/deafen buttons with the device menu, for layouts without a `user-panel`) |
 | `label` | `text=` `size=` `weight=regular\|medium\|semibold\|bold` `color=token` `align=left\|center\|right`, plus [display typography](#display-typography-in-label) |
 | `shape` | circle, ring, arc, rounded rectangle, line ([details](#shape-and-rule)) |
 | `rule` | plain, dashed, double, newspaper or ornamented rule ([details](#shape-and-rule)) |

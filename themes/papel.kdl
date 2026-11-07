@@ -94,6 +94,12 @@ layout {
                 spacer height=24
             }
         }
+        // A chamada: quem está no servidor, numa folha de verso como o índice.
+        column width=220 style=verso hide-below=1180 {
+            label height=62 text="Chamada" text-en="Roll call" font="Liberation Serif" size=26 weight=italic color=text tracking=0.5
+            rule height=7 inset-x=10 kind=oxford color=text
+            member-list flex=1
+        }
         column width=272 style=verso {
             label height=62 text="Índice" text-en="Index" font="Liberation Serif" size=26 weight=italic color=text tracking=0.5 when=indice
             rule height=7 inset-x=10 kind=oxford color=text when=indice

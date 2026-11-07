@@ -9,6 +9,9 @@ pub const Settings = @import("settings_state.zig").Settings;
 /// `plugin_choices`: a segunda lista de uma entrada de plugin (id = a mensagem ou a pessoa).
 pub const MenuKind = enum { message, user, channel, guild, status, voice_move, thread_delete, guild_leave, plugin_choices, notif, block_confirm, group_leave };
 
+/// O que o menu rápido de dispositivos mostra (ui/device_menu.zig).
+pub const DeviceMenu = enum { mic, out, both };
+
 pub const Popup = union(enum) {
     none,
     menu: struct { kind: MenuKind, id: Id, x: f32, y: f32 },
@@ -57,6 +60,8 @@ pub const Popup = union(enum) {
     /// Regras de um servidor que pede antes de deixar falar, e as boas-vindas (ui/entrada.zig).
     server_rules: struct { guild: Id },
     onboarding: struct { guild: Id },
+    /// Menu rápido do microfone e da saída; `x, y` = canto de cima de quem abriu.
+    devices: struct { which: DeviceMenu, x: f32, y: f32 },
 };
 
 /// Seleção de texto entre mensagens: âncora e cabeça (mensagem + byte).

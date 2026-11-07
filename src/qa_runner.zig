@@ -2967,7 +2967,7 @@ const ops_theme = [_]Op{
     expect("carrega e mostra a conversa", ready),
     expect("caixa de texto e mensagens na tela", composerVisible),
     .{ .shot = "tema" },
-} ++ qa_temas.ops_static ++ qa_temas.ops_motion ++ qa_temas.ops_window ++ @import("qa_threads.zig").ops_theme ++ @import("qa_moderacao.zig").ops_theme ++ [_]Op{
+} ++ qa_temas.ops_static ++ qa_temas.ops_motion ++ qa_temas.ops_window ++ @import("qa_threads.zig").ops_theme ++ @import("qa_moderacao.zig").ops_theme ++ @import("qa_dispositivos.zig").ops_theme ++ [_]Op{
     click("composer"),
     .{ .text = "oi deste tema" },
     key(c.ImGuiKey_Enter),

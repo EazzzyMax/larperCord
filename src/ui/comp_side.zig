@@ -13,6 +13,7 @@ const w = @import("widgets.zig");
 const types = @import("../core/types.zig");
 const i18n = @import("i18n.zig");
 const moderacao = @import("moderacao.zig");
+const devices = @import("device_menu.zig");
 
 pub fn memberList(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     if (ctx.st.friends) return @import("comp_friends.zig").activeNow(ctx, n, r);
@@ -149,12 +150,15 @@ const Rows = struct {
         // De castigo: um reloginho no fim da linha (o nome encolhe para caber).
         const castigo = moderacao.castigoAte(ctx, rw.guild, uid);
         const name_room = rr.w - 56 - w.botTagSpace(ctx, u, false) - (if (castigo != 0) moderacao.relogio_w else 0);
+        // Offline: só a foto fica apagada. O nome vai na cor fraca do tema, que
+        // o tema já garante legível (4.5:1); a cor do cargo em 38% sumia no fundo.
+        const off_col = ctx.col(.faint).mix(ctx.col(.muted), k);
         if (u.activity != null and online) {
-            const nw = d.textClipped(dl, fam.get(.medium), 15, rr.x + 48, rr.y + 3, name_col.alpha(alpha), u.name, name_room);
+            const nw = d.textClipped(dl, fam.get(.medium), 15, rr.x + 48, rr.y + 3, name_col, u.name, name_room);
             _ = w.botTag(ctx, dl, rr.x + 48 + nw, rr.y + 12, u, false, alpha);
-            _ = d.textClipped(dl, fam.get(.regular), 12, rr.x + 48, rr.y + 22, ctx.col(.muted).alpha(alpha), u.activity.?, rr.w - 56);
+            _ = d.textClipped(dl, fam.get(.regular), 12, rr.x + 48, rr.y + 22, ctx.col(.muted), u.activity.?, rr.w - 56);
         } else {
-            const nw = d.textClipped(dl, fam.get(.medium), 15, rr.x + 48, d.centerY(rr, 15), name_col.alpha(alpha), u.name, name_room);
+            const nw = d.textClipped(dl, fam.get(.medium), 15, rr.x + 48, d.centerY(rr, 15), if (online) name_col else off_col, u.name, name_room);
             _ = w.botTag(ctx, dl, rr.x + 48 + nw, rr.y + rr.h / 2, u, false, alpha);
         }
         if (castigo != 0) moderacao.relogio(ctx, dl, rr.right() - 16, rr.y + rr.h / 2, castigo, @max(alpha, 0.6));
@@ -267,7 +271,18 @@ fn memberClick(ctx: *d.Ctx, hb: d.Hit, uid: types.Id, rr: d.Rect) void {
 
 // --- Barra de status --------------------------------------------------------
 
-const Item = enum { conn, ping, ram, frame, voice, theme, keys, clock, spacer };
+/// `me`, `mic` e `deaf`: o próprio status e os botões de mudo e ensurdecer (com
+/// o menu de dispositivos), para temas sem painel do usuário (zen).
+const Item = enum { conn, ping, ram, frame, voice, theme, keys, clock, me, mic, deaf, spacer };
+
+fn statusLabel(st: types.Status) []const u8 {
+    return switch (st) {
+        .online => "Online",
+        .idle => i18n.tr("Ausente", "Idle"),
+        .dnd => i18n.tr("Não perturbe", "Do Not Disturb"),
+        .offline => i18n.tr("Invisível", "Invisible"),
+    };
+}
 
 pub fn statusBar(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     const fam = ctx.familyFor(n);
@@ -325,10 +340,25 @@ pub fn statusBar(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
             .theme => std.fmt.bufPrint(b, "◆ {s}", .{ctx.theme_name}) catch "",
             .keys => i18n.tr("Ctrl+K comandos · F2 tema", "Ctrl+K commands · F2 theme"),
             .clock => w.clock(b, @divTrunc(ctx.now_ms, 1000)),
+            .me => blk: {
+                const me = ctx.store.user(ctx.store.me) orelse continue;
+                // No texto puro o glifo leva a cor; nos outros, uma bolinha desenhada.
+                if (tty) {
+                    color = w.statusColor(ctx, me.status);
+                    break :blk std.fmt.bufPrint(b, "{s} {s}", .{ w.statusGlyph(me.status), statusLabel(me.status) }) catch "";
+                }
+                break :blk statusLabel(me.status);
+            },
+            .mic, .deaf => "",
             .spacer => unreachable,
         };
-        const font = fam.get(if (item == .conn or item == .theme) .semibold else .medium);
-        segs[count] = .{ .item = item, .text = text, .color = color, .w = d.width(font, fs, text), .bufi = count };
+        const font = segFont(fam, item);
+        const tw: f32 = switch (item) {
+            .mic, .deaf => if (tty) devices.ttyWidth(font, fs, if (item == .mic) .mic else .deaf) else 30,
+            .me => d.width(font, fs, text) + (if (tty) @as(f32, 0) else 13),
+            else => d.width(font, fs, text),
+        };
+        segs[count] = .{ .item = item, .text = text, .color = color, .w = tw, .bufi = count };
         count += 1;
     }
 
@@ -336,33 +366,79 @@ pub fn statusBar(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     const gap: f32 = if (pills) 6 else if (tty) 0 else 14;
     var right_w: f32 = 0;
     if (spacer_at) |sa| for (segs[sa..count]) |s| {
-        right_w += s.w + pad * 2 + gap;
+        right_w += s.w + segPad(s.item, pad, tty) * 2 + gap;
     };
     var x = r.x + (if (pills) @as(f32, 6) else 8);
     for (segs[0..count], 0..) |s, i| {
         if (spacer_at) |sa| if (i == sa) {
             x = @max(x, r.right() - right_w - (if (pills) @as(f32, 0) else 4));
         };
-        const font = fam.get(if (s.item == .conn or s.item == .theme) .semibold else .medium);
-        const sr: d.Rect = .{ .x = x, .y = r.y + (if (pills) @as(f32, 4) else 0), .w = s.w + pad * 2, .h = r.h - (if (pills) @as(f32, 8) else 0) };
-        if (s.item == .theme) {
-            const hb = d.hit(ctx, i, sr);
-            qa.mark(sr, "status-theme", .{});
-            if (hb.clicked) ctx.act(.{ .next_theme = 1 });
-            if (hb.hovered) d.rect(dl, sr, ctx.col(.hover), if (pills) sr.h / 2 else 0);
+        const font = segFont(fam, s.item);
+        const sp = segPad(s.item, pad, tty);
+        const sr: d.Rect = .{ .x = x, .y = r.y + (if (pills) @as(f32, 4) else 0), .w = s.w + sp * 2, .h = r.h - (if (pills) @as(f32, 8) else 0) };
+        defer x += sr.w + gap;
+        if (pills) d.rect(dl, sr, ctx.col(.text).alpha(0.06), sr.h / 2);
+        switch (s.item) {
+            .mic, .deaf => {
+                const kind: devices.Kind = if (s.item == .mic) .mic else .deaf;
+                const br: d.Rect = .{ .x = sr.x + sp, .y = sr.y + (if (tty) @as(f32, 0) else @max((sr.h - 28) / 2, 0)), .w = s.w, .h = if (tty) sr.h else @min(sr.h, 28) };
+                qa.mark(br, "status-{s}", .{@tagName(s.item)});
+                if (devices.toggle(ctx, dl, font, fs, kind, br, if (tty) .tty else .icon, 0x400 + i, if (kind == .mic) "status-mic" else "status-deaf"))
+                    qa.mark(br, "status-forced:{s}", .{@tagName(s.item)});
+                if (tty and i + 1 < count) d.text(dl, font, fs, sr.right() - 3, d.centerY(sr, fs), ctx.col(.faint), "│");
+                continue;
+            },
+            .theme => {
+                const hb = d.hit(ctx, i, sr);
+                qa.mark(sr, "status-theme", .{});
+                if (hb.clicked) ctx.act(.{ .next_theme = 1 });
+                if (hb.hovered) d.rect(dl, sr, ctx.col(.hover), if (pills) sr.h / 2 else 0);
+            },
+            .me => {
+                const hb = d.hit(ctx, 0x300 + i, sr);
+                qa.mark(sr, "status-me", .{});
+                if (hb.clicked) ctx.popup(.{ .menu = .{ .kind = .status, .id = ctx.store.me, .x = sr.x, .y = sr.y - 190 } });
+                if (hb.hovered) d.rect(dl, sr, ctx.col(.hover), if (pills) sr.h / 2 else if (tty) 0 else ctx.th.radius);
+                d.tip(ctx, sr, i18n.tr("Mudar status", "Change status"), hb.hovered);
+            },
+            .voice => {
+                // A faixa de voz dos outros temas, em miniatura: o mixer e, no botão
+                // direito, o microfone e a saída.
+                const hb = d.hit(ctx, 0x500 + i, sr);
+                qa.mark(sr, "status-voice", .{});
+                if (hb.clicked) ctx.popup(.{ .mixer = .{ .x = sr.x, .y = sr.y - 300 } });
+                if (hb.right) devices.open(ctx, .both, sr);
+                if (hb.hovered) d.rect(dl, sr, ctx.col(.hover), if (pills) sr.h / 2 else 0);
+                d.tip(ctx, sr, i18n.tr("Mixer da call · botão direito: dispositivos", "Call mixer · right-click: devices"), hb.hovered);
+            },
+            else => {},
         }
-        if (pills) {
-            d.rect(dl, sr, ctx.col(.text).alpha(0.06), sr.h / 2);
-        } else if (tty) {
+        if (tty) {
             // Segmentos estilo tmux: o primeiro e o tema em destaque.
             const hl = s.item == .conn or s.item == .theme;
             if (hl) d.rect(dl, sr, ctx.col(.accent), 0);
-            d.text(dl, font, fs, sr.x + pad, d.centerY(sr, fs), if (hl) ctx.col(.accent_text) else s.color, s.text);
+            d.text(dl, font, fs, sr.x + sp, d.centerY(sr, fs), if (hl) ctx.col(.accent_text) else s.color, s.text);
             if (!hl and i + 1 < count) d.text(dl, font, fs, sr.right() - 3, d.centerY(sr, fs), ctx.col(.faint), "│");
-            x += sr.w + gap;
             continue;
         }
-        d.text(dl, font, fs, sr.x + pad, d.centerY(sr, fs), s.color, s.text);
-        x += sr.w + gap;
+        if (s.item == .me) {
+            const me_st = if (ctx.store.user(ctx.store.me)) |u| u.status else .online;
+            d.circle(dl, sr.x + sp + 4, sr.y + sr.h / 2, 4, w.statusColor(ctx, me_st));
+            d.text(dl, font, fs, sr.x + sp + 13, d.centerY(sr, fs), s.color, s.text);
+            continue;
+        }
+        d.text(dl, font, fs, sr.x + sp, d.centerY(sr, fs), s.color, s.text);
     }
+}
+
+fn segFont(fam: *d.Family, item: Item) *c.ImFont {
+    return fam.get(if (item == .conn or item == .theme or item == .mic or item == .deaf) .semibold else .medium);
+}
+
+/// Folga de cada lado do segmento: os botões desenham a própria área de clique.
+fn segPad(item: Item, pad: f32, tty: bool) f32 {
+    return switch (item) {
+        .mic, .deaf => if (tty) 6 else 1,
+        else => pad,
+    };
 }

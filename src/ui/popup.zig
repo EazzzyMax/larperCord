@@ -109,6 +109,7 @@ fn popupKey(p: state.Popup) u64 {
         .moderacao => |t| 22 +% t.guild *% 31 +% t.user *% 17,
         .server_rules => |t| 23 +% t.guild *% 31,
         .onboarding => |t| 24 +% t.guild *% 31,
+        .devices => |dv| 25 +% @as(u64, @intFromEnum(dv.which)),
     };
 }
 
@@ -188,6 +189,7 @@ pub fn draw(ctx: *d.Ctx) void {
         .moderacao => |t| @import("moderacao.zig").draw(ctx, t.guild, t.user),
         .server_rules => |t| @import("entrada.zig").drawRules(ctx, t.guild),
         .onboarding => |t| @import("entrada.zig").drawOnboarding(ctx, t.guild),
+        .devices => |dv| @import("device_menu.zig").draw(ctx, dv.which, dv.x, dv.y),
         .none => {},
     }
     animateOpen(ctx);
