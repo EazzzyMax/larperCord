@@ -409,6 +409,43 @@ pub fn synth(s: Sound, out: []i16) []i16 {
     return out[0..len];
 }
 
+// --- Toque de chamada -------------------------------------------------------
+
+/// Um ciclo do toque (call de DM chegando): dois arpejos curtos e silêncio.
+/// Repete enquanto toca; gerado aos pedaços, sem guardar o ciclo inteiro.
+pub const ring_cycle_ms = 3000;
+/// Quadros (cada um com `channels` amostras) de um ciclo.
+pub const ring_cycle_len = ring_cycle_ms * rate / 1000;
+
+const ring_notes = [_]Note{
+    .{ .hz = 659.25, .at_ms = 0, .ms = 260 },   .{ .hz = 830.61, .at_ms = 120, .ms = 260 }, .{ .hz = 987.77, .at_ms = 240, .ms = 380 },
+    .{ .hz = 659.25, .at_ms = 750, .ms = 260 }, .{ .hz = 830.61, .at_ms = 870, .ms = 260 }, .{ .hz = 987.77, .at_ms = 990, .ms = 380 },
+};
+
+/// Preenche `out` (intercalado) com o toque a partir do quadro `pos` do
+/// ciclo. Cada amostra só depende da posição: os pedaços emendam sem estalo.
+pub fn ringSynth(pos: usize, out: []i16) void {
+    var f: usize = 0;
+    while (f * channels + 1 < out.len) : (f += 1) {
+        const i = (pos + f) % ring_cycle_len;
+        var v: f32 = 0;
+        for (ring_notes) |n| {
+            const start = @as(usize, n.at_ms) * rate / 1000;
+            const count = @as(usize, n.ms) * rate / 1000;
+            if (i < start or i >= start + count) continue;
+            const k = i - start;
+            const t = @as(f32, @floatFromInt(k)) / rate;
+            const prog = @as(f32, @floatFromInt(k)) / @as(f32, @floatFromInt(count));
+            const attack = @min(t / 0.006, 1);
+            const decay = (1 - prog) * (1 - prog);
+            v += (@sin(2 * std.math.pi * n.hz * t) + 0.25 * @sin(4 * std.math.pi * n.hz * t)) * attack * decay * 5200;
+        }
+        const sample: i16 = @intFromFloat(std.math.clamp(v, -32768, 32767));
+        out[f * channels] = sample;
+        out[f * channels + 1] = sample;
+    }
+}
+
 // --- Testes ----------------------------------------------------------------
 
 // --- Fila de quem fala ------------------------------------------------------
@@ -1062,6 +1099,27 @@ test "bipes: curtos, sem estourar, sem estalo no fim, diferentes entre si" {
     @memcpy(&first, a);
     try t_expect(!std.mem.eql(i16, &first, synth(.leave, &buf)[0..4000]));
     try t_expect(soundLen(.mute) < soundLen(.join));
+}
+
+test "toque de chamada: emenda sem estalo, som no começo e silêncio no fim" {
+    // Um pedaço grande ou dois pequenos dão as mesmas amostras.
+    var one: [4000 * channels]i16 = undefined;
+    ringSynth(1000, &one);
+    var two: [4000 * channels]i16 = undefined;
+    ringSynth(1000, two[0 .. 1500 * channels]);
+    ringSynth(2500, two[1500 * channels ..]);
+    try t_expect(std.mem.eql(i16, &one, &two));
+    try t_expect(rmsOf(&one) > 300);
+    var peak: i32 = 0;
+    for (one) |x| peak = @max(peak, @as(i32, @intCast(@abs(x))));
+    try t_expect(peak < 16000);
+    // O fim do ciclo é silêncio, e a volta ao começo recomeça o toque.
+    var tail: [2000 * channels]i16 = undefined;
+    ringSynth(ring_cycle_len - 2000, &tail);
+    for (tail) |x| try t_eq(@as(i16, 0), x);
+    var wrap: [4000 * channels]i16 = undefined;
+    ringSynth(ring_cycle_len + 1000, &wrap);
+    try t_expect(std.mem.eql(i16, &one, &wrap));
 }
 
 test "buraco grande pede o decodificador do zero, e um pequeno não" {

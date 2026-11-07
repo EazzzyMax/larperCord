@@ -182,6 +182,8 @@ pub fn frame(ctx: *d.Ctx, placed: *std.ArrayList(layout.Placed), previews: []con
     palette.draw(ctx);
     search.draw(ctx);
     toast(ctx);
+    // Chamada chegando: por cima de tudo, em qualquer tema.
+    @import("chamada.zig").overlay(ctx);
     shortcuts(ctx);
 }
 

@@ -904,7 +904,7 @@ pub const Store = struct {
     pub fn apply(s: *Store, ev: Event, now_ms: i64) !void {
         // O que chega o tempo todo e não aparece na caixa de entrada não conta.
         switch (ev) {
-            .typing_start, .presence_update, .voice_state, .voice_member_flags, .voice_speaking, .voice_ping, .voice_audio, .voice_status, .latency, .status, .notice, .member_list, .profile, .relationship, .note, .app_icon, .pins, .pins_changed, .invite, .read, .thread_members, .thread_joined, .thread_open, .threads_page => {},
+            .typing_start, .presence_update, .voice_state, .voice_member_flags, .voice_speaking, .voice_ping, .voice_audio, .voice_status, .call, .latency, .status, .notice, .member_list, .profile, .relationship, .note, .app_icon, .pins, .pins_changed, .invite, .read, .thread_members, .thread_joined, .thread_open, .threads_page => {},
             else => s.rev +%= 1,
         }
         switch (ev) {
@@ -1081,6 +1081,9 @@ pub const Store = struct {
             },
             .voice_member_flags => |v| try s.voice_flags.put(s.gpa, v.user, v.flags),
             .voice_ping, .voice_audio => {},
+            // A call da DM acabou: ninguém mais está nela (por garantia, se
+            // algum VOICE_STATE_UPDATE de saída se perdeu).
+            .call => |cl| if (cl.ended) if (s.channel(cl.channel)) |cs| cs.voice_members.clearRetainingCapacity(),
             .voice_speaking => |v| {
                 if (v.speaking) {
                     try s.speaking.put(s.gpa, v.user, now_ms + 4000);
@@ -2597,6 +2600,22 @@ test "voz: mudar mudo/surdo não muda o lugar na lista; sair esquece" {
     // Quem já estava na call ao conectar.
     try s.apply(.{ .voice_member_flags = .{ .user = 6, .flags = .{ .self_mute = true } } }, 0);
     try std.testing.expect(s.voiceFlags(6).self_mute);
+}
+
+test "call de DM: quem está nela e o fim da call" {
+    const gpa = std.testing.allocator;
+    var s: Store = .{ .gpa = gpa };
+    defer s.deinit();
+    const c_alloc = std.heap.c_allocator;
+    const chans = try c_alloc.alloc(types.Channel, 1);
+    chans[0] = .{ .id = 900, .guild = 0, .name = try c_alloc.dupe(u8, "ana"), .topic = try c_alloc.dupe(u8, ""), .recipient = 5 };
+    try s.apply(.{ .ready = .{ .me = 1, .users = try c_alloc.alloc(types.User, 0), .guilds = try c_alloc.alloc(types.Guild, 0), .channels = chans, .voice = try c_alloc.alloc([2]Id, 0) } }, 0);
+    try s.apply(.{ .voice_state = .{ .channel = 900, .user = 5 } }, 0);
+    try s.apply(.{ .call = .{ .channel = 900, .ringing_me = true } }, 0);
+    try std.testing.expectEqualSlices(Id, &.{5}, s.channel(900).?.voice_members.items);
+    // CALL_DELETE: a lista esvazia mesmo sem os VOICE_STATE_UPDATE de saída.
+    try s.apply(.{ .call = .{ .channel = 900, .ended = true } }, 0);
+    try std.testing.expectEqual(@as(usize, 0), s.channel(900).?.voice_members.items.len);
 }
 
 test "confirmação atrasada vai para o lugar certo e nada duplica" {

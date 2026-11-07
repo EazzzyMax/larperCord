@@ -13,6 +13,7 @@ const w = @import("widgets.zig");
 const icons = @import("icons.zig");
 const i18n = @import("i18n.zig");
 const plugin_panel = @import("plugin_panel.zig");
+const chamada = @import("chamada.zig");
 const engine = @import("../plugins/engine.zig");
 const types = @import("../core/types.zig");
 const Id = types.Id;
@@ -57,6 +58,7 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         if (ph.clicked) ctx.act(.{ .open_pins = ch_id });
         d.text(dl, fam.get(.bold), fs, pr.x + 2, d.centerY(r, fs), if (ph.hovered) ctx.col(.text) else ctx.col(.muted), pl);
         d.tip(ctx, pr, i18n.tr("Mensagens fixadas", "Pinned messages"), ph.hovered);
+        right_x = chamada.headerTty(ctx, dl, fam.get(.bold), fs, ch, right_x, r);
         const tw = d.textClipped(dl, fam.get(.bold), fs, r.x + 6, d.centerY(r, fs), ctx.col(.accent), t, right_x - r.x - 14);
         const ly = r.y + r.h / 2;
         d.line(dl, r.x + 6 + tw + 4, ly, right_x - 4, ly, ctx.col(.border), 1);
@@ -71,7 +73,9 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         const sub = if (ch.guild == 0) i18n.tr("mensagem direta", "direct message") else d.printClip(&buf, "{s}  ·  {s}", .{ if (g) |x| x.name else "", ch.topic });
         const has_panels = plugin_panel.available();
         const needs_gear = !ctx.th.has_user_panel;
-        _ = d.textClipped(dl, fam.get(.regular), 13, r.x + 4, r.y + r.h / 2 + 5, ctx.col(.faint), sub, r.w - (if (has_panels) @as(f32, 156) else 120) - (if (needs_gear) @as(f32, 36) else 0));
+        _ = d.textClipped(dl, fam.get(.regular), 13, r.x + 4, r.y + r.h / 2 + 5, ctx.col(.faint), sub, r.w - (if (has_panels) @as(f32, 156) else 120) - (if (needs_gear) @as(f32, 36) else 0) - chamada.headerSpace(ctx, ch));
+        // Numa DM ou grupo: ligar, à esquerda dos outros botões.
+        chamada.headerButtons(ctx, dl, ch, r.right() - 112 - (if (has_panels) @as(f32, 36) else 0) - (if (needs_gear) @as(f32, 36) else 0), r.y + r.h / 2);
         inboxButtons(ctx, dl, r.right() - 32, r.y + r.h / 2 - 14);
         pinsButton(ctx, dl, ch_id, r.right() - 104, r.y + r.h / 2 - 14);
         if (has_panels) panelsButton(ctx, dl, r.right() - 140, r.y + r.h / 2 - 14);
@@ -95,7 +99,7 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     // Apertado demais (o próprio painel aberto pode tirar o lugar): o botão sai e o
     // nome do canal fica. Os painéis continuam na paleta e nas configurações.
     const has_panels = plugin_panel.available() and sx - 220 >= r.x + 42 + 60;
-    const panels_w: f32 = if (has_panels) 36 else 0;
+    const panels_w: f32 = (if (has_panels) @as(f32, 36) else 0) + chamada.headerSpace(ctx, ch);
     const name_room = if (search_w > 0) @max(80, sx - (r.x + 42) - 14 - 214 - 110 - panels_w) else @max(sx - 192 - panels_w - (r.x + 42), 40);
     const name_w = d.textClipped(dl, fam.get(.semibold), 16, r.x + 42, d.centerY(r, 16), ctx.col(.text), ch.name, name_room - w.botTagSpace(ctx, dm_user, false));
     const tx = r.x + 42 + name_w + w.botTag(ctx, dl, r.x + 42 + name_w, r.y + r.h / 2, dm_user, false, 1) + 14;
@@ -123,6 +127,7 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     inboxButtons(ctx, dl, sx - 112 + no_find, r.y + r.h / 2 - 14);
     pinsButton(ctx, dl, ch_id, sx - 184 + no_find, r.y + r.h / 2 - 14);
     if (has_panels) panelsButton(ctx, dl, sx - 220 + no_find, r.y + r.h / 2 - 14);
+    chamada.headerButtons(ctx, dl, ch, sx - 192 + no_find - (if (has_panels) @as(f32, 36) else 0), r.y + r.h / 2);
     if (search_w > 0) {
         const sr: d.Rect = .{ .x = sx, .y = r.y + r.h / 2 - 13, .w = search_w, .h = 26 };
         const sh = d.hit(ctx, 1, sr);

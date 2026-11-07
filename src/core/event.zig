@@ -136,6 +136,8 @@ pub const Event = union(enum) {
     voice_ping: u32,
     /// O microfone ou a saída da call abriram? (a barra de voz avisa)
     voice_audio: struct { mic_ok: bool, out_ok: bool },
+    /// CALL_CREATE / CALL_UPDATE / CALL_DELETE de uma DM ou grupo.
+    call: Call,
     latency: u32,
     /// Os emojis de um servidor, todos de uma vez (READY, GUILD_CREATE,
     /// GUILD_EMOJIS_UPDATE). O Store assume a lista e os nomes.
@@ -196,6 +198,10 @@ pub const Event = union(enum) {
 pub const Connection = enum { connecting, ready, reconnecting, rejected, failed, offline };
 
 pub const VoiceStatus = enum { disconnected, connecting, connected };
+
+/// Call numa DM ou grupo. `ringing_me`: está tocando para nós; `ringing`:
+/// quantos outros ainda estão sendo chamados. `ended`: a call acabou.
+pub const Call = struct { channel: Id, ringing_me: bool = false, ringing: u8 = 0, ended: bool = false };
 
 /// O que o VOICE_STATE_UPDATE diz de cada pessoa na call. `mute` e `deaf` são
 /// impostos pelo servidor; `suppress` é a plateia de um palco.
@@ -262,6 +268,13 @@ pub const Command = union(enum) {
     voice_flags: struct { mute: bool, deaf: bool },
     /// Volume individual de quem está falando (0..2).
     voice_volume: struct { user: Id, volume: f32 },
+    /// Call de DM/grupo: toca para os outros (POST .../call/ring) ou para de
+    /// tocar só para nós, que é recusar (POST .../call/stop-ringing).
+    call_ring: Id,
+    call_stop_ringing: Id,
+    /// Só a demonstração: alguém liga para nós nesta conversa (`ring`) ou
+    /// desliga a call (o QA usa; o gateway de verdade ignora).
+    demo_call: struct { channel: Id, ring: bool },
     /// Pede a lista de membros de um servidor, vista do canal aberto (op 14).
     /// `channel` é sempre um canal de verdade (o pai, se for thread); `thread`
     /// pede também a lista de quem está nela.
@@ -338,6 +351,11 @@ pub const Action = union(enum) {
     set_voice_volume: struct { user: Id, volume: f32 },
     /// Abre/fecha o mixer de voz (a lista de quem está na call com volumes).
     toggle_voice_mixer,
+    /// Call na DM ou grupo: começa (ou entra na que já existe), atende e
+    /// recusa a que está tocando.
+    start_call: Id,
+    accept_call,
+    decline_call,
     typing: Id,
     toggle_category: Id,
     set_theme: usize,

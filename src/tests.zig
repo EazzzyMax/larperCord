@@ -63,6 +63,7 @@ test {
     _ = @import("core/envio.zig");
     _ = @import("core/polls.zig");
     _ = @import("net/user_json.zig");
+    _ = @import("net/call_json.zig");
     _ = @import("ui/apng.zig");
     _ = @import("plugins/engine.zig");
     _ = @import("plugins/manifest.zig");

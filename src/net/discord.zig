@@ -33,6 +33,7 @@ const settings_proto = @import("settings_proto.zig");
 const leitura = @import("../core/leitura.zig");
 const read_json = @import("read_state_json.zig");
 const voice_mod = @import("voice.zig");
+const call_json = @import("call_json.zig");
 const thread_json = @import("thread_json.zig");
 const user_json = @import("user_json.zig");
 const envio_json = @import("envio_json.zig");
@@ -625,16 +626,10 @@ pub const Gateway = struct {
                 g.writeWs(payload);
             },
             .voice => |v| {
-                var b: [192]u8 = undefined;
-                const ch = if (v.channel) |cid| std.fmt.bufPrint(&b, "\"{d}\"", .{cid}) catch return else "null";
+                // Numa DM ou grupo (`guild` 0) o guild_id vai null (net/call_json.zig).
                 var out: [256]u8 = undefined;
-                const p = std.fmt.bufPrint(&out, "{{\"op\":4,\"d\":{{\"guild_id\":\"{d}\",\"channel_id\":{s},\"self_mute\":{s},\"self_deaf\":{s}}}}}", .{
-                    v.guild,
-                    ch,
-                    if (v.mute) "true" else "false",
-                    if (v.deaf) "true" else "false",
-                }) catch return;
-                std.log.debug("voz: op4 canal={s}", .{ch});
+                const p = call_json.voiceState(&out, v.guild, v.channel, v.mute, v.deaf) orelse return;
+                std.log.debug("voz: op4 canal={d}", .{v.channel orelse 0});
                 g.writeWs(p);
             },
         }
@@ -1304,6 +1299,8 @@ pub const Gateway = struct {
         if (std.mem.eql(u8, t, "VOICE_SERVER_UPDATE")) {
             if (g.voice_channel == 0) return;
             const gid = j.id(j.get(d, "guild_id")) orelse g.voice_guild;
+            // Call de DM/grupo: vem sem servidor e com o canal da conversa.
+            if (g.voice_guild == 0) if (j.id(j.get(d, "channel_id"))) |cid| if (cid != g.voice_channel) return;
             if (gid == g.voice_guild or g.voice_guild == 0) {
                 // Servidor de voz novo (ou nenhum ainda, endpoint null): a
                 // conexão atual morre; abre outra quando vier o endereço.
@@ -1321,6 +1318,17 @@ pub const Gateway = struct {
                 }
                 g.tryStartVoice();
             }
+            return;
+        }
+        // Calls de DM e grupo: quem está tocando e quem já está na call.
+        if (std.mem.eql(u8, t, "CALL_CREATE") or std.mem.eql(u8, t, "CALL_UPDATE") or std.mem.eql(u8, t, "CALL_DELETE")) {
+            const ended = std.mem.eql(u8, t, "CALL_DELETE");
+            const cl = call_json.parse(d, g.me, ended) orelse return;
+            for (j.array(j.get(d, "voice_states"))) |vs| {
+                const uid = j.id(j.get(vs, "user_id")) orelse continue;
+                g.emit(.{ .voice_state = .{ .channel = j.id(j.get(vs, "channel_id")) orelse cl.channel, .user = uid, .flags = voiceFlagsOf(vs) } });
+            }
+            g.emit(.{ .call = cl });
             return;
         }
         if (std.mem.eql(u8, t, "READY_SUPPLEMENTAL")) {
@@ -3004,7 +3012,8 @@ pub const Gateway = struct {
         }
     }
 
-    /// Op 4 do gateway principal: entra/sai do canal de voz.
+    /// Op 4 do gateway principal: entra/sai do canal de voz (numa DM ou
+    /// grupo, `guild_id` vai null).
     fn sendVoiceState(g: *Gateway, channel: ?Id) void {
         g.queueOp(.{ .voice = .{ .guild = g.voice_guild, .channel = channel, .mute = g.voice_mute, .deaf = g.voice_deaf } });
     }
@@ -3651,6 +3660,20 @@ pub const Gateway = struct {
                 g.voice_volumes.put(alloc, v.user, std.math.clamp(v.volume, 0, 2)) catch {};
                 if (g.voice) |vc| vc.setVolume(v.user, v.volume);
             },
+            .call_ring => |ch| {
+                const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/call/ring", .{ch}) catch return;
+                var resp = g.request("POST", path, call_json.ring_body) orelse return;
+                defer resp.body.deinit(alloc);
+                if (resp.status >= 300) g.noticeHttp(i18n.tr("não deu para chamar", "couldn't ring"), &resp);
+            },
+            .call_stop_ringing => |ch| {
+                var bb: [48]u8 = undefined;
+                const body = call_json.stopRingingBody(&bb, g.me) orelse return;
+                const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/call/stop-ringing", .{ch}) catch return;
+                var resp = g.request("POST", path, body) orelse return;
+                resp.body.deinit(alloc);
+            },
+            .demo_call => {},
             .shutdown => {},
         }
     }
