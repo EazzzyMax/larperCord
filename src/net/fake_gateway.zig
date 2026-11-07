@@ -152,6 +152,9 @@ const frecency_head = "\x0a\x04\x08\x02\x10\x01" ++ "\x1a\x06\x0a\x04\x0a\x02ab"
 const frecency_tail = "\x22\x09\x0a\x07\x0a\x03abc\x10\x07" ++ "\xa2\x06\x02\x08\x01";
 const gif_favorites = @import("../core/gif_favorites.zig");
 
+/// O que o Discord responde quando quer um captcha (chave de mentira).
+const captcha_body = "{\"captcha_key\":[\"captcha-required\"],\"captcha_sitekey\":\"00000000-0000-0000-0000-000000000000\",\"captcha_service\":\"hcaptcha\"}";
+
 const demo_gifs = [_][]const u8{ "dancing cat", "thumbs up", "good morning", "laughing", "confused", "applause", "typing fast", "shrug" };
 
 fn demoGifItem(name: []const u8, i: usize) !types.Gif {
@@ -873,6 +876,8 @@ pub const Gateway = struct {
                         g.emit(.{ .invite_joined = .{ .code = code, .status = .ok, .guild = guildId(entrada_guild) } });
                         continue;
                     }
+                    // O captcha passa pelo mesmo caminho de uma resposta de verdade da API.
+                    if (status == .captcha) @import("challenge.zig").observe(400, "POST", "/v9/invites/qacaptcha", captcha_body);
                     // Sem servidor novo na demonstração: "entra" num que já está na barra.
                     g.emit(.{ .invite_joined = .{ .code = code, .status = status, .guild = if (status == .ok) guildId(2) else 0 } });
                 },

@@ -527,32 +527,6 @@ fn mp4GifAnimated(app: *App) bool {
     return ffmpeg.known() == false and mp4_failed and still_ok;
 }
 
-// Proxy.
-const proxy = @import("net/proxy.zig");
-fn proxyRejected(app: *App) bool {
-    return app.st.settings.proxy.len == 0 and std.mem.indexOf(u8, app.st.toast.text(), "inválido") != null and qa.find("proxy-input") != null;
-}
-fn proxyExternalOnly(app: *App) bool {
-    var b: proxy.Buf = undefined;
-    if (!std.mem.eql(u8, app.st.settings.proxy.slice(), "socks5h://127.0.0.1:9050")) return false;
-    const ext = proxy.forUrl(&b, "https://media.tenor.com/x.webp") orelse return false;
-    return std.mem.eql(u8, ext, "socks5h://127.0.0.1:9050") and proxy.forUrl(&b, "https://cdn.discordapp.com/x.png") == null and proxy.forDiscord(&b) == null;
-}
-fn proxyEverywhere(app: *App) bool {
-    var b: proxy.Buf = undefined;
-    return app.st.settings.proxy_all and proxy.forUrl(&b, "https://cdn.discordapp.com/x.png") != null and proxy.forDiscord(&b) != null;
-}
-fn proxyPersisted(app: *App) bool {
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(app.gpa);
-    @import("ui/settings_state.zig").write(&app.st.settings, "classico", &out, app.gpa) catch return false;
-    return std.mem.indexOf(u8, out.items, "proxy=\"socks5h://127.0.0.1:9050\"") != null and std.mem.indexOf(u8, out.items, "proxy_all=#true") != null;
-}
-fn proxyRemoved(app: *App) bool {
-    var b: proxy.Buf = undefined;
-    return app.st.settings.proxy.len == 0 and proxy.forUrl(&b, "https://media.tenor.com/x.webp") == null and proxy.forDiscord(&b) == null;
-}
-
 fn jumpToGif(app: *App) void {
     const f = findAttachment(app, "demo:gif") orelse return;
     app.st.jump = f.id;
@@ -2796,28 +2770,7 @@ const ops = [_]Op{
     click("profile-tab:2"),
     .{ .sweep = &.{"profile-guild:"} },
     key(c.ImGuiKey_Escape),
-    s("proxy"),
-    ctrl(c.ImGuiKey_Comma),
-    click("settings:Privacidade"),
-    .{ .wait = 200 },
-    click("proxy-input"),
-    .{ .text = "ftp://nao.serve:21" },
-    key(c.ImGuiKey_Enter),
-    expect("proxy com URL inválida é recusado", proxyRejected),
-    click("proxy-input"),
-    ctrl(c.ImGuiKey_A),
-    .{ .text = "socks5h://127.0.0.1:9050" },
-    click("button:Salvar proxy"),
-    expect("proxy salvo vale só para a mídia de fora", proxyExternalOnly),
-    .{ .shot = "37-proxy" },
-    click("toggle:Usar o proxy em tudo"),
-    expect("\"em tudo\" inclui o Discord (API, gateway, imagens)", proxyEverywhere),
-    expect("proxy vai para o settings.kdl", proxyPersisted),
-    click("button:Remover proxy"),
-    expect("remover volta à conexão direta", proxyRemoved),
-    click("toggle:Usar o proxy em tudo"),
-    click("settings-close"),
-
+} ++ @import("qa_proxy.zig").ops ++ [_]Op{
     s("clicar em tudo: configurações"),
     ctrl(c.ImGuiKey_Comma),
     click("settings:Aparência"),
@@ -3221,6 +3174,7 @@ const ops_social = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @impor
 const ops_presenca = [_]Op{expect("carrega e mostra a conversa", ready)} ++ (if (@import("builtin").os.tag != .windows) @import("qa_presenca.zig").ops else [_]Op{});
 const ops_moderacao = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_moderacao.zig").ops;
 const ops_entrada = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_entrada.zig").ops;
+const ops_proxy = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_proxy.zig").ops;
 const ops_plugins_real = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_real;
 const ops_vitrine = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_vitrine;
 const ops_plugins_a = [_]Op{expect("carrega e mostra a conversa", ready)} ++ @import("qa_plugins.zig").ops_persist_a;
@@ -3259,6 +3213,7 @@ fn script() []const Op {
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "presenca")) return &ops_presenca;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "moderacao")) return &ops_moderacao;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "entrada")) return &ops_entrada;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "proxy")) return &ops_proxy;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-real")) return &ops_plugins_real;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "vitrine")) return &ops_vitrine;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "plugins-a")) return &ops_plugins_a;

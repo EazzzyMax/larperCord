@@ -30,6 +30,7 @@ const i18n = @import("../ui/i18n.zig");
 const image_uri = @import("../core/image_uri.zig");
 const media_url = @import("media_url.zig");
 const proxy = @import("proxy.zig");
+const challenge = @import("challenge.zig");
 const settings_proto = @import("settings_proto.zig");
 const leitura = @import("../core/leitura.zig");
 const read_json = @import("read_state_json.zig");
@@ -2981,6 +2982,8 @@ pub const Gateway = struct {
                 }
             }
             applyRate(g, rate);
+            // Captcha, verificação ou 401: conta e vai para o registro de depuração.
+            challenge.observe(resp.status, method, path, resp.body.items);
             if (resp.status == 429) {
                 // Rate limit: espera o que o Discord pediu e tenta de novo.
                 var wait_ms: u32 = rate.retry_after_ms orelse 1000;
