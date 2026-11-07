@@ -282,7 +282,7 @@ pub fn madeCode() []const u8 {
     return made_code.slice();
 }
 
-fn chip(ctx: *d.Ctx, dl: *c.ImDrawList, id: usize, r: d.Rect, label: []const u8, on: bool) bool {
+pub fn chip(ctx: *d.Ctx, dl: *c.ImDrawList, id: usize, r: d.Rect, label: []const u8, on: bool) bool {
     const hb = d.hit(ctx, id, r);
     const radius = @max(ctx.th.radius, 4);
     const font = ctx.ui.get(.medium);

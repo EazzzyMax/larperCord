@@ -1209,6 +1209,8 @@ pub const App = struct {
                 app.cmd(.{ .set_note = .{ .user = n.user, .text = ca.dupe(u8, n.text) catch return } });
             },
             .move_member => |mm| app.cmd(.{ .move_member = .{ .guild = mm.guild, .user = mm.user, .channel = mm.channel } }),
+            .moderate => |m| app.cmd(.{ .moderate = m }),
+            .fetch_bans => |fb| app.cmd(.{ .fetch_bans = .{ .req = fb.req, .guild = fb.guild } }),
             .want_app_icon => |id| {
                 if (app.asked_profiles.contains(id)) return;
                 app.asked_profiles.put(app.gpa, id, {}) catch return;
@@ -1967,6 +1969,8 @@ pub const App = struct {
         switch (e) {
             .search_results => |r| @import("ui/search.zig").deliver(r),
             .invite_created => |r| @import("ui/invites.zig").created(r),
+            .moderated => |r| @import("ui/moderacao.zig").delivered(st, &app.store, r, now()),
+            .bans => |b| @import("ui/moderacao.zig").bansDelivered(b),
             .invite_joined => |r| {
                 const invites = @import("ui/invites.zig");
                 invites.joined(r);

@@ -98,6 +98,8 @@ pub const GuildFolder = struct {
 /// Permissões do Discord que o cliente usa.
 pub const perm = struct {
     pub const create_instant_invite: u64 = 1 << 0;
+    pub const kick_members: u64 = 1 << 1;
+    pub const ban_members: u64 = 1 << 2;
     pub const administrator: u64 = 1 << 3;
     pub const manage_guild: u64 = 1 << 5;
     pub const manage_messages: u64 = 1 << 13;
@@ -106,11 +108,14 @@ pub const perm = struct {
     pub const send_messages: u64 = 1 << 11;
     pub const read_history: u64 = 1 << 16;
     pub const connect: u64 = 1 << 20;
+    pub const mute_members: u64 = 1 << 22;
+    pub const deafen_members: u64 = 1 << 23;
     pub const move_members: u64 = 1 << 24;
     pub const manage_roles: u64 = 1 << 28;
     pub const manage_threads: u64 = 1 << 34;
     pub const create_public_threads: u64 = 1 << 35;
     pub const send_messages_in_threads: u64 = 1 << 38;
+    pub const moderate_members: u64 = 1 << 40;
 };
 
 /// O que só uma thread (ou post de fórum) tem. `Channel.parent` é o canal pai.
@@ -182,6 +187,9 @@ pub const group_offline: Id = 2;
 /// alto para o mais baixo, até 6).
 pub const MemberInfo = struct {
     color: u32 = 0,
+    /// Castigo (timeout) até quando, em segundos Unix; 0 = sem. Cabe no espaço
+    /// que sobrava ao lado da cor: o tamanho não muda.
+    timeout_s: u32 = 0,
     roles: [6]Id = @splat(0),
     n_roles: u8 = 0,
 

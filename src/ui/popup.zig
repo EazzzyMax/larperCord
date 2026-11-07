@@ -106,6 +106,7 @@ fn popupKey(p: state.Popup) u64 {
         .upload_alt => |t| 18 +% @as(u64, t.index) *% 31,
         .custom_status => 19,
         .group_members => |t| 20 +% t.channel *% 31,
+        .moderacao => |t| 22 +% t.guild *% 31 +% t.user *% 17,
     };
 }
 
@@ -182,6 +183,7 @@ pub fn draw(ctx: *d.Ctx) void {
         .upload_alt => |t| @import("upload_opts.zig").drawAlt(ctx, t.index, t.x, t.y),
         .custom_status => |t| @import("custom_status.zig").draw(ctx, t.x, t.y),
         .group_members => |t| @import("group_dm.zig").draw(ctx, t.channel),
+        .moderacao => |t| @import("moderacao.zig").draw(ctx, t.guild, t.user),
         .none => {},
     }
     animateOpen(ctx);
@@ -327,6 +329,9 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
                 if (voiceTargets(ctx, id, &tb).len > 0) add(&items, &n, .{ .label = "Mover para…", .en = "Move To…", .id = 28, .sep = true });
                 add(&items, &n, .{ .label = "Desconectar da call", .en = "Disconnect", .id = 29, .danger = true, .sep = voiceTargets(ctx, id, &tb).len == 0 });
             }
+            // Moderação: só o que dá para fazer com essa pessoa (ui/moderacao.zig).
+            var mb: [5]@import("moderacao.zig").Entrada = undefined;
+            for (@import("moderacao.zig").entradas(ctx, id, &mb), 0..) |e, i| add(&items, &n, .{ .label = e.label, .en = e.en, .id = e.id, .danger = e.danger, .sep = i == 0 });
         },
         .channel => {
             add(&items, &n, .{ .label = "Marcar como lido", .en = "Mark As Read", .id = 40 });
@@ -431,6 +436,7 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
                 if (vg.banner != null) add(&items, &n, .{ .label = "Ver banner", .en = "View Banner", .id = 66 });
             }
             n += conta_menu.guildItems(ctx, id, items[n..]);
+            if (@import("moderacao.zig").podeVerBans(ctx, id)) add(&items, &n, .{ .label = "Banimentos", .en = "Bans", .id = @import("moderacao.zig").id_bans });
             if (dev) add(&items, &n, .{ .label = "Copiar ID do servidor", .en = "Copy Server ID", .id = 63 });
             // Quem é dono não pode sair: precisa passar o servidor antes.
             if (ctx.store.guild(id)) |vg| if (vg.owner != ctx.store.me) add(&items, &n, .{ .label = "Sair do servidor", .en = "Leave Server", .id = 67, .danger = true, .sep = true });
@@ -609,6 +615,7 @@ fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) void {
         56 => @import("invites.zig").openCreate(ctx, id),
         69 => if (@import("invites.zig").channelFor(ctx, id)) |ch| @import("invites.zig").openCreate(ctx, ch),
         27 => @import("profile.zig").viewAvatar(ctx, id),
+        160...166 => @import("moderacao.zig").escolheu(ctx, id, item),
         54 => if (ctx.store.channel(id)) |cs| if (cs.info.icon) |h| {
             var ub: [192]u8 = undefined;
             att.openOriginal(ctx, w.cdnFull(&ub, .group, id, h), cs.info.name, 1024, 1024);

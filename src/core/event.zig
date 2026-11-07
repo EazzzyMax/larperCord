@@ -11,6 +11,7 @@ const InviteCode = @import("links.zig").InviteCode;
 const ThreadEdit = @import("thread_edit.zig").Edit;
 const stickers = @import("stickers.zig");
 const UrlPair = @import("media_refresh.zig").Pair;
+const moderacao = @import("moderacao.zig");
 const Id = types.Id;
 
 pub const Ready = struct {
@@ -55,11 +56,23 @@ pub const PollVote = struct { channel: Id, id: Id, answers: [polls.max_answers]u
 /// Lista de pessoas buscada só quando aberta: quem reagiu com `emoji` (super
 /// reações com `burst`) ou, com `answer` > 0, quem votou nessa opção da enquete.
 pub const PeopleQuery = struct { channel: Id, id: Id, emoji: types.Reaction = .{}, burst: bool = false, answer: u32 = 0 };
+/// Moderação (core/moderacao.zig). `apagar_s`: mensagens apagadas ao banir;
+/// `ate_s`: fim do castigo (s Unix). `motivo` (registro de auditoria) é alocado
+/// com o c_allocator; vazio = sem motivo.
+pub const Moderate = struct { req: u32, guild: Id, user: Id, acao: moderacao.Acao, apagar_s: u32 = 0, ate_s: i64 = 0, motivo: []const u8 = "" };
+/// Como terminou: `status` HTTP (0 = nem chegou) e o `code` do erro do Discord.
+pub const Moderated = struct { req: u32, guild: Id, user: Id, acao: moderacao.Acao, ok: bool, status: u16 = 0, code: u32 = 0, ate_s: i64 = 0 };
+/// Um banimento: quem (já no Store como usuário) e o motivo (alocado).
+pub const Ban = struct { user: Id, motivo: []const u8 = "" };
+/// GET /guilds/{id}/bans (a lista passa para quem recebe).
+pub const Bans = struct { req: u32, guild: Id, ok: bool, list: []Ban = &.{} };
 
 pub const Event = union(enum) {
     ready: Ready,
     invite_joined: InviteJoined,
     invite_created: InviteCreated,
+    moderated: Moderated,
+    bans: Bans,
     search_results: SearchResults,
     message_create: types.Message,
     /// `older`: página antes da mais antiga que já temos (rolou para cima).
@@ -343,6 +356,10 @@ pub const Command = union(enum) {
     set_activity: struct { app: Id, activity: ?*@import("../net/rpc_proto.zig").Activity },
     /// Move alguém para outro canal de voz (null = desconecta da call).
     move_member: struct { guild: Id, user: Id, channel: ?Id },
+    /// Expulsar, banir, castigar, silenciar… (chega como `moderated`).
+    moderate: Moderate,
+    /// A lista de banimentos de um servidor (chega como `bans`).
+    fetch_bans: struct { req: u32, guild: Id },
     /// As 25 menções mais recentes (só leitura), chegam como `recent_mentions`.
     fetch_mentions,
     /// Canal lido até `message`. Sem `manual`, a thread de rede segura no máximo
@@ -529,6 +546,8 @@ pub const Action = union(enum) {
     /// Atividade sem imagem: busca o ícone do jogo (uma vez por aplicação).
     want_app_icon: Id,
     move_member: struct { guild: Id, user: Id, channel: ?Id },
+    moderate: Moderate,
+    fetch_bans: struct { req: u32, guild: Id },
     /// Abre/fecha a caixa de entrada (Ctrl+I) e as mensagens salvas.
     toggle_inbox,
     toggle_saved,

@@ -20,6 +20,7 @@ test {
     _ = @import("core/markdown.zig");
     _ = @import("core/changelog.zig");
     _ = @import("core/store.zig");
+    _ = @import("core/moderacao.zig");
     _ = @import("core/filtros.zig");
     _ = @import("core/leitura.zig");
     _ = @import("core/links.zig");

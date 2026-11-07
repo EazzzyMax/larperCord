@@ -18,6 +18,7 @@ const social = @import("social.zig");
 const thread_json = @import("thread_json.zig");
 const stickers = @import("../core/stickers.zig");
 const media_refresh = @import("../core/media_refresh.zig");
+const moderacao = @import("../core/moderacao.zig");
 const Id = types.Id;
 
 const alloc = std.heap.c_allocator;
@@ -117,6 +118,12 @@ pub const sent = struct {
     /// igual byte a byte depois da última gravação (1) ou não (0).
     pub var gif_favorite_writes: A = .init(0);
     pub var frecency_intact: A = .init(1);
+    /// Moderação: quantos pedidos e o último como sairia para o Discord
+    /// ("MÉTODO caminho", corpo e a linha do motivo, uma por linha).
+    pub var mods: A = .init(0);
+    pub var mod_len: A = .init(0);
+    pub var mod_req: [moderacao.motivo_buf_len + 256]u8 = undefined;
+    pub var bans_fetches: A = .init(0);
 };
 
 /// O canal das enquetes da demonstração (#geral de "os larpers"): uma de uma
@@ -220,6 +227,13 @@ pub const Gateway = struct {
     conta: conta_net.NetState = .{},
     /// FrecencyUserSettings da demonstração (vazio até o primeiro pedido).
     frecency: std.ArrayList(u8) = .empty,
+    /// Moderação na demonstração: quem saiu (expulso ou banido) de cada
+    /// servidor, os banimentos, os castigos (s Unix) e mudo/surdo de quem está em call.
+    removed: std.AutoHashMapUnmanaged([2]Id, void) = .empty,
+    bans: std.ArrayList(struct { guild: Id, user: Id, motivo: []const u8 }) = .empty,
+    bans_seeded: bool = false,
+    timeouts: std.AutoHashMapUnmanaged([2]Id, u32) = .empty,
+    vflags: std.AutoHashMapUnmanaged(Id, ev.VoiceFlags) = .empty,
 
     pub fn start(g: *Gateway) !void {
         g.thread = c.SDL_CreateThread(threadMain, "gateway", g) orelse return error.SdlThread;
@@ -399,9 +413,10 @@ pub const Gateway = struct {
         g.emit(.{ .ready = try buildReady() });
         g.emit(.{ .read_states = .{ .entries = try demoReadStates(g.epoch_ms) } });
         // Quem está em call na demonstração: um mudo, uma surda, um mudado pelo servidor.
-        g.emit(.{ .voice_member_flags = .{ .user = 1001, .flags = .{ .self_mute = true } } });
-        g.emit(.{ .voice_member_flags = .{ .user = 1005, .flags = .{ .self_mute = true, .self_deaf = true } } });
-        g.emit(.{ .voice_member_flags = .{ .user = 1003, .flags = .{ .mute = true } } });
+        for (demo_vflags) |vf| {
+            try g.vflags.put(alloc, vf.user, vf.flags);
+            g.emit(.{ .voice_member_flags = .{ .user = vf.user, .flags = vf.flags } });
+        }
         // O @everyone do segundo servidor (que não é nosso): com ele, o #bugs
         // e o AFK de lá aparecem trancados (demoOverwrites).
         {
@@ -651,6 +666,8 @@ pub const Gateway = struct {
                     if (fp.user == 1001) g.emit(.{ .note = .{ .user = fp.user, .text = try i18n.allocPrint(alloc, "conheci na game jam", "met at the game jam", .{}) } });
                 },
                 .member_role => {},
+                .moderate => |m| try g.moderate(m),
+                .fetch_bans => |fb| try g.fetchBans(fb.req, fb.guild),
                 .set_note => |n| alloc.free(n.text),
                 .move_member => |mm| g.emit(.{ .voice_state = .{ .channel = mm.channel, .user = mm.user } }),
                 .fetch_app => |app| g.emit(.{ .app_icon = .{ .app = app, .icon = "" } }),
@@ -1108,13 +1125,14 @@ pub const Gateway = struct {
         if (g.roles_sent & (@as(u64, 1) << @intCast(gi)) == 0) {
             g.roles_sent |= @as(u64, 1) << @intCast(gi);
             const rs = try alloc.alloc(types.Role, demo_roles.len);
-            for (demo_roles, 0..) |r, i| rs[i] = .{ .id = role_ids[i], .guild = gid, .name = try alloc.dupe(u8, pick(r.name, r.name_en)), .color = r.color, .position = @intCast(3 - i), .mentionable = i != 0 };
+            for (demo_roles, 0..) |r, i| rs[i] = .{ .id = role_ids[i], .guild = gid, .name = try alloc.dupe(u8, pick(r.name, r.name_en)), .color = r.color, .position = @intCast(3 - i), .mentionable = i != 0, .permissions = if (gi == mod_guild and i == 1) mod_perms else 0 };
             g.emit(.{ .roles = .{ .guild = gid, .roles = rs } });
         }
         // Quem está neste servidor e em qual cargo (0 = fundação, 1 = moderação, 2 = membro).
         var rank: [users.len]?u8 = @splat(null);
         for (users, 0..) |u, i| {
             if (u.id != me_id and (u.id * 7 + gi) % 5 == 0) continue;
+            if (g.removed.contains(.{ gid, u.id })) continue;
             rank[i] = if (u.id == 1001 or (u.id == me_id and gi == 0)) 0 else if ((u.id + gi) % 3 == 0) 1 else 2;
         }
         var items: std.ArrayList(types.MemberItem) = .empty;
@@ -1130,7 +1148,7 @@ pub const Gateway = struct {
             if (count == 0) continue;
             try items.append(alloc, .{ .group = .{ .id = if (want == 2) types.group_online else role_ids[want], .count = count } });
             for (users, 0..) |u, i| if (rank[i] == want and u.status != .offline) {
-                try items.append(alloc, .{ .member = .{ .user = u.id, .info = demoInfo(role_ids, want) } });
+                try items.append(alloc, .{ .member = .{ .user = u.id, .info = g.infoFor(gid, u.id, role_ids, want) } });
             };
             online += count;
         }
@@ -1141,13 +1159,108 @@ pub const Gateway = struct {
         if (offline > 0) {
             try items.append(alloc, .{ .group = .{ .id = types.group_offline, .count = offline } });
             for (users, 0..) |u, i| if (rank[i] != null and u.status == .offline) {
-                try items.append(alloc, .{ .member = .{ .user = u.id, .info = demoInfo(role_ids, rank[i].?) } });
+                try items.append(alloc, .{ .member = .{ .user = u.id, .info = g.infoFor(gid, u.id, role_ids, rank[i].?) } });
             };
         }
         total = online + offline;
         const ops = try alloc.alloc(types.MemberOp, 1);
         ops[0] = .{ .kind = .sync, .index = 0, .end = 99, .items = try alloc.dupe(types.MemberItem, items.items) };
         g.emit(.{ .member_list = .{ .guild = gid, .list_id = gid, .online = online, .total = total, .ops = ops } });
+    }
+
+    fn infoFor(g: *Gateway, gid: Id, uid: Id, role_ids: [3]Id, rank: u8) types.MemberInfo {
+        var info = demoInfo(role_ids, rank);
+        info.timeout_s = g.timeouts.get(.{ gid, uid }) orelse 0;
+        return info;
+    }
+
+    /// Moderação: anota o pedido como sairia para o Discord e responde como ele.
+    /// O zigbot tem cargo de integração acima do nosso: o Discord recusa (50013).
+    fn moderate(g: *Gateway, m: ev.Moderate) !void {
+        defer if (m.motivo.len > 0) alloc.free(m.motivo);
+        {
+            var pb: [96]u8 = undefined;
+            var bb: [96]u8 = undefined;
+            var rb: [moderacao.motivo_buf_len]u8 = undefined;
+            const path = moderacao.caminho(&pb, m.acao, m.guild, m.user) catch "";
+            const body = (moderacao.corpo(&bb, m.acao, m.apagar_s, m.ate_s) catch null) orelse "";
+            const reason = moderacao.cabecalhoMotivo(&rb, m.motivo) orelse "";
+            const line = std.fmt.bufPrint(&sent.mod_req, "{s} {s}\n{s}\n{s}", .{ moderacao.metodo(m.acao), path, body, reason }) catch "";
+            sent.mod_len.store(line.len, .release);
+            _ = sent.mods.fetchAdd(1, .release);
+        }
+        try g.seedBans();
+        var done: ev.Moderated = .{ .req = m.req, .guild = m.guild, .user = m.user, .acao = m.acao, .ok = true, .status = 204, .ate_s = m.ate_s };
+        if (m.user == bot_user and m.acao != .unban) {
+            done.ok = false;
+            done.status = 403;
+            done.code = 50013;
+            return g.emit(.{ .moderated = done });
+        }
+        switch (m.acao) {
+            .kick, .ban => {
+                try g.removed.put(alloc, .{ m.guild, m.user }, {});
+                if (m.acao == .ban) try g.bans.append(alloc, .{ .guild = m.guild, .user = m.user, .motivo = try alloc.dupe(u8, m.motivo) });
+                g.emit(.{ .moderated = done });
+                // Como o Discord: a saída vem pelo gateway, e a lista é refeita sem a pessoa.
+                g.emit(.{ .member_remove = .{ .guild = m.guild, .user = m.user } });
+                try g.memberList(m.guild);
+            },
+            .unban => {
+                for (g.bans.items, 0..) |b, i| if (b.guild == m.guild and b.user == m.user) {
+                    alloc.free(b.motivo);
+                    _ = g.bans.orderedRemove(i);
+                    return g.emit(.{ .moderated = done });
+                };
+                done.ok = false;
+                done.status = 404;
+                done.code = 10026;
+                g.emit(.{ .moderated = done });
+            },
+            .timeout, .untimeout => {
+                if (m.acao == .timeout) {
+                    try g.timeouts.put(alloc, .{ m.guild, m.user }, @intCast(std.math.clamp(m.ate_s, 0, std.math.maxInt(u32))));
+                } else _ = g.timeouts.remove(.{ m.guild, m.user });
+                g.emit(.{ .moderated = done });
+                try g.memberList(m.guild);
+            },
+            .mute, .unmute, .deafen, .undeafen => {
+                var f = g.vflags.get(m.user) orelse ev.VoiceFlags{};
+                switch (m.acao) {
+                    .mute => f.mute = true,
+                    .unmute => f.mute = false,
+                    .deafen => f.deaf = true,
+                    .undeafen => f.deaf = false,
+                    else => {},
+                }
+                try g.vflags.put(alloc, m.user, f);
+                g.emit(.{ .moderated = done });
+                g.emit(.{ .voice_member_flags = .{ .user = m.user, .flags = f } });
+            },
+        }
+    }
+
+    /// Já começa com um banimento no primeiro servidor (o pedro não é membro de lá).
+    fn seedBans(g: *Gateway) !void {
+        if (g.bans_seeded) return;
+        g.bans_seeded = true;
+        try g.bans.append(alloc, .{ .guild = guildId(0), .user = banned_user, .motivo = try alloc.dupe(u8, pick("spam de convites", "invite spam")) });
+    }
+
+    fn fetchBans(g: *Gateway, req: u32, guild: Id) !void {
+        _ = sent.bans_fetches.fetchAdd(1, .monotonic);
+        try g.seedBans();
+        var n: usize = 0;
+        for (g.bans.items) |b| {
+            if (b.guild == guild) n += 1;
+        }
+        const list = try alloc.alloc(ev.Ban, n);
+        n = 0;
+        for (g.bans.items) |b| if (b.guild == guild) {
+            list[n] = .{ .user = b.user, .motivo = if (b.motivo.len > 0) try alloc.dupe(u8, b.motivo) else "" };
+            n += 1;
+        };
+        g.emit(.{ .bans = .{ .req = req, .guild = guild, .ok = true, .list = list } });
     }
 
     fn demoInfo(role_ids: [3]Id, rank: u8) types.MemberInfo {
@@ -1542,6 +1655,20 @@ pub const webhook_user: Id = types.webhook_id_bit | 0x77;
 const GuildSeed = struct { name: []const u8, acronym: []const u8, color: u8, name_en: ?[]const u8 = null, acronym_en: ?[]const u8 = null, icon: bool = false };
 
 /// Cargos de cada servidor da demonstração (cor 0 = sem cor).
+/// Mudo/surdo de quem já está em call ao conectar.
+const demo_vflags = [_]struct { user: Id, flags: ev.VoiceFlags }{
+    .{ .user = 1001, .flags = .{ .self_mute = true } },
+    .{ .user = 1005, .flags = .{ .self_mute = true, .self_deaf = true } },
+    .{ .user = 1003, .flags = .{ .mute = true } },
+};
+
+/// Servidor onde somos da Moderação (abaixo da Fundação, acima dos Membros), com
+/// as permissões de moderar: dá para ver o que aparece para quem não é dono.
+pub const mod_guild = 2;
+pub const mod_perms = types.perm.kick_members | types.perm.ban_members | types.perm.moderate_members | types.perm.mute_members | types.perm.deafen_members;
+/// Já banido do primeiro servidor quando a demonstração começa.
+pub const banned_user: Id = 1010;
+
 const demo_roles = [_]struct { name: []const u8, name_en: []const u8, color: u32 }{
     .{ .name = "Fundação", .name_en = "Founders", .color = 0xF0B232 },
     .{ .name = "Moderação", .name_en = "Moderators", .color = 0x3BA55C },

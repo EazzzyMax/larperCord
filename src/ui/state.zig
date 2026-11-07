@@ -51,6 +51,9 @@ pub const Popup = union(enum) {
     custom_status: struct { x: f32, y: f32 },
     /// Pessoas de um grupo de DM: tirar e pôr gente (ui/group_dm.zig).
     group_members: struct { channel: Id },
+    /// Confirmar expulsar/banir/castigar alguém, ou (`user` 0) a lista de
+    /// banimentos do servidor (ui/moderacao.zig).
+    moderacao: struct { guild: Id, user: Id = 0 },
 };
 
 /// Seleção de texto entre mensagens: âncora e cabeça (mensagem + byte).
