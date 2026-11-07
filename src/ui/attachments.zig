@@ -11,6 +11,9 @@ const StoredMessage = @import("../core/store.zig").StoredMessage;
 const state = @import("state.zig");
 const i18n = @import("i18n.zig");
 const video = @import("video.zig");
+const cover = @import("media_cover.zig");
+const voice_msg = @import("voice_msg.zig");
+const media_refresh = @import("../core/media_refresh.zig");
 
 const Attachment = types.Attachment;
 
@@ -80,18 +83,20 @@ pub fn draw(ctx: *d.Ctx, dl: *c.ImDrawList, m: *const StoredMessage, x: f32, y_i
         if (shown_n > 0) y += gap;
         shown_n += 1;
         const hid: usize = @truncate(m.msg.id ^ (0xA77A_C400 + i) ^ m.msg.nonce);
-        if (a.isImage()) {
+        const r: d.Rect = if (a.isImage()) blk: {
             const sz = imageSize(a, avail);
-            const r: d.Rect = .{ .x = x, .y = y, .w = sz[0], .h = sz[1] };
+            break :blk .{ .x = x, .y = y, .w = sz[0], .h = sz[1] };
+        } else .{ .x = x, .y = y, .w = fileWidth(avail), .h = file_h };
+        // Spoiler e sensível: a capa no lugar (nada é baixado até o clique).
+        if (cover.hidden(ctx, m.msg.id, a.spoiler, a.sensitive)) |k| {
+            cover.draw(ctx, dl, r, k, hid, m.msg.id, alpha);
+        } else if (a.isImage()) {
             image(ctx, dl, a, r, scale, alpha, hid, m.msg.id, i);
-            markVisible(r, m.msg.id, i);
-            y += sz[1];
-        } else {
-            const r: d.Rect = .{ .x = x, .y = y, .w = fileWidth(avail), .h = file_h };
-            fileCard(ctx, dl, a, r, alpha, hid);
-            markVisible(r, m.msg.id, i);
-            y += file_h;
-        }
+        } else if (a.voice) {
+            voice_msg.draw(ctx, dl, a, r, m.msg.id, i, alpha);
+        } else fileCard(ctx, dl, a, r, alpha, hid);
+        markVisible(r, m.msg.id, i);
+        y += r.h;
     }
 }
 
@@ -119,8 +124,10 @@ fn image(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, scale:
     }
     const hb = d.hit(ctx, hid, r);
     const set = &ctx.st.settings;
+    const res = &media_refresh.global;
     // GIF de fora (Tenor/Giphy) desligado nas configurações: fica a prévia.
-    var url = if (a.still.len > 0 and !set.gif_hosts) a.still else a.url;
+    // Link de anexo vencido e já renovado: vale o novo.
+    var url = if (a.still.len > 0 and !set.gif_hosts) a.still else res.resolve(a.url);
     // Sem tocar sozinho, o GIF anda com o mouse em cima (como no Discord).
     const play = set.autoplay_gifs or hb.hovered;
     var look = ctx.images.getEx(url, r.w * scale, r.h * scale, play);
@@ -128,6 +135,10 @@ fn image(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, scale:
         url = a.still;
         look = ctx.images.getEx(url, r.w * scale, r.h * scale, play);
     }
+    // Falhou com o link vencido: entra no próximo pedido de links novos.
+    if (look == .failed and res.note(url, @divTrunc(ctx.now_ms, 1000))) ctx.act(.refresh_media);
+    // O vídeo que foi clicado com o link vencido toca quando o novo chega.
+    if (a.video and res.open_ready and res.takeOpen(a.link)) video.click(ctx, vkey, res.resolve(a.link), res.resolve(a.link), r, a.size);
     var playing = false;
     // Modo economia: no lugar da imagem, um "clique para carregar".
     const held_back = look == .failed and ctx.images.blocked(url);
@@ -175,7 +186,13 @@ fn image(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, scale:
         // Vídeo toca aqui (com FFmpeg) ou abre no navegador.
         if (held_back) {
             ctx.images.allow(url);
-        } else if (a.video and a.link.len > 0) video.click(ctx, vkey, a.link, a.link, r, a.size) else open(ctx, a, url);
+        } else if (a.video and a.link.len > 0) {
+            const link = res.resolve(a.link);
+            const ro = res.requestOpen(link, @divTrunc(ctx.now_ms, 1000));
+            if (ro.pending) {
+                if (ro.notify) ctx.act(.refresh_media);
+            } else video.click(ctx, vkey, link, link, r, a.size);
+        } else open(ctx, a, url);
     }
     if (held_back) d.tip(ctx, r, i18n.tr("Modo economia: clique para baixar", "Data saver: click to download"), hb.hovered);
     if (a.video and !held_back) d.tip(ctx, r, if (video.canPlay(a.link, a.size)) i18n.tr("Tocar o vídeo", "Play video") else i18n.tr("Abrir o vídeo no navegador", "Open video in browser"), hb.hovered);
@@ -209,11 +226,18 @@ fn fileCard(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, alp
     var buf: [32]u8 = undefined;
     d.text(dl, fam.get(.regular), 12, r.x + 50, r.y + 31, ctx.col(.faint).alpha(alpha), if (a.size > 0) formatSize(&buf, a.size) else i18n.tr("arquivo", "file"));
     if (hb.hovered) d.tip(ctx, r, i18n.tr("Abrir no navegador", "Open in Browser"), true);
+    const res = &media_refresh.global;
     if (hb.clicked) {
-        if (std.mem.startsWith(u8, a.url, "https://")) {
-            openUrl(a.url);
+        const link = res.resolve(a.url);
+        if (std.mem.startsWith(u8, link, "https://")) {
+            // Link vencido: pede o novo e abre quando ele chegar.
+            const ro = res.requestOpen(link, @divTrunc(ctx.now_ms, 1000));
+            if (ro.pending) {
+                if (ro.notify) ctx.act(.refresh_media);
+            } else openUrl(link);
         } else ctx.st.showToast(ctx.now_ms, false, "arquivo de demonstração", "demo file", .{});
     }
+    if (res.open_ready and res.takeOpen(a.url)) openUrl(res.resolve(a.url));
 }
 
 /// Botão de play no meio de uma prévia de vídeo.

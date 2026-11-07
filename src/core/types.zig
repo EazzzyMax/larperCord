@@ -319,11 +319,23 @@ pub const Attachment = struct {
     /// que abre no navegador.
     video: bool = false,
     link: []const u8 = "",
+    /// Spoiler (nome SPOILER_ ou a marca do Discord) e conteúdo sensível
+    /// (marcado pelo Discord): ficam cobertos até o clique (ui/media_cover.zig).
+    spoiler: bool = false,
+    sensitive: bool = false,
+    /// Mensagem de voz (IS_VOICE_MESSAGE): `url` é o Ogg Opus, `voice_ms` a
+    /// duração e `wave` a forma de onda já reduzida (ui/voice_msg.zig).
+    voice: bool = false,
+    voice_ms: u32 = 0,
+    wave: [wave_bars]u8 = @splat(0),
 
     pub fn isImage(a: *const Attachment) bool {
         return a.width > 0 and a.height > 0;
     }
 };
+
+/// Barras da forma de onda de uma mensagem de voz (core/media_flags.zig).
+pub const wave_bars = 48;
 
 /// Libera os anexos (alocados com `gpa`, como o resto da mensagem).
 pub fn freeAttachments(gpa: std.mem.Allocator, list: []const Attachment) void {
@@ -368,6 +380,9 @@ pub const Embed = struct {
     bare: bool = false,
     /// Cartão marcado como spoiler: coberto até passar o mouse.
     spoiler: bool = false,
+    /// Marcado pelo Discord como conteúdo sensível: a imagem fica coberta
+    /// até o clique.
+    sensitive: bool = false,
 };
 
 pub const EmbedField = struct { name: []const u8, value: []const u8 };

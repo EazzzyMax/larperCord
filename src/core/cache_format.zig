@@ -9,6 +9,7 @@
 //!     str conteúdo
 //!     u8 anexos; cada um: str url, str nome, u16 largura, u16 altura,
 //!        u32 tamanho, u8 flags, str prévia, str link
+//!        (com a marca de voz: u32 duração em ms e as barras da forma de onda)
 //!     u8 reações; cada uma: u8 tamanho, bytes do emoji, u16 quantas, u8 nossa
 //!   str = u32 tamanho + bytes
 //!
@@ -47,6 +48,11 @@ const msg_edited: u8 = 1;
 const att_animated: u8 = 1;
 const att_embed: u8 = 2;
 const att_video: u8 = 4;
+/// Spoiler e sensível continuam cobertos ao abrir pelo cache; a mensagem de
+/// voz guarda a duração e a forma de onda logo depois do link.
+const att_spoiler: u8 = 8;
+const att_sensitive: u8 = 16;
+const att_voice: u8 = 32;
 
 // --- Escrita ------------------------------------------------------------------
 
@@ -105,9 +111,16 @@ pub const Writer = struct {
             if (a.animated) f |= att_animated;
             if (a.embed) f |= att_embed;
             if (a.video) f |= att_video;
+            if (a.spoiler) f |= att_spoiler;
+            if (a.sensitive) f |= att_sensitive;
+            if (a.voice) f |= att_voice;
             try w.out.append(w.gpa, f);
             try w.str(a.still);
             try w.str(a.link);
+            if (a.voice) {
+                try w.int(u32, a.voice_ms);
+                try w.out.appendSlice(w.gpa, &a.wave);
+            }
         }
         const rs = reactions[0..@min(reactions.len, 8)];
         try w.out.append(w.gpa, @intCast(rs.len));
@@ -202,8 +215,15 @@ pub fn decode(arena: std.mem.Allocator, bytes: []const u8) !Decoded {
                 a.animated = f & att_animated != 0;
                 a.embed = f & att_embed != 0;
                 a.video = f & att_video != 0;
+                a.spoiler = f & att_spoiler != 0;
+                a.sensitive = f & att_sensitive != 0;
+                a.voice = f & att_voice != 0;
                 a.still = try r.str(arena);
                 a.link = try r.str(arena);
+                if (a.voice) {
+                    a.voice_ms = try r.int(u32);
+                    @memcpy(&a.wave, try r.need(types.wave_bars));
+                }
             }
             m.attachments = atts;
         }
@@ -265,7 +285,13 @@ test "cache de mensagens vai e volta pelo formato" {
     try w.begin(77, 1);
     try w.user(.{ .id = 5, .name = "ana.exe", .avatar = "abc" });
     try w.beginMessages(2);
-    const att = [_]types.Attachment{.{ .url = "https://cdn/x.png", .filename = "x.png", .width = 10, .height = 20, .size = 99, .embed = true }};
+    var wave: [types.wave_bars]u8 = @splat(0);
+    wave[3] = 200;
+    const att = [_]types.Attachment{
+        .{ .url = "https://cdn/x.png", .filename = "x.png", .width = 10, .height = 20, .size = 99, .embed = true },
+        .{ .url = "https://cdn/SPOILER_y.png", .filename = "SPOILER_y.png", .width = 5, .height = 5, .spoiler = true, .sensitive = true },
+        .{ .url = "https://cdn/voice-message.ogg", .filename = "voice-message.ogg", .voice = true, .voice_ms = 4321, .wave = wave },
+    };
     const m1: types.Message = .{ .id = 100, .channel = 77, .author = 5, .timestamp = 1700000000, .content = "oi **tudo** bem?", .edited = true, .attachments = &att };
     var r = types.Reaction.init("👍");
     r.count = 3;
@@ -286,6 +312,11 @@ test "cache de mensagens vai e volta pelo formato" {
     try std.testing.expectEqualStrings("x.png", e1.msg.attachments[0].filename);
     try std.testing.expect(e1.msg.attachments[0].embed);
     try std.testing.expectEqual(@as(u16, 20), e1.msg.attachments[0].height);
+    try std.testing.expect(!e1.msg.attachments[0].spoiler and !e1.msg.attachments[0].voice);
+    try std.testing.expect(e1.msg.attachments[1].spoiler and e1.msg.attachments[1].sensitive);
+    try std.testing.expect(e1.msg.attachments[2].voice);
+    try std.testing.expectEqual(@as(u32, 4321), e1.msg.attachments[2].voice_ms);
+    try std.testing.expectEqual(@as(u8, 200), e1.msg.attachments[2].wave[3]);
     try std.testing.expectEqual(@as(u8, 1), e1.n_reactions);
     try std.testing.expectEqualStrings("👍", e1.reactions[0].text());
     try std.testing.expect(e1.reactions[0].me);

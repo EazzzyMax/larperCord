@@ -11,6 +11,8 @@ const Queue = @import("queue.zig").Queue;
 const i18n = @import("../ui/i18n.zig");
 const leitura = @import("../core/leitura.zig");
 const jsonx = @import("jsonx.zig");
+const stickers = @import("../core/stickers.zig");
+const media_refresh = @import("../core/media_refresh.zig");
 const Id = types.Id;
 
 const alloc = std.heap.c_allocator;
@@ -46,6 +48,13 @@ pub const sent = struct {
     pub var invite_joins: A = .init(0);
     pub var searches: A = .init(0);
     pub var search_len: A = .init(0);
+    /// Mídia (QA_SUITE=midia): pedidos de links novos e quantos links em cada,
+    /// buscas dos pacotes de figurinhas e figurinhas enviadas.
+    pub var refreshes: A = .init(0);
+    pub var refresh_len: A = .init(0);
+    pub var sticker_packs: A = .init(0);
+    pub var stickers_sent: A = .init(0);
+    pub var sticker_last: A = .init(0);
     /// A consulta da última busca (o QA confere o que iria para o Discord).
     pub var search_params: [1100]u8 = undefined;
 };
@@ -215,6 +224,7 @@ pub const Gateway = struct {
         g.emit(.{ .guild_folders = try demoFolders() });
         try g.demoThreads();
         try g.demoEmojis();
+        try g.demoStickers();
         g.emit(.{ .status = .ready });
         g.next_live_ms = nowMs() + 6000;
         if (c.SDL_getenv("LARPER_FLOOD")) |f| {
@@ -498,6 +508,52 @@ pub const Gateway = struct {
                     _ = sent.invite_fetches.fetchAdd(1, .monotonic);
                     g.emit(.{ .invite = .{ .code = code, .invite = try demoInvite(code.slice()) } });
                 },
+                .refresh_urls => |urls| {
+                    // Como o Discord: o mesmo arquivo, com outra assinatura.
+                    // "demo:expired:N?ex=…" vira "demo:N?ex=<daqui a um dia>".
+                    defer {
+                        for (urls) |u| alloc.free(u);
+                        alloc.free(urls);
+                    }
+                    _ = sent.refreshes.fetchAdd(1, .monotonic);
+                    _ = sent.refresh_len.fetchAdd(@intCast(urls.len), .monotonic);
+                    var pairs: std.ArrayList(media_refresh.Pair) = .empty;
+                    for (urls) |u| {
+                        const rest = if (std.mem.startsWith(u8, u, "demo:expired:")) u["demo:expired:".len..] else continue;
+                        const base = std.mem.sliceTo(rest, '?');
+                        const fresh = try std.fmt.allocPrint(alloc, "demo:{s}?ex={x}&is={x}&hm=qa", .{ base, @divTrunc(nowMs(), 1000) + 86_400, @divTrunc(nowMs(), 1000) });
+                        try pairs.append(alloc, .{ .original = try alloc.dupe(u8, u), .refreshed = fresh });
+                    }
+                    g.emit(.{ .urls_refreshed = try pairs.toOwnedSlice(alloc) });
+                },
+                .fetch_sticker_packs => {
+                    _ = sent.sticker_packs.fetchAdd(1, .monotonic);
+                    g.emit(.{ .sticker_packs = .{ .packs = try demoStickerPacks() } });
+                },
+                .send_sticker => |sk| {
+                    _ = sent.stickers_sent.fetchAdd(1, .monotonic);
+                    sent.sticker_last.store(sk.sticker, .monotonic);
+                    // A figurinha volta como a de verdade: imagem (ou o nome, se for Lottie).
+                    const info = demoStickerInfo(sk.sticker);
+                    var m: types.Message = .{
+                        .id = types.makeSnowflake(nowMs(), g.rng.random().int(u22)),
+                        .channel = sk.channel,
+                        .author = me_id,
+                        .timestamp = @divTrunc(nowMs(), 1000),
+                        .content = undefined,
+                        .nonce = sk.nonce,
+                    };
+                    if (info.format == stickers.format_lottie) {
+                        m.content = try i18n.allocPrint(alloc, "[figurinha: {s}]", "[sticker: {s}]", .{info.name});
+                    } else {
+                        m.content = try alloc.dupe(u8, "");
+                        const list = try alloc.alloc(types.Attachment, 1);
+                        const animated = info.format == stickers.format_apng or info.format == stickers.format_gif;
+                        list[0] = .{ .url = try std.fmt.allocPrint(alloc, "demo:sticker:{d}:{d}", .{ sk.sticker, @intFromBool(animated) }), .filename = try alloc.dupe(u8, info.name), .width = 160, .height = 160 };
+                        m.attachments = list;
+                    }
+                    try g.nonce_replies.append(alloc, .{ .at_ms = nowMs() + 90, .msg = m });
+                },
             };
             cmds.clearRetainingCapacity();
             try g.tick(nowMs());
@@ -677,6 +733,23 @@ pub const Gateway = struct {
                 n += 1;
             };
             g.emit(.{ .guild_emojis = .{ .guild = guildId(gi), .emojis = list } });
+        }
+    }
+
+    /// Figurinhas dos servidores da demonstração (o primeiro e o segundo).
+    fn demoStickers(g: *Gateway) !void {
+        for (0..2) |gi| {
+            var n: usize = 0;
+            for (demo_stickers) |st| {
+                if (st.guild == gi) n += 1;
+            }
+            const list = try alloc.alloc(stickers.Sticker, n);
+            n = 0;
+            for (demo_stickers) |st| if (st.guild == gi) {
+                list[n] = .{ .id = st.id, .guild = guildId(gi), .name = try alloc.dupe(u8, pick(st.name, st.name_en)), .format = st.format };
+                n += 1;
+            };
+            g.emit(.{ .guild_stickers = .{ .guild = guildId(gi), .stickers = list } });
         }
     }
 
@@ -940,6 +1013,38 @@ pub const demo_emojis = [_]struct { id: Id, guild: usize, name: []const u8, anim
     .{ .id = 900_203, .guild = 1, .name = "antigo", .available = false },
     .{ .id = 900_301, .guild = 2, .name = "comptime" },
 };
+
+/// Figurinhas da demonstração: do primeiro servidor (uma Lottie, que só tem
+/// o nome), do segundo (de fora: pede Nitro) e um pacote padrão.
+pub const demo_stickers = [_]struct { id: Id, guild: usize, name: []const u8, name_en: ?[]const u8 = null, format: u8 = 1 }{
+    .{ .id = 900_401, .guild = 0, .name = "bom dia", .name_en = "good morning" },
+    .{ .id = 900_402, .guild = 0, .name = "festa", .name_en = "party", .format = 2 },
+    .{ .id = 900_403, .guild = 0, .name = "wumpus", .format = 3 },
+    .{ .id = 900_411, .guild = 1, .name = "ziguana", .format = 1 },
+};
+const demo_pack = [_]struct { id: Id, name: []const u8, name_en: ?[]const u8 = null, format: u8 = 1 }{
+    .{ .id = 900_501, .name = "oi", .name_en = "hi" },
+    .{ .id = 900_502, .name = "valeu", .name_en = "thanks", .format = 4 },
+    .{ .id = 900_503, .name = "tchau", .name_en = "bye" },
+};
+
+fn demoStickerPacks() ![]stickers.Pack {
+    const list = try alloc.alloc(stickers.Sticker, demo_pack.len);
+    for (demo_pack, list) |p, *st| st.* = .{ .id = p.id, .name = try alloc.dupe(u8, pick(p.name, p.name_en)), .format = p.format };
+    const packs = try alloc.alloc(stickers.Pack, 1);
+    packs[0] = .{ .id = 900_500, .name = try alloc.dupe(u8, "Wumpus"), .stickers = list };
+    return packs;
+}
+
+fn demoStickerInfo(id: Id) struct { name: []const u8, format: u8 } {
+    for (demo_stickers) |st| if (st.id == id) return .{ .name = pick(st.name, st.name_en), .format = st.format };
+    for (demo_pack) |p| if (p.id == id) return .{ .name = pick(p.name, p.name_en), .format = p.format };
+    return .{ .name = "?", .format = 1 };
+}
+
+/// #música do primeiro servidor: mensagem de voz, spoiler, sensível e uma
+/// imagem com o link vencido (QA_SUITE=midia).
+pub const media_channel: Id = 500_008;
 
 /// A conversa com emoji, figurinha e reações personalizadas: #geral do primeiro servidor.
 pub const emoji_channel: Id = 500_005;
@@ -1701,6 +1806,7 @@ fn buildHistory(channel: Id, now_ms: i64) ![]types.Message {
         e[0] = .{ .color = 0xFFA500, .has_color = true, .blocks = blocks };
         m.embeds = e;
     }
+    if (channel == media_channel) try demoMediaMessages(msgs);
     // #interface: links do Discord, convites e menções clicáveis.
     if (channel == channelId(0, 10)) {
         const set = struct {
@@ -1716,6 +1822,32 @@ fn buildHistory(channel: Id, now_ms: i64) ![]types.Message {
         try set(&msgs[n - 6], try i18n.allocPrint(alloc, "vejam <#{d}> e falem com <@1001>; o outro canal: https://ptb.discord.com/channels/{d}/{d}", "check <#{d}> and talk to <@1001>; the other channel: https://ptb.discord.com/channels/{d}/{d}", .{ channelId(0, 4), guildId(0), channelId(0, 5) }));
     }
     return msgs;
+}
+
+/// Mensagem de voz (o Ogg é feito na hora pelo player), anexo com spoiler,
+/// anexo marcado como sensível e uma imagem antiga com o link vencido.
+fn demoMediaMessages(msgs: []types.Message) !void {
+    const n = msgs.len;
+    const set = struct {
+        fn f(m: *types.Message, text: []const u8, a: types.Attachment) !void {
+            alloc.free(m.content);
+            m.content = try alloc.dupe(u8, text);
+            m.reply_to = 0;
+            types.freeAttachments(alloc, m.attachments);
+            const list = try alloc.alloc(types.Attachment, 1);
+            list[0] = a;
+            m.attachments = list;
+        }
+    }.f;
+    var wave: [types.wave_bars]u8 = undefined;
+    for (&wave, 0..) |*b, i| {
+        const t: f32 = @floatFromInt(i);
+        b.* = @intFromFloat(40 + 200 * @abs(@sin(t * 0.45)) * (0.6 + 0.4 * @abs(@sin(t * 0.13))));
+    }
+    try set(&msgs[n - 2], "", .{ .url = try alloc.dupe(u8, "demo:voice"), .filename = try alloc.dupe(u8, "voice-message.ogg"), .size = 9_800, .voice = true, .voice_ms = 4000, .wave = wave });
+    try set(&msgs[n - 4], pick("final da série 👀 (spoiler!)", "series finale 👀 (spoiler!)"), .{ .url = try alloc.dupe(u8, "demo:2"), .filename = try alloc.dupe(u8, "SPOILER_final.png"), .width = 720, .height = 720, .spoiler = true });
+    try set(&msgs[n - 6], "", .{ .url = try alloc.dupe(u8, "demo:3"), .filename = try alloc.dupe(u8, "foto.png"), .width = 960, .height = 540, .sensitive = true });
+    try set(&msgs[n - 7], pick("foto de ontem", "yesterday's photo"), .{ .url = try alloc.dupe(u8, "demo:expired:1?ex=1&is=0&hm=qa"), .filename = try alloc.dupe(u8, "ontem.png"), .width = 900, .height = 560 });
 }
 
 /// Emoji personalizado no meio do texto, mensagens só de emoji (grandes) e

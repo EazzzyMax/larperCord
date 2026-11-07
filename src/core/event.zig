@@ -6,6 +6,8 @@
 //! passam a pertencer ao Store.
 const types = @import("types.zig");
 const InviteCode = @import("links.zig").InviteCode;
+const stickers = @import("stickers.zig");
+const UrlPair = @import("media_refresh.zig").Pair;
 const Id = types.Id;
 
 pub const Ready = struct {
@@ -164,6 +166,13 @@ pub const Event = union(enum) {
     thread_members: struct { thread: Id, replace: bool = false, count: ?u32 = null, added: []Id = &.{}, removed: []Id = &.{} },
     /// A thread que acabamos de criar existe: abre ela.
     thread_open: Id,
+    /// As figurinhas de um servidor, todas de uma vez (READY, GUILD_CREATE,
+    /// GUILD_STICKERS_UPDATE). O Store assume a lista e os nomes.
+    guild_stickers: struct { guild: Id, stickers: []stickers.Sticker },
+    /// GET /sticker-packs (`ok` = false: não veio). O Store assume a lista.
+    sticker_packs: struct { packs: []stickers.Pack = &.{}, ok: bool = true },
+    /// POST /attachments/refresh-urls: os links novos (vazio = não veio).
+    urls_refreshed: []UrlPair,
 };
 
 /// `rejected`: o Discord recusou o token (4004). Vem logo antes de `failed`.
@@ -286,6 +295,13 @@ pub const Command = union(enum) {
     join_thread: struct { thread: Id, join: bool },
     /// Quem está na thread, pelo REST (a lista do op 14 pode não vir).
     fetch_thread_members: Id,
+    /// Links de anexo vencidos que a tela tentou mostrar (até 50; a lista e os
+    /// textos com o c_allocator).
+    refresh_urls: []const []const u8,
+    /// Os pacotes de figurinhas padrão (a aba de figurinhas abriu).
+    fetch_sticker_packs,
+    /// Manda uma figurinha (`sticker_ids`) na conversa.
+    send_sticker: struct { channel: Id, sticker: Id, nonce: u64 },
     shutdown,
 };
 
@@ -427,4 +443,10 @@ pub const Action = union(enum) {
     join_thread: struct { thread: Id, join: bool },
     /// A primeira página (se ainda não veio ou falhou) ou a próxima.
     fetch_threads: struct { channel: Id, archived: bool },
+    /// Mídia à vista com o link vencido: manda o lote de core/media_refresh.zig.
+    refresh_media,
+    /// A aba de figurinhas abriu: busca os pacotes padrão (uma vez).
+    fetch_sticker_packs,
+    /// Um clique numa figurinha do seletor: manda na conversa.
+    send_sticker: struct { channel: Id, sticker: Id },
 };
