@@ -1,5 +1,7 @@
 # macOS (experimental)
 
+**English** · [Português](macos.pt-BR.md)
+
 Native Apple Silicon build using SDL3, Metal and Dear ImGui. Tested on M1 with
 macOS 15.3.2. The baseline ARM64 target also runs on newer M-series CPUs, but
 those machines have not been tested individually. Intel Macs are not covered.
@@ -44,12 +46,16 @@ or notarization.
 
 ```sh
 zig build test --summary all
-sh tools/macos_build.sh -j4 -Dqa=true -p .zig-cache/macos-qa
-SDL_VIDEO_DRIVER=cocoa LARPER_RENDERER=metal QA_SLOW=2 \
-  ./.zig-cache/macos-qa/bin/larpercord --qa --theme classico
+SDL_VIDEO_DRIVER=cocoa LARPER_RENDERER=metal QA_SLOW=2 tools/qa.sh
 ```
 
-The UI suite opens a native test window and uses fake Discord data. Keep the
+`tools/qa.sh` builds in debug mode with safety checks, then runs the general and
+extra suites, plugin persistence across processes, both sign-in modes and all
+11 themes in dark and light modes. It saves screenshots and a log per run in
+`qa-out/`. Set `ZIG=/path/to/zig` if needed. The macOS build uses the same matrix
+as Linux; the Linux-specific LSP harness is excluded on macOS.
+
+The UI suite opens native test windows and uses fake Discord data. Keep the
 default Portuguese language: test targets include translated labels. A demo
 without an account can be opened with `--demo --no-live`. Automated UI tests
 do not exercise real voice calls or macOS permission prompts.

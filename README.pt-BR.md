@@ -293,7 +293,7 @@ Nada de mágica, só muitas decisões pequenas:
 ## Compilando
 
 Para o build nativo experimental de **macOS / Apple Silicon** e o pacote `.app`,
-veja [o guia do macOS](docs/macos.md) (em inglês).
+veja [o guia do macOS](docs/macos.pt-BR.md).
 
 No Linux, precisa de **Zig 0.17**, **SDL3**, **FreeType**, **fontconfig** e **libcurl** (com WebSocket, 7.86+).
 Fontes recomendadas no Linux: Inter, JetBrains Mono e Noto Color Emoji (o fontconfig escolhe substitutas se faltar

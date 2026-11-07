@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Contributing · larperCord</title>
-<meta name="description" content="# Build and test bash copy zig build -Doptimize =ReleaseFast # the app zig build test # unit tests tools/qa.sh # the full UI QA, off-screen tools/membench.">
+<meta name="description" content="# Build and test bash copy zig build -Doptimize =ReleaseFast # the app zig build test # unit tests tools/qa.sh # the full UI QA tools/membench.sh 50 # RAM ">
 <meta name="color-scheme" content="dark light">
 <link rel="canonical" href="https://rshacudevidro.github.io/larperCord/guide/contributing.html">
 <link rel="alternate" hreflang="en" href="https://rshacudevidro.github.io/larperCord/guide/contributing.html">
 <link rel="alternate" hreflang="pt-BR" href="https://rshacudevidro.github.io/larperCord/pt/guide/contributing.html">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Contributing · larperCord">
-<meta property="og:description" content="# Build and test bash copy zig build -Doptimize =ReleaseFast # the app zig build test # unit tests tools/qa.sh # the full UI QA, off-screen tools/membench.">
+<meta property="og:description" content="# Build and test bash copy zig build -Doptimize =ReleaseFast # the app zig build test # unit tests tools/qa.sh # the full UI QA tools/membench.sh 50 # RAM ">
 <meta property="og:image" content="https://rshacudevidro.github.io/larperCord/assets/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="../assets/icon-live.svg">
@@ -49,10 +49,10 @@
 <h2 id="build-and-test"><a class="anchor" href="#build-and-test" aria-hidden="true">#</a>Build and test</h2>
 <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">zig</span> build <span class="t-p">-Doptimize</span>=ReleaseFast    <span class="t-c"># the app</span>
 <span class="t-k">zig</span> build test                      <span class="t-c"># unit tests</span>
-<span class="t-k">tools/qa.sh</span>                         <span class="t-c"># the full UI QA, off-screen</span>
+<span class="t-k">tools/qa.sh</span>                         <span class="t-c"># the full UI QA</span>
 <span class="t-k">tools/membench.sh</span> 50                <span class="t-c"># RAM and idle CPU per theme, with a budget in MB</span></code></pre></div>
 <div class="table-wrap"><table><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody><tr><td><code>zig build test</code></td><td>Tests the pure parts: KDL, colors, layout, markdown, Store, built-in themes, settings, protobuf, APNG, media URLs. Doesn't need SDL or a window</td></tr><tr><td><code>tools/qa.sh</code></td><td>A debug build with safety checks. Runs the general battery, the sign-in screen in both modes, and a battery per theme in light and dark. Screenshots land in <code>qa-out/</code></td></tr><tr><td><code>tools/qa_http_tls.sh</code></td><td>After <code>tools/qa.sh</code>: the plugins' HTTP with real TLS, against a local server with its own certificate. Needs <code>python3</code> and <code>openssl</code></td></tr><tr><td><code>tools/snapshots.sh</code></td><td>Regenerates the README's screenshots in <code>docs/</code> without opening a window</td></tr><tr><td><code>tools/membench.sh N</code></td><td>Measures every theme and fails over N MB</td></tr><tr><td><code>tools/site_shots.sh</code></td><td>Regenerates the website's images</td></tr><tr><td><code>python3 tools/gen_site.py</code></td><td>Regenerates the website in <code>docs/</code></td></tr></tbody></table></div>
-<p>The QA drives the real UI: it clicks through elements, and a button with no effect counts as a failure. It runs in demo mode, without a window, and never touches your account.</p>
+<p>The QA drives the real UI: it clicks through elements, and a button with no effect counts as a failure. It runs in demo mode and never touches your account. On Linux it runs off-screen; on macOS it opens native windows. For the experimental Apple Silicon build, install the dependencies in <code>docs/macos.md</code> first; <code>tools/qa.sh</code> selects the macOS build script automatically.</p>
 <p>CI (<code>.github/workflows/ci.yml</code>) runs the tests, then builds the app on Arch and runs the full QA on every push and pull request.</p>
 <h2 id="sending-a-theme"><a class="anchor" href="#sending-a-theme" aria-hidden="true">#</a>Sending a theme</h2>
 <p>A theme is the easiest way to contribute: one <code>.kdl</code> file and no Zig. Read <a href="../guide/themes.html">Writing themes</a>, especially the design tips at the end.</p>
@@ -62,7 +62,7 @@
 <ul><li>Keep the layers apart: <code>core/</code> knows nothing about windows, and the UI never changes data directly.</li><li>Keep it light. Don't add work per frame, per message or per keystroke when nothing is using it, and remember the loop is supposed to sleep.</li><li>Test the pure parts in <code>zig build test</code>, and add a step to the QA for UI behavior.</li><li>Run <code>tools/qa.sh</code> before opening a pull request.</li><li>Code comments and identifiers in this repository are mostly in Portuguese, so follow the file you're editing.</li></ul>
 <h2 id="documentation"><a class="anchor" href="#documentation" aria-hidden="true">#</a>Documentation</h2>
 <p>English is the main version and Portuguese is secondary, and both should change together.</p>
-<div class="table-wrap"><table><thead><tr><th>English</th><th>Portuguese</th></tr></thead><tbody><tr><td><code>README.md</code></td><td><code>README.pt-BR.md</code></td></tr><tr><td><code>docs/plugins.md</code></td><td><code>docs/plugins.pt-BR.md</code></td></tr><tr><td><code>site/guide/en/*.md</code></td><td><code>site/guide/pt/*.md</code></td></tr><tr><td><code>site/landing.html</code> (<code>{{English||Português}}</code>)</td><td>the same file</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>English</th><th>Portuguese</th></tr></thead><tbody><tr><td><code>README.md</code></td><td><code>README.pt-BR.md</code></td></tr><tr><td><code>docs/plugins.md</code></td><td><code>docs/plugins.pt-BR.md</code></td></tr><tr><td><code>docs/macos.md</code></td><td><code>docs/macos.pt-BR.md</code></td></tr><tr><td><code>site/guide/en/*.md</code></td><td><code>site/guide/pt/*.md</code></td></tr><tr><td><code>site/landing.html</code> (<code>{{English||Português}}</code>)</td><td>the same file</td></tr></tbody></table></div>
 <p>The website lives in <code>docs/</code>, and it's generated by <code>tools/gen_site.py</code> from those files and from <code>themes/*.kdl</code>. Theme palettes, options and layouts on the site always come from the real theme files.</p>
 <h2 id="credits"><a class="anchor" href="#credits" aria-hidden="true">#</a>Credits</h2>
 <p>Built with Zig, SDL3, <a href="https://github.com/ocornut/imgui">Dear ImGui</a>, dear_bindings, FreeType, fontconfig, libcurl, zlib, libwebp, Opus, stb_image, <a href="https://www.lua.org">Lua</a>, <a href="https://github.com/discord/libdave">libdave</a> and <a href="https://github.com/cisco/mlspp">MLSpp</a>. The website uses Departure Mono, JetBrains Mono, Archivo, Fraunces and DM Mono, under the SIL Open Font License.</p>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bundle the native build and its non-system dylibs into a relocatable macOS app."""
+"""Empacota o build nativo e suas dylibs num app macOS que pode ser movido."""
 import argparse
 import re
 from pathlib import Path
@@ -17,7 +17,7 @@ def dependencies(path, dylib=False):
     lines = run("otool", "-L", str(path)).splitlines()[1:]
     deps = [line.strip().split(" (", 1)[0] for line in lines]
     if dylib:
-        # otool -L lists a dylib's LC_ID_DYLIB before its actual loads.
+        # otool -L lista o LC_ID_DYLIB antes das dependências de uma dylib.
         ids = run("otool", "-D", str(path)).splitlines()[1:]
         if ids and deps and deps[0] == ids[0].strip():
             deps.pop(0)
@@ -62,7 +62,7 @@ def resolve_dependency(dep, loader, executable, search_paths):
         expanded = expand_path(dep, loader, executable)
         candidates = [expanded] if expanded else []
     for candidate in candidates:
-        # System libraries can live in the dyld shared cache without a file on disk.
+        # Bibliotecas do sistema podem existir só no cache compartilhado do dyld.
         if system_library(candidate):
             return candidate
         if candidate.is_file():
@@ -71,7 +71,7 @@ def resolve_dependency(dep, loader, executable, search_paths):
 
 
 def make_icon(repo, resources):
-    # Use the repository's existing logo artwork for the Finder/Dock icon.
+    # Usa o logo existente do repositório no ícone do Finder/Dock.
     with tempfile.TemporaryDirectory() as tmp:
         iconset = Path(tmp) / "LarperCord.iconset"
         iconset.mkdir()
@@ -148,7 +148,7 @@ def main():
             shutil.copy2(source, target)
 
     copied = {}
-    # Carry the parent's run-path stack: dyld resolves @rpath through the load chain.
+    # Herda a pilha de caminhos: o dyld resolve @rpath pela cadeia de carregamento.
     queue = [(source_binary, binary, ())]
     while queue:
         source, target, inherited = queue.pop()
@@ -184,12 +184,12 @@ def main():
             prefix = "@executable_path/../Frameworks/" if target == binary else "@loader_path/"
             run("install_name_tool", "-change", dep, prefix + name, str(target))
 
-    # All loads are now absolute system paths or bundle-relative paths. Remove
-    # original rpaths so the finished bundle cannot accidentally use Homebrew.
+    # Os caminhos agora são do sistema ou relativos ao bundle. Remove os rpaths
+    # originais para o app não carregar uma cópia do Homebrew por acidente.
     for target in [binary, *frameworks.iterdir()]:
         for path in rpaths(target):
             run("install_name_tool", "-delete_rpath", path, str(target))
-    # Homebrew bottles can require a newer OS than the executable itself.
+    # Pacotes do Homebrew podem exigir um macOS mais novo que o executável.
     plist["LSMinimumSystemVersion"] = ".".join(map(str, minimum))
     with (contents / "Info.plist").open("wb") as f:
         plistlib.dump(plist, f)

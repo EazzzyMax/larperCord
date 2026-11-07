@@ -5,7 +5,7 @@
 ```bash
 zig build -Doptimize=ReleaseFast    # o app
 zig build test                      # testes unitários
-tools/qa.sh                         # o QA completo da interface, fora da tela
+tools/qa.sh                         # o QA completo da interface
 tools/membench.sh 50                # RAM e CPU parado por tema, com um orçamento em MB
 ```
 
@@ -19,7 +19,7 @@ tools/membench.sh 50                # RAM e CPU parado por tema, com um orçamen
 | `tools/site_shots.sh` | Regenera as imagens do site |
 | `python3 tools/gen_site.py` | Regenera o site em `docs/` |
 
-O QA controla a interface de verdade: ele clica nos elementos, e um botão sem efeito conta como falha. Roda em modo demonstração, sem janela, e nunca toca na sua conta.
+O QA controla a interface de verdade: ele clica nos elementos, e um botão sem efeito conta como falha. Roda em modo demonstração e nunca toca na sua conta. No Linux roda fora da tela; no macOS abre janelas nativas. Para o build experimental Apple Silicon, instale primeiro as dependências de `docs/macos.pt-BR.md`; o `tools/qa.sh` escolhe o script de build do macOS automaticamente.
 
 O CI (`.github/workflows/ci.yml`) roda os testes, depois compila o app no Arch e roda o QA completo a cada push e pull request.
 
@@ -47,6 +47,7 @@ O inglês é a versão principal e o português é a secundária, e as duas deve
 |---|---|
 | `README.md` | `README.pt-BR.md` |
 | `docs/plugins.md` | `docs/plugins.pt-BR.md` |
+| `docs/macos.md` | `docs/macos.pt-BR.md` |
 | `site/guide/en/*.md` | `site/guide/pt/*.md` |
 | `site/landing.html` (`{{English\|\|Português}}`) | o mesmo arquivo |
 

@@ -5,7 +5,7 @@
 ```bash
 zig build -Doptimize=ReleaseFast    # the app
 zig build test                      # unit tests
-tools/qa.sh                         # the full UI QA, off-screen
+tools/qa.sh                         # the full UI QA
 tools/membench.sh 50                # RAM and idle CPU per theme, with a budget in MB
 ```
 
@@ -19,7 +19,7 @@ tools/membench.sh 50                # RAM and idle CPU per theme, with a budget 
 | `tools/site_shots.sh` | Regenerates the website's images |
 | `python3 tools/gen_site.py` | Regenerates the website in `docs/` |
 
-The QA drives the real UI: it clicks through elements, and a button with no effect counts as a failure. It runs in demo mode, without a window, and never touches your account.
+The QA drives the real UI: it clicks through elements, and a button with no effect counts as a failure. It runs in demo mode and never touches your account. On Linux it runs off-screen; on macOS it opens native windows. For the experimental Apple Silicon build, install the dependencies in `docs/macos.md` first; `tools/qa.sh` selects the macOS build script automatically.
 
 CI (`.github/workflows/ci.yml`) runs the tests, then builds the app on Arch and runs the full QA on every push and pull request.
 
@@ -47,6 +47,7 @@ English is the main version and Portuguese is secondary, and both should change 
 |---|---|
 | `README.md` | `README.pt-BR.md` |
 | `docs/plugins.md` | `docs/plugins.pt-BR.md` |
+| `docs/macos.md` | `docs/macos.pt-BR.md` |
 | `site/guide/en/*.md` | `site/guide/pt/*.md` |
 | `site/landing.html` (`{{English\|\|Português}}`) | the same file |
 

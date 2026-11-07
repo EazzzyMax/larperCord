@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # QA completo: a bateria geral no tema classico, a tela de login e a bateria
-# por tema em todos os temas, no escuro e no claro. Não abre janela. Prints em qa-out/.
+# por tema em todos os temas, no escuro e no claro. No Linux roda fora da tela;
+# no macOS abre uma janela nativa. Prints e registros em qa-out/.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 # Debug (com as checagens de segurança), instalado à parte para não trocar
 # o executável de zig-out/ (que é ReleaseFast).
-zig build -Doptimize=debug -p .zig-cache/qa || exit 1
+if [ "$(uname -s)" = Darwin ]; then
+    sh tools/macos_build.sh -Doptimize=debug -p .zig-cache/qa || exit 1
+else
+    "${ZIG:-zig}" build -Doptimize=debug -p .zig-cache/qa || exit 1
+fi
 rm -rf qa-out && mkdir -p qa-out
 bin=./.zig-cache/qa/bin/larpercord
 total_fail=0
@@ -13,17 +18,22 @@ run() {
     local label="$1"; shift
     # Cada bateria começa sem o cache de mensagens da anterior.
     rm -rf qa-out/cache
-    local out; out=$("$@" 2>&1 | grep -v '^info:')
+    local out status=0
+    out=$("$@" 2>&1) || status=$?
+    printf '%s\n' "$out" > "qa-out/$label.log"
+    # O registro guarda tudo; na tela, sem as linhas de info.
+    out=$(printf '%s\n' "$out" | grep -v '^info:')
     local line; line=$(echo "$out" | grep 'passaram')
     local summary="${line%%(*}"
     printf "%-24s %s\n" "$label" "${summary:-saiu antes do fim, sem o resumo}"
-    if ! echo "$line" | grep -q ' 0 falharam'; then
+    if [ "$status" != 0 ] || ! echo "$line" | grep -q ' 0 falharam'; then
         total_fail=1
         if [ -z "$line" ]; then
             # Caiu ou travou no meio: o fim da saída mostra onde (o panic do Debug).
             echo "$out" | tail -n 25 | sed 's/^/    /'
         else
             echo "$out" | sed -n '/^Falhas:/,$p' | sed 's/^/    /'
+            [ "$status" != 0 ] && echo "    saiu com o código $status"
         fi
     fi
 }
