@@ -478,7 +478,25 @@ fn sensBack(app: *App) void {
     app.st.settings.voice_sens = voz.default_sens;
 }
 
+/// O DAVE gera o pacote de chaves do MLS (par P-256, assinatura ECDSA, SHA-256) com
+/// o OpenSSL que vai no binário: um OpenSSL sem algum algoritmo da voz falha aqui.
+fn daveKeyPackage(_: *App) bool {
+    const session = c.daveSessionCreate(null, "", null, null);
+    if (session == null) return false;
+    defer c.daveSessionDestroy(session);
+    c.daveSessionInit(session, c.daveMaxSupportedProtocolVersion(), call, "1000");
+    var p: [*c]u8 = null;
+    var n: usize = 0;
+    c.daveSessionGetMarshalledKeyPackage(session, &p, &n);
+    if (p == null) return false;
+    c.daveFree(p);
+    return n > 64;
+}
+
 pub const ops = [_]Op{
+    s("voz: DAVE"),
+    expect("o MLS do DAVE gera o pacote de chaves", daveKeyPackage),
+
     s("voz: página"),
     run(resetAll),
     click("user-btn:2"),
