@@ -718,12 +718,12 @@ fn uiDragged(app: *App) bool {
 
 /// Antes de um texto pedir, nenhuma fonte de outra escrita foi procurada.
 pub fn scriptsNotLoaded(app: *App) bool {
-    return !app.fonts.scripts_tried;
+    return !app.fonts.triedGroup(.cjk);
 }
 /// As fontes reserva entraram em todas as fontes do atlas (sem CJK no sistema, como no CI, não há o que mesclar).
 pub fn scriptsLoaded(app: *App) bool {
-    if (!app.fonts.scripts_tried) return false;
-    if (app.fonts.cjk_n == 0) return true;
+    if (!app.fonts.triedGroup(.cjk)) return false;
+    if (!app.fonts.hasGroup(.cjk)) return true;
     for (app.fonts.faces.items) |e| if (!c.ImFont_IsGlyphInFont(e.font, 0x3042)) return false;
     return true;
 }

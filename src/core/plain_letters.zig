@@ -97,7 +97,13 @@ const scripts = [_]Script{
 /// A escrita de uma letra, para dizer qual está sem fonte.
 pub fn scriptOf(cp: u32) ?*const Script {
     for (&scripts) |*s| if (cp >= s.first and cp <= s.last) return s;
-    return null;
+    // O árabe e o hebraico vão para a tela já moldados (ui/bidi.zig): a letra que falta é uma
+    // forma de apresentação, mas a escrita é a mesma.
+    return switch (cp) {
+        0xFB1D...0xFB4F => scriptOf(0x05D0),
+        0x08A0...0x08FF, 0xFB50...0xFDFF, 0xFE70...0xFEFE => scriptOf(0x0627),
+        else => null,
+    };
 }
 
 fn plain(buf: []u8, text: []const u8) []const u8 {
@@ -133,6 +139,9 @@ test "invisíveis não contam e a escrita tem nome" {
     try std.testing.expect(!invisible(0xA9C1));
     try std.testing.expectEqualStrings("javanês", scriptOf(0xA9C1).?.pt);
     try std.testing.expect(scriptOf('a') == null);
+    // Forma ligada (lam-alef) e letra solta: a mesma escrita, um nome só nas Configurações.
+    try std.testing.expect(scriptOf(0xFEFB) == scriptOf(0x0644));
+    try std.testing.expect(scriptOf(0xFB2A) == scriptOf(0x05E9));
 }
 
 test "o resto continua igual" {

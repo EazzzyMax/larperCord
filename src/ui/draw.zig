@@ -6,6 +6,7 @@ const kdl = @import("../theme/kdl.zig");
 const theme_mod = @import("../theme/theme.zig");
 const layout = @import("../theme/layout.zig");
 const fonts_mod = @import("fonts.zig");
+const bidi = @import("bidi.zig");
 const anim = @import("anim.zig");
 const fx = @import("fx.zig");
 const Store = @import("../core/store.zig").Store;
@@ -189,19 +190,23 @@ pub fn fontPx(size: f32) f32 {
     return @max(1, @round(size * text_scale));
 }
 
+/// Árabe e hebraico são medidos e desenhados já moldados e na ordem da tela (ver `bidi`):
+/// a largura medida é a do que aparece. O resto passa direto.
 pub fn width(font: *c.ImFont, size: f32, s: []const u8) f32 {
     if (s.len == 0) return 0;
-    const b: [*]const u8 = s.ptr;
-    return c.ImFont_CalcTextSizeAEx(font, fontPx(size), std.math.floatMax(f32), 0, b, b + s.len, null).x;
+    const t = bidi.visual(s) orelse s;
+    const b: [*]const u8 = t.ptr;
+    return c.ImFont_CalcTextSizeAEx(font, fontPx(size), std.math.floatMax(f32), 0, b, b + t.len, null).x;
 }
 
 pub fn text(dl: *c.ImDrawList, font: *c.ImFont, size: f32, x: f32, y: f32, color: Rgba, s: []const u8) void {
     if (s.len == 0 or color.a <= 0.001) return;
-    const b: [*]const u8 = s.ptr;
+    const t = bidi.visual(s) orelse s;
+    const b: [*]const u8 = t.ptr;
     const sz = fontPx(size);
     // Mantém o texto centrado na linha quando a escala muda.
     const dy = (size - sz) * 0.6;
-    c.ImDrawList_AddTextImFontPtrEx(dl, font, sz, v(@round(x), @round(y + dy)), color.u(), b, b + s.len, 0, null);
+    c.ImDrawList_AddTextImFontPtrEx(dl, font, sz, v(@round(x), @round(y + dy)), color.u(), b, b + t.len, 0, null);
 }
 
 /// Quantos bytes de `s` cabem em `max_w`, sem partir um caractere (busca
@@ -271,12 +276,18 @@ pub fn textClipped(dl: *c.ImDrawList, font: *c.ImFont, size: f32, x: f32, y: f32
         return full;
     }
     const ell = "…";
-    const avail = max_w - width(font, size, ell);
-    const end = fitBytes(font, size, s, avail);
-    text(dl, font, size, x, y, color, s[0..end]);
+    const ell_w = width(font, size, ell);
+    const end = fitBytes(font, size, s, max_w - ell_w);
     const w0 = width(font, size, s[0..end]);
-    text(dl, font, size, x + w0, y, color, ell);
-    return w0 + width(font, size, ell);
+    // Texto da direita para a esquerda termina à esquerda: as reticências vão para lá.
+    if (bidi.baseRtl(s)) {
+        text(dl, font, size, x, y, color, ell);
+        text(dl, font, size, x + ell_w, y, color, s[0..end]);
+    } else {
+        text(dl, font, size, x, y, color, s[0..end]);
+        text(dl, font, size, x + w0, y, color, ell);
+    }
+    return w0 + ell_w;
 }
 
 /// Y para centralizar verticalmente uma linha de texto de tamanho `size`.

@@ -574,6 +574,9 @@ fn highlighted(ctx: *d.Ctx, dl: *c.ImDrawList, x0: f32, y: f32, col: d.Rgba, lin
     const font = ctx.ui.get(.regular);
     const bold = ctx.ui.get(.semibold);
     const q = &search.view_query;
+    // Árabe ou hebraico: a ordem da tela não é a do texto, e desenhar pedaço por pedaço
+    // embaralharia as palavras. A linha vai inteira (ui/bidi.zig), sem a marcação.
+    if (@import("bidi.zig").hasRtl(line)) return d.text(dl, font, text_fs, x0, y, col, line);
     var x = x0;
     var rest = line;
     while (rest.len > 0) {

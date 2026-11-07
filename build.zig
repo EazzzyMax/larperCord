@@ -61,6 +61,35 @@ fn addRnnoise(b: *std.Build, m: *std.Build.Module) void {
     }
 }
 
+/// GNU FriBidi (third_party/fribidi): árabe com as letras ligadas e texto da direita para a
+/// esquerda na ordem de desenho (src/ui/bidi.zig). Estático em todos os alvos, sem DLL nova.
+/// Os includes vão só nestes arquivos: o config.h e o common.h dele têm nomes comuns demais.
+const fribidi_sources = [_][]const u8{
+    "fribidi-arabic.c", "fribidi-bidi.c", "fribidi-bidi-types.c", "fribidi-brackets.c", "fribidi-joining.c",
+    "fribidi-joining-types.c", "fribidi-mirroring.c", "fribidi-run.c", "fribidi-shape.c",
+};
+
+fn addFribidi(b: *std.Build, m: *std.Build.Module) void {
+    const inc = struct {
+        fn f(bb: *std.Build, sub: []const u8) []const u8 {
+            return bb.fmt("-I{s}", .{bb.root.joinString(bb.allocator, sub) catch @panic("OOM")});
+        }
+    }.f;
+    m.addCSourceFiles(.{
+        .root = b.path("third_party/fribidi/lib"),
+        .files = &fribidi_sources,
+        .flags = &.{
+            "-std=gnu99",
+            "-O2",
+            "-fno-sanitize=undefined",
+            "-DHAVE_CONFIG_H",
+            "-DFRIBIDI_ENTRY=",
+            inc(b, "third_party/fribidi/config"),
+            inc(b, "third_party/fribidi/lib"),
+        },
+    });
+}
+
 /// Windows: FreeType compilado junto (o baixado por tools/windows_deps.sh).
 const freetype_sources = [_][]const u8{
     "base/ftsystem.c", "base/ftinit.c",    "base/ftdebug.c",     "base/ftbase.c",  "base/ftbbox.c",  "base/ftbitmap.c",
@@ -242,6 +271,7 @@ pub fn build(b: *std.Build) void {
     });
     addLua(b, mod);
     addRnnoise(b, mod);
+    addFribidi(b, mod);
     if (windows) {
         const ft = win_deps.path(b, "src/freetype");
         mod.addIncludePath(ft.path(b, "include"));
@@ -297,6 +327,7 @@ pub fn build(b: *std.Build) void {
     test_mod.addAnonymousImport("changelog_pt", .{ .root_source_file = b.path("CHANGELOG.pt-BR.md") });
     addLua(b, test_mod);
     addRnnoise(b, test_mod);
+    addFribidi(b, test_mod);
     const tests = b.addTest(.{ .root_module = test_mod });
     b.step("test", "Roda os testes").dependOn(&b.addRunArtifact(tests).step);
 

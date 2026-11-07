@@ -32,20 +32,18 @@ const match_em: c_uint = 1 << 10; // ImGuiFreeTypeLoaderFlags_LarperMatchEm
 extern var larper_glyph_missing: ?*const fn (c_uint) callconv(.c) void;
 extern fn larper_font_source_to(font: *c.ImFont, data: *const anyopaque, font_no: c_int, pos: c_int) void;
 extern var larper_glyph_plain: ?*const fn (c_uint) callconv(.c) c_uint;
-var scripts_wanted = false;
-var scripts_tried_once = false;
+var wanted: [groups]bool = @splat(false);
+var tried_once: [groups]bool = @splat(false);
 var missing_buf: [32]u32 = undefined;
 var missing_n: usize = 0;
 
 fn onGlyphMissing(cp: c_uint) callconv(.c) void {
-    var i: usize = 0;
-    while (cjk_ranges[i] != 0) : (i += 2) {
-        if (cp >= cjk_ranges[i] and cp <= cjk_ranges[i + 1] and !scripts_tried_once) {
-            scripts_wanted = true;
-            return;
-        }
-    }
+    // Invisível (o U+FEFF cai na faixa do árabe) não pede fonte nenhuma.
     if (plain_letters.invisible(cp)) return;
+    if (groupOf(cp)) |g| if (!tried_once[@intFromEnum(g)]) {
+        wanted[@intFromEnum(g)] = true;
+        return;
+    };
     for (missing_buf[0..missing_n]) |m| if (m == cp) return;
     if (missing_n < missing_buf.len) {
         missing_buf[missing_n] = cp;
@@ -65,8 +63,34 @@ pub fn missingLetters() []const u32 {
 
 /// O quadro que acabou pediu fontes: precisa de outro, mesmo sem evento nenhum.
 pub fn scriptsWanted() bool {
-    return scripts_wanted;
+    return std.mem.indexOfScalar(bool, &wanted, true) != null;
 }
+
+/// Os grupos de fontes reserva. Cada um só entra quando um texto pede uma letra das faixas dele
+/// (ver `onGlyphMissing`): quem nunca vê árabe não carrega a fonte do árabe.
+pub const Group = enum { cjk, arabic, hebrew };
+const groups = @typeInfo(Group).@"enum".field_names.len;
+
+fn rangesOf(g: Group) [*]const c.ImWchar {
+    return switch (g) {
+        .cjk => &cjk_ranges,
+        .arabic => &arabic_ranges,
+        .hebrew => &hebrew_ranges,
+    };
+}
+
+pub fn groupOf(cp: u32) ?Group {
+    for (0..groups) |gi| {
+        const g: Group = @enumFromInt(gi);
+        const r = rangesOf(g);
+        var i: usize = 0;
+        while (r[i] != 0) : (i += 2) if (cp >= r[i] and cp <= r[i + 1]) return g;
+    }
+    return null;
+}
+
+/// Uma fonte reserva mesclada em todas as faces, só com as letras do grupo dela.
+const Reserve = struct { data: []u8, index: c_int, ranges: [*]const c.ImWchar };
 
 pub const Fonts = struct {
     gpa: std.mem.Allocator,
@@ -81,12 +105,12 @@ pub const Fonts = struct {
     /// Fonte reserva para símbolos que a fonte principal não tem (⌁ ▣ ◐ ♪ …).
     symbols: ?struct { data: []u8, index: c_int } = null,
     /// Fontes reserva para as outras escritas (ver `scripts`), mescladas em todas as famílias.
-    /// Só entram quando um texto pede uma letra delas (ver `loadWanted`): quem não vê CJK não
-    /// paga por elas. Um arquivo só, se ele cobrir mais de uma.
-    cjk: [scripts.len]struct { data: []u8, index: c_int } = undefined,
+    /// Só entram quando um texto pede uma letra delas (ver `loadWanted`), grupo por grupo:
+    /// quem não vê CJK nem árabe não paga por elas. Um arquivo só, se ele cobrir mais de uma.
+    cjk: [scripts.len]Reserve = undefined,
     cjk_n: usize = 0,
-    /// Já procurou as fontes reserva (pode não ter achado nenhuma).
-    scripts_tried: bool = false,
+    /// Já procurou as fontes reserva de cada grupo (pode não ter achado nenhuma).
+    tried: [groups]bool = @splat(false),
     /// A escrita do idioma da interface: vence a do sistema (ver `preferLanguage`).
     script_pref: ?usize = null,
 
@@ -125,25 +149,44 @@ pub const Fonts = struct {
     /// em tudo o que já está no atlas. Fora do intervalo NewFrame/Render. Verdadeiro se procurou
     /// agora: as medidas feitas com o quadradinho deixam de valer.
     pub fn loadWanted(f: *Fonts) bool {
-        if (!scripts_wanted) return false;
-        scripts_wanted = false;
-        scripts_tried_once = true;
-        f.scripts_tried = true;
-        for (scriptOrder(f.script_pref)) |i| {
-            const m = resolveScript(scripts[i]) orelse continue;
-            defer std.heap.c_allocator.free(m.path);
-            const data = f.mapPath(m.path) catch continue;
-            const seen = for (f.cjk[0..f.cjk_n]) |o| {
-                if (o.data.ptr == data.ptr) break true;
-            } else false;
-            if (seen) continue;
-            f.cjk[f.cjk_n] = .{ .data = data, .index = m.index };
-            f.cjk_n += 1;
+        if (!scriptsWanted()) return false;
+        const first_new = f.cjk_n;
+        for (&wanted, 0..) |*w, gi| {
+            if (!w.*) continue;
+            w.* = false;
+            tried_once[gi] = true;
+            f.tried[gi] = true;
+            const ranges = rangesOf(@enumFromInt(gi));
+            for (scriptOrder(f.script_pref)) |i| {
+                if (@intFromEnum(scripts[i].group) != gi) continue;
+                const m = f.resolveScript(scripts[i]) orelse continue;
+                defer std.heap.c_allocator.free(m.path);
+                const data = f.mapPath(m.path) catch continue;
+                // A mesma dos símbolos (DejaVu Sans): já está inteira em todas as faces.
+                if (f.symbols) |sym| if (sym.data.ptr == data.ptr and sym.index == m.index) continue;
+                const seen = for (f.cjk[0..f.cjk_n]) |o| {
+                    if (o.data.ptr == data.ptr and o.ranges == ranges) break true;
+                } else false;
+                if (seen or f.cjk_n == f.cjk.len) continue;
+                f.cjk[f.cjk_n] = .{ .data = data, .index = m.index, .ranges = ranges };
+                f.cjk_n += 1;
+            }
         }
         // Como na abertura: o cache de fontes do sistema não precisa ficar na memória.
         if (!sys.windows) c.FcFini();
-        for (f.faces.items) |e| f.mergeScripts(e.font);
+        for (f.faces.items) |e| for (f.cjk[first_new..f.cjk_n]) |j| f.mergeOne(e.font, j);
         return true;
+    }
+
+    /// Já procurou as fontes reserva deste grupo (pode não ter achado nenhuma).
+    pub fn triedGroup(f: *const Fonts, g: Group) bool {
+        return f.tried[@intFromEnum(g)];
+    }
+
+    /// Alguma fonte reserva deste grupo entrou.
+    pub fn hasGroup(f: *const Fonts, g: Group) bool {
+        for (f.cjk[0..f.cjk_n]) |o| if (o.ranges == rangesOf(g)) return true;
+        return false;
     }
 
     /// O idioma da interface escolhe o desenho: o mesmo ideograma muda de forma entre japonês
@@ -151,23 +194,24 @@ pub const Fonts = struct {
     /// já no atlas (trocou de idioma com o app aberto), a fonte certa passa para a frente.
     pub fn preferLanguage(f: *Fonts, code: []const u8) void {
         const pref: ?usize = for (scripts, 0..) |sc, i| {
-            if (std.mem.startsWith(u8, code, sc.locale)) break i;
+            if (sc.group == .cjk and std.mem.startsWith(u8, code, sc.locale)) break i;
         } else null;
         if (pref == f.script_pref) return;
         f.script_pref = pref;
-        if (f.scripts_tried) if (pref) |i| f.raiseScript(i);
+        if (f.triedGroup(.cjk)) if (pref) |i| f.raiseScript(i);
     }
 
     fn raiseScript(f: *Fonts, i: usize) void {
-        const m = resolveScript(scripts[i]) orelse return;
+        const m = f.resolveScript(scripts[i]) orelse return;
         defer std.heap.c_allocator.free(m.path);
         if (!sys.windows) c.FcFini();
         const data = f.mapPath(m.path) catch return;
         const at = for (f.cjk[0..f.cjk_n], 0..) |o, n| {
-            if (o.data.ptr == data.ptr and o.index == m.index) break n;
+            if (o.data.ptr == data.ptr and o.index == m.index and o.ranges == rangesOf(.cjk)) break n;
         } else blk: {
+            if (f.cjk_n == f.cjk.len) return;
             // Um arquivo com todas as escritas (Noto Sans CJK): é outra face dele.
-            f.cjk[f.cjk_n] = .{ .data = data, .index = m.index };
+            f.cjk[f.cjk_n] = .{ .data = data, .index = m.index, .ranges = &cjk_ranges };
             f.cjk_n += 1;
             for (f.faces.items) |e| f.mergeOne(e.font, f.cjk[f.cjk_n - 1]);
             break :blk f.cjk_n - 1;
@@ -179,6 +223,22 @@ pub const Fonts = struct {
         // Antes das reservas ficam a fonte principal, o emoji e os símbolos (ver `add`).
         const pos: c_int = 1 + @as(c_int, @intFromBool(f.emoji != null)) + @as(c_int, @intFromBool(f.symbols != null));
         for (f.faces.items) |e| larper_font_source_to(e.font, raised.data.ptr, raised.index, pos);
+    }
+
+    /// O arquivo de fonte para a escrita `sc`, ou null se o sistema não tem um que sirva.
+    fn resolveScript(f: *Fonts, sc: Script) ?Match {
+        if (!sys.windows) return matchScript(sc, false) orelse matchScript(sc, true);
+        const windir = if (c.SDL_getenv("WINDIR")) |w| std.mem.span(w) else "C:/Windows";
+        var pb: [300]u8 = undefined;
+        for (sc.windows) |file| {
+            const p2 = std.fmt.bufPrintSentinel(&pb, "{s}/Fonts/{s}", .{ windir, file }, 0) catch continue;
+            if (!sys.exists(p2.ptr)) continue;
+            // Nem toda versão do arquivo traz as letras (as formas ligadas do árabe): confere antes.
+            const data = f.mapPath(p2) catch continue;
+            if (!fileHas(data, 0, sc.probes)) continue;
+            return .{ .path = std.heap.c_allocator.dupeSentinel(u8, p2, 0) catch return null, .index = 0 };
+        }
+        return null;
     }
 
     /// Família já carregada (não carrega nada: seguro no meio do quadro).
@@ -257,13 +317,13 @@ pub const Fonts = struct {
         for (f.cjk[0..f.cjk_n]) |j| f.mergeOne(font, j);
     }
 
-    fn mergeOne(f: *Fonts, font: *c.ImFont, j: @TypeOf(f.cjk[0])) void {
+    fn mergeOne(f: *Fonts, font: *c.ImFont, j: Reserve) void {
         var jcfg = defaultConfig();
         jcfg.MergeMode = true;
         jcfg.DstFont = font;
         jcfg.FontNo = @intCast(j.index);
         jcfg.FontDataOwnedByAtlas = false;
-        jcfg.GlyphRanges = &cjk_ranges;
+        jcfg.GlyphRanges = j.ranges;
         jcfg.PixelSnapH = true;
         jcfg.FontLoaderFlags = f.text_hint | match_em;
         jcfg.RasterizerMultiply = f.text_weight;
@@ -283,8 +343,8 @@ pub const Fonts = struct {
 /// uma versão em preto e branco (❤ ☀ ✨ …).
 const emoji_ranges = [_]c.ImWchar{ 0x2600, 0x27BF, 0x2B00, 0x2BFF, 0x1F000, 0x1FAFF, 0 };
 
-/// As letras que trazem as fontes reserva: quem vê outra letra sem fonte (árabe, por exemplo)
-/// não carrega nada à toa.
+/// As letras que trazem as fontes reserva do CJK: quem vê outra letra sem fonte (tailandês,
+/// por exemplo) não carrega nada à toa.
 const cjk_ranges = [_]c.ImWchar{
     0x1100, 0x11FF, // hangul jamo
     0x2E80, 0x2FDF, // radicais
@@ -295,6 +355,22 @@ const cjk_ranges = [_]c.ImWchar{
     0xFE30, 0xFE4F, // formas de compatibilidade
     0xFF00, 0xFFEF, // meia-largura e largura cheia
     0x20000, 0x3FFFF, // ideogramas, extensões
+    0,
+};
+
+/// Árabe: as letras e as formas de apresentação, que é o que o texto moldado desenha (ui/bidi.zig).
+const arabic_ranges = [_]c.ImWchar{
+    0x0600, 0x06FF, // árabe
+    0x0750, 0x077F, // suplemento
+    0x08A0, 0x08FF, // estendido A
+    0xFB50, 0xFDFF, // formas de apresentação A
+    0xFE70, 0xFEFF, // formas de apresentação B
+    0,
+};
+
+const hebrew_ranges = [_]c.ImWchar{
+    0x0590, 0x05FF, // hebraico
+    0xFB1D, 0xFB4F, // formas de apresentação
     0,
 };
 
@@ -347,13 +423,18 @@ fn resolveWindows(name: []const u8, weight: c_int, slant: c_int) ?Match {
     return null;
 }
 
-/// As escritas que as fontes dos temas não cobrem. Uma linha nova basta para somar outra:
-/// `probe` é um caractere que a fonte precisa ter, e `windows`, os arquivos a procurar.
-const Script = struct { lang: [*:0]const u8, locale: []const u8, probe: u32, windows: []const []const u8 };
+/// As escritas que as fontes dos temas não cobrem. Uma linha nova basta para somar outra (e,
+/// se for de um grupo novo, as faixas dele em `rangesOf`): `probes` são letras que a fonte
+/// precisa ter, e `windows`, os arquivos a procurar.
+const Script = struct { lang: [*:0]const u8, locale: []const u8, group: Group, probes: []const u32, windows: []const []const u8 };
 const scripts = [_]Script{
-    .{ .lang = "ja", .locale = "ja", .probe = 0x3042, .windows = &.{ "YuGothM.ttc", "YuGothR.ttc", "meiryo.ttc", "msgothic.ttc" } },
-    .{ .lang = "ko", .locale = "ko", .probe = 0xD55C, .windows = &.{ "malgun.ttf", "gulim.ttc" } },
-    .{ .lang = "zh-cn", .locale = "zh", .probe = 0x4E2D, .windows = &.{ "msyh.ttc", "simsun.ttc", "simhei.ttf" } },
+    .{ .lang = "ja", .locale = "ja", .group = .cjk, .probes = &.{0x3042}, .windows = &.{ "YuGothM.ttc", "YuGothR.ttc", "meiryo.ttc", "msgothic.ttc" } },
+    .{ .lang = "ko", .locale = "ko", .group = .cjk, .probes = &.{0xD55C}, .windows = &.{ "malgun.ttf", "gulim.ttc" } },
+    .{ .lang = "zh-cn", .locale = "zh", .group = .cjk, .probes = &.{0x4E2D}, .windows = &.{ "msyh.ttc", "simsun.ttc", "simhei.ttf" } },
+    // O árabe vai para a tela já moldado: a fonte precisa das formas ligadas (lam inicial e
+    // lam-alef), não só das letras soltas.
+    .{ .lang = "ar", .locale = "ar", .group = .arabic, .probes = &.{ 0x0627, 0xFEDF, 0xFEFB }, .windows = &.{ "segoeui.ttf", "arial.ttf", "tahoma.ttf", "times.ttf", "cour.ttf" } },
+    .{ .lang = "he", .locale = "he", .group = .hebrew, .probes = &.{ 0x05D0, 0x05E9 }, .windows = &.{ "segoeui.ttf", "arial.ttf", "tahoma.ttf", "cour.ttf" } },
 };
 
 /// A escrita do idioma da interface vem primeiro; sem ela, a da língua do sistema: o mesmo
@@ -376,24 +457,43 @@ fn systemScript() ?usize {
     if (count == 0) return null;
     const loc = list[0] orelse return null;
     const lang = std.mem.span(loc.*.language orelse return null);
-    for (scripts, 0..) |sc, i| if (std.mem.startsWith(u8, lang, sc.locale)) return i;
+    for (scripts, 0..) |sc, i| if (sc.group == .cjk and std.mem.startsWith(u8, lang, sc.locale)) return i;
     return null;
 }
 
-fn resolveScript(sc: Script) ?Match {
-    if (sys.windows) {
-        const windir = if (c.SDL_getenv("WINDIR")) |w| std.mem.span(w) else "C:/Windows";
-        var pb: [300]u8 = undefined;
-        for (sc.windows) |file| {
-            const p2 = std.fmt.bufPrintSentinel(&pb, "{s}/Fonts/{s}", .{ windir, file }, 0) catch continue;
-            if (sys.exists(p2.ptr)) return .{ .path = std.heap.c_allocator.dupeSentinel(u8, p2, 0) catch return null, .index = 0 };
-        }
-        return null;
-    }
+// FreeType (o mesmo do ImGui): no Windows não há fontconfig para dizer se um arquivo tem a letra.
+extern fn FT_Init_FreeType(lib: *?*anyopaque) c_int;
+extern fn FT_Done_FreeType(lib: ?*anyopaque) c_int;
+extern fn FT_New_Memory_Face(lib: ?*anyopaque, base: [*]const u8, size: c_long, index: c_long, face: *?*anyopaque) c_int;
+extern fn FT_Done_Face(face: ?*anyopaque) c_int;
+extern fn FT_Get_Char_Index(face: ?*anyopaque, charcode: c_ulong) c_uint;
+
+/// O arquivo tem todas as letras de prova? Lê só o cabeçalho e a tabela de caracteres.
+fn fileHas(data: []const u8, index: c_int, probes: []const u32) bool {
+    var lib: ?*anyopaque = null;
+    if (FT_Init_FreeType(&lib) != 0) return false;
+    defer _ = FT_Done_FreeType(lib);
+    var face: ?*anyopaque = null;
+    if (FT_New_Memory_Face(lib, data.ptr, @intCast(data.len), index, &face) != 0) return false;
+    defer _ = FT_Done_Face(face);
+    for (probes) |p| if (FT_Get_Char_Index(face, p) == 0) return false;
+    return true;
+}
+
+/// O fontconfig responde pelo idioma (o desenho certo do ideograma). Se a fonte que vier não
+/// tiver as letras de prova, pergunta de novo, agora pelas letras: um sistema sem fonte própria
+/// para árabe ainda pode ter uma que cubra (DejaVu Sans, FreeSerif).
+fn matchScript(sc: Script, by_chars: bool) ?Match {
     const pat = c.FcPatternCreate() orelse return null;
     defer c.FcPatternDestroy(pat);
     _ = c.FcPatternAddString(pat, c.FC_LANG, sc.lang);
     _ = c.FcPatternAddString(pat, c.FC_FAMILY, "sans-serif");
+    if (by_chars) {
+        const want = c.FcCharSetCreate() orelse return null;
+        defer c.FcCharSetDestroy(want);
+        for (sc.probes) |p| _ = c.FcCharSetAddChar(want, p);
+        _ = c.FcPatternAddCharSet(pat, c.FC_CHARSET, want);
+    }
     _ = c.FcConfigSubstitute(null, pat, c.FcMatchPattern);
     c.FcDefaultSubstitute(pat);
     var result: c.FcResult = undefined;
@@ -401,7 +501,8 @@ fn resolveScript(sc: Script) ?Match {
     defer c.FcPatternDestroy(m);
     // Sem fonte para essa escrita, o fontconfig responde com outra qualquer: essa não serve.
     var chars: ?*c.FcCharSet = null;
-    if (c.FcPatternGetCharSet(m, c.FC_CHARSET, 0, &chars) != c.FcResultMatch or c.FcCharSetHasChar(chars, sc.probe) == 0) return null;
+    if (c.FcPatternGetCharSet(m, c.FC_CHARSET, 0, &chars) != c.FcResultMatch) return null;
+    for (sc.probes) |p| if (c.FcCharSetHasChar(chars, p) == 0) return null;
     var file: [*c]c.FcChar8 = null;
     if (c.FcPatternGetString(m, c.FC_FILE, 0, &file) != c.FcResultMatch) return null;
     var index: c_int = 0;

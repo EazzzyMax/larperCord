@@ -45,6 +45,7 @@ test {
     _ = @import("ui/fuzzy.zig");
     _ = @import("ui/i18n.zig");
     _ = @import("ui/syntax.zig");
+    _ = @import("ui/bidi.zig");
     _ = @import("ui/settings_state.zig");
     _ = @import("ui/guild_color.zig");
     _ = @import("net/jsonx.zig");
