@@ -33,6 +33,7 @@ pub const Sink = struct {
 const links = @import("../core/links.zig");
 const rpc_proto = @import("rpc_proto.zig");
 const conta_net = @import("conta_net.zig");
+const entrada = @import("../core/entrada.zig");
 
 /// O que a demonstração "mandou para o Discord" (o QA confere; não há servidor
 /// para perguntar). Lido da thread da interface.
@@ -124,6 +125,14 @@ pub const sent = struct {
     pub var mod_len: A = .init(0);
     pub var mod_req: [moderacao.motivo_buf_len + 256]u8 = undefined;
     pub var bans_fetches: A = .init(0);
+    /// Regras e boas-vindas: quantas vezes buscou/enviou, e o último corpo enviado.
+    pub var entrada_forms: A = .init(0);
+    pub var entrada_form_sends: A = .init(0);
+    pub var entrada_onboardings: A = .init(0);
+    pub var entrada_onboarding_sends: A = .init(0);
+    pub var entrada_onboarding_first: A = .init(0);
+    pub var entrada_len: A = .init(0);
+    pub var entrada_body: [4096]u8 = undefined;
 };
 
 /// O canal das enquetes da demonstração (#geral de "os larpers"): uma de uma
@@ -389,6 +398,7 @@ pub const Gateway = struct {
                 .icon = try new_image(e.icon, "demo:icon:3"),
                 .banner = try new_image(e.banner, "demo:2"),
                 .can_banner = i < 2,
+                .onboarding = i == entrada_guild,
                 .description = if (e.description) |t| try alloc.dupe(u8, t) else "",
                 .owner = if (i == 0) me_id else 1001,
             },
@@ -399,6 +409,43 @@ pub const Gateway = struct {
 
     pub fn emit(g: *Gateway, e: ev.Event) void {
         g.sink.push(g.sink.ctx, e);
+    }
+
+    /// Regras e boas-vindas do servidor de demonstração (`entrada_guild`): responde como o
+    /// Discord, e guarda o que foi enviado em `sent` para o QA conferir.
+    fn demoEntrada(g: *Gateway, cmd: entrada.Cmd) !void {
+        defer entrada.freeCmd(alloc, cmd);
+        const target: Id = switch (cmd) {
+            .form, .onboarding => |gid| gid,
+            .send_form => |x| x.guild,
+            .send_onboarding => |x| x.guild,
+        };
+        const ours = target == guildId(entrada_guild);
+        switch (cmd) {
+            .form => |gid| {
+                _ = sent.entrada_forms.fetchAdd(1, .monotonic);
+                if (!ours) return g.emit(.{ .entrada = .{ .form = .{ .guild = gid, .status = .not_found } } });
+                g.emit(.{ .entrada = .{ .form = .{ .guild = gid, .status = .ok, .body = try alloc.dupe(u8, pick(demo_form_pt, demo_form_en)) } } });
+            },
+            .send_form => |sf| {
+                _ = sent.entrada_form_sends.fetchAdd(1, .monotonic);
+                keepEntrada(sf.body);
+                g.emit(.{ .entrada = .{ .form_sent = .{ .guild = sf.guild, .status = if (ours) .ok else .failed, .application = .approved } } });
+                // Aprovado: o GUILD_MEMBER_UPDATE chega sem o `pending`.
+                if (ours) g.emit(.{ .entrada = .{ .pending = .{ .guild = sf.guild, .pending = false } } });
+            },
+            .onboarding => |gid| {
+                _ = sent.entrada_onboardings.fetchAdd(1, .monotonic);
+                if (!ours) return g.emit(.{ .entrada = .{ .onboarding = .{ .guild = gid, .status = .forbidden } } });
+                g.emit(.{ .entrada = .{ .onboarding = .{ .guild = gid, .status = .ok, .body = try alloc.dupe(u8, pick(demo_onboarding_pt, demo_onboarding_en)) } } });
+            },
+            .send_onboarding => |so| {
+                _ = sent.entrada_onboarding_sends.fetchAdd(1, .monotonic);
+                sent.entrada_onboarding_first.store(@intFromBool(so.first), .monotonic);
+                keepEntrada(so.body);
+                g.emit(.{ .entrada = .{ .onboarding_sent = .{ .guild = so.guild, .status = if (ours) .ok else .failed } } });
+            },
+        }
     }
 
     fn threadMain(data: ?*anyopaque) callconv(.c) c_int {
@@ -820,10 +867,17 @@ pub const Gateway = struct {
                     _ = sent.invite_joins.fetchAdd(1, .monotonic);
                     const c0 = code.slice();
                     const status: ev.JoinStatus = if (std.mem.eql(u8, c0, "qacaptcha")) .captcha else if (std.mem.eql(u8, c0, "qabanido")) .forbidden else if (std.mem.eql(u8, c0, "qacheio")) .too_many else .ok;
+                    // Servidor com regras: como o Discord, a resposta traz `show_verification_form`.
+                    if (std.mem.eql(u8, c0, "qaregras")) {
+                        g.emit(.{ .entrada = .{ .pending = .{ .guild = guildId(entrada_guild), .pending = true } } });
+                        g.emit(.{ .invite_joined = .{ .code = code, .status = .ok, .guild = guildId(entrada_guild) } });
+                        continue;
+                    }
                     // Sem servidor novo na demonstração: "entra" num que já está na barra.
                     g.emit(.{ .invite_joined = .{ .code = code, .status = status, .guild = if (status == .ok) guildId(2) else 0 } });
                 },
                 .conta => |cc| @import("fake_conta.zig").execute(g, cc),
+                .entrada => |e| try g.demoEntrada(e),
                 .fetch_invite => |code| {
                     _ = sent.invite_fetches.fetchAdd(1, .monotonic);
                     g.emit(.{ .invite = .{ .code = code, .invite = try demoInvite(code.slice()) } });
@@ -1863,6 +1917,58 @@ fn searchParam(params: []const u8, name: []const u8, out: []u8) []const u8 {
     return "";
 }
 
+/// O servidor com regras e boas-vindas ("Minecraft SMP").
+pub const entrada_guild = 6;
+
+fn keepEntrada(body: []const u8) void {
+    const n = @min(body.len, sent.entrada_body.len);
+    @memcpy(sent.entrada_body[0..n], body[0..n]);
+    sent.entrada_len.store(n, .release);
+}
+
+const demo_form_pt =
+    \\{"version":"2026-10-01T12:00:00.000000+00:00","description":"Servidor de sobrevivência. Leia com calma antes de falar.",
+    \\ "form_fields":[
+    \\  {"field_type":"TERMS","label":"Leia e concorde com as regras","values":["Respeite todo mundo.","Sem spam e sem propaganda.","Nada de trapaça no servidor."],"required":true,"description":null,"automations":null},
+    \\  {"field_type":"TEXT_INPUT","label":"Seu nick no Minecraft","required":true,"placeholder":"Steve","description":null,"automations":null},
+    \\  {"field_type":"PARAGRAPH","label":"Como conheceu o servidor?","required":false,"placeholder":null,"description":"Opcional.","automations":null},
+    \\  {"field_type":"MULTIPLE_CHOICE","label":"Há quanto tempo joga?","choices":["Comecei agora","Uns anos","Desde o beta"],"required":true,"description":null,"automations":null}
+    \\ ]}
+;
+const demo_form_en =
+    \\{"version":"2026-10-01T12:00:00.000000+00:00","description":"A survival server. Take your time reading before you talk.",
+    \\ "form_fields":[
+    \\  {"field_type":"TERMS","label":"Read and agree to the rules","values":["Respect everyone.","No spam and no ads.","No cheating on the server."],"required":true,"description":null,"automations":null},
+    \\  {"field_type":"TEXT_INPUT","label":"Your Minecraft name","required":true,"placeholder":"Steve","description":null,"automations":null},
+    \\  {"field_type":"PARAGRAPH","label":"How did you find the server?","required":false,"placeholder":null,"description":"Optional.","automations":null},
+    \\  {"field_type":"MULTIPLE_CHOICE","label":"How long have you played?","choices":["Just started","A few years","Since the beta"],"required":true,"description":null,"automations":null}
+    \\ ]}
+;
+const demo_onboarding_pt =
+    \\{"guild_id":"506000","enabled":true,"mode":0,"below_requirements":false,"default_channel_ids":[],"responses":[],
+    \\ "prompts":[
+    \\  {"id":"9100","type":0,"title":"Como você joga?","single_select":true,"required":true,"in_onboarding":true,
+    \\   "options":[{"id":"9101","title":"Sobrevivência","description":"O mundo principal","emoji":{"id":null,"name":"⛏"},"role_ids":[],"channel_ids":[]},
+    \\              {"id":"9102","title":"Criativo","description":"Construções sem limite","emoji":{"id":null,"name":"🧱"},"role_ids":[],"channel_ids":[]},
+    \\              {"id":"9103","title":"Só olhando","description":null,"emoji":null,"role_ids":[],"channel_ids":[]}]},
+    \\  {"id":"9200","type":0,"title":"O que mais te interessa?","single_select":false,"required":false,"in_onboarding":true,
+    \\   "options":[{"id":"9201","title":"Redstone","description":null,"emoji":null,"role_ids":[],"channel_ids":[]},
+    \\              {"id":"9202","title":"Eventos","description":"Avisos dos eventos de sábado","emoji":null,"role_ids":[],"channel_ids":[]}]}
+    \\ ]}
+;
+const demo_onboarding_en =
+    \\{"guild_id":"506000","enabled":true,"mode":0,"below_requirements":false,"default_channel_ids":[],"responses":[],
+    \\ "prompts":[
+    \\  {"id":"9100","type":0,"title":"How do you play?","single_select":true,"required":true,"in_onboarding":true,
+    \\   "options":[{"id":"9101","title":"Survival","description":"The main world","emoji":{"id":null,"name":"⛏"},"role_ids":[],"channel_ids":[]},
+    \\              {"id":"9102","title":"Creative","description":"Unlimited building","emoji":{"id":null,"name":"🧱"},"role_ids":[],"channel_ids":[]},
+    \\              {"id":"9103","title":"Just looking","description":null,"emoji":null,"role_ids":[],"channel_ids":[]}]},
+    \\  {"id":"9200","type":0,"title":"What are you into?","single_select":false,"required":false,"in_onboarding":true,
+    \\   "options":[{"id":"9201","title":"Redstone","description":null,"emoji":null,"role_ids":[],"channel_ids":[]},
+    \\              {"id":"9202","title":"Events","description":"Saturday event announcements","emoji":null,"role_ids":[],"channel_ids":[]}]}
+    \\ ]}
+;
+
 pub fn guildId(i: usize) Id {
     return 500_000 + @as(Id, i) * 1000;
 }
@@ -1934,6 +2040,7 @@ fn buildReady() !ev.Ready {
         // O segundo servidor mostra o banner (o primeiro, o cabeçalho sem imagem).
         .banner = if (i == 1) try alloc.dupe(u8, "demo:2") else null,
         .can_banner = i < 2,
+        .onboarding = i == entrada_guild,
         // O primeiro servidor é nosso (dá para mexer em cargos e mensagens).
         .owner = if (i == 0) me_id else 1001,
     };

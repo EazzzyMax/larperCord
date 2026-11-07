@@ -8,6 +8,7 @@ const Op = R.Op;
 const qa = @import("ui/qa.zig");
 const invites = @import("ui/invites.zig");
 const att = @import("ui/attachments.zig");
+const entrada = @import("ui/entrada.zig");
 const gw = @import("net/fake_gateway.zig");
 
 fn s(name: []const u8) Op {
@@ -63,6 +64,12 @@ fn previewShown(app: *App) bool {
     const inv = app.store.invites.get("qateste") orelse return false;
     return inv.state == .ok and R.hasInk(app, "join-preview");
 }
+fn warnOn(app: *App) void {
+    app.st.settings.join_warning = true;
+}
+fn warned(app: *App) bool {
+    return entrada.warning_open and app.st.popup == .join_invite;
+}
 fn enteredGuild(app: *App) bool {
     return app.st.popup == .none and app.st.guild == gw.guildId(2) and gw.sent.invite_joins.load(.monotonic) >= 1;
 }
@@ -115,6 +122,7 @@ pub const ops = [_]Op{
     expect("fechar", closed),
 
     s("convites: entrar"),
+    run(warnOn),
     click("guild-join"),
     expect("o + da barra abre a entrada por convite", joinOpen),
     .{ .text = "https://discord.gg/qateste" },
@@ -122,6 +130,9 @@ pub const ops = [_]Op{
     .{ .wait = 150 },
     .{ .shot = "convite-entrar" },
     click("join-go"),
+    expect("antes da primeira entrada, o aviso de entrar demais", warned),
+    click("join-warn-never"),
+    click("join-warn-go"),
     expect("entrar abre o servidor", enteredGuild),
     run(noteJoins),
     click("guild-join"),

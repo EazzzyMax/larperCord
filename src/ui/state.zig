@@ -54,6 +54,9 @@ pub const Popup = union(enum) {
     /// Confirmar expulsar/banir/castigar alguém, ou (`user` 0) a lista de
     /// banimentos do servidor (ui/moderacao.zig).
     moderacao: struct { guild: Id, user: Id = 0 },
+    /// Regras de um servidor que pede antes de deixar falar, e as boas-vindas (ui/entrada.zig).
+    server_rules: struct { guild: Id },
+    onboarding: struct { guild: Id },
 };
 
 /// Seleção de texto entre mensagens: âncora e cabeça (mensagem + byte).

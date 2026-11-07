@@ -1473,6 +1473,12 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
     if (ctx.st.friends) return;
     const ch_id = ctx.st.activeChannel() orelse return;
     const cs = ctx.store.channel(ch_id) orelse return;
+    // Entrou, mas o servidor pede as regras antes: o motivo e o botão delas (ui/entrada.zig).
+    if (ctx.store.isPending(cs.info.guild)) {
+        composer_extra = 0;
+        vim.composer_active = false;
+        return @import("entrada.zig").pendingBand(ctx, n, r_in, cs.info.guild);
+    }
     // Não dá para enviar (castigo, quarentena, permissão, thread trancada): o
     // motivo no lugar da caixa. O modo lento deixa escrever (ui/composer_limits.zig).
     const limit = send_limits.blockFor(ctx.store, &cs.info, ctx.now_ms);

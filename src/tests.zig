@@ -10,6 +10,7 @@ test {
     _ = @import("core/plain_letters.zig");
     _ = @import("core/gif_favorites.zig");
     _ = @import("core/gif_quadros.zig");
+    _ = @import("core/entrada.zig");
     _ = @import("platform/debug_log.zig");
     _ = @import("core/types.zig");
     _ = @import("core/ritmo.zig");

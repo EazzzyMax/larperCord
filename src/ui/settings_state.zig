@@ -110,6 +110,8 @@ pub const Settings = struct {
     gif_hosts: bool = false,
     /// Esconde o e-mail e o @usuário na conta.
     streamer_mode: bool = false,
+    /// Aviso antes de entrar num servidor por convite (ui/entrada.zig).
+    join_warning: bool = true,
     /// Proxy (socks5h://127.0.0.1:9050…): vazio = conexão direta. Só a mídia
     /// de fora passa por ele, ou tudo com `proxy_all` (net/proxy.zig).
     proxy: Text = .{},

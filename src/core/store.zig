@@ -340,6 +340,8 @@ pub const Store = struct {
     notes: std.AutoHashMapUnmanaged(Id, []const u8) = .empty,
     /// Todos os nossos cargos em cada servidor (para as exceções dos canais).
     my_roles: std.AutoHashMapUnmanaged(Id, []Id) = .empty,
+    /// Servidores onde o nosso membro está pendente: falta passar pelas regras (core/entrada.zig).
+    pending_guilds: std.AutoHashMapUnmanaged(Id, void) = .empty,
     /// Ícone (hash) de cada aplicação; "" = não tem ou não deu.
     app_icons: std.AutoHashMapUnmanaged(Id, []const u8) = .empty,
     /// Menções recentes (GET /users/@me/mentions), da mais nova para a mais
@@ -442,6 +444,7 @@ pub const Store = struct {
         var mri = s.my_roles.valueIterator();
         while (mri.next()) |r| ev_alloc.free(r.*);
         s.my_roles.deinit(s.gpa);
+        s.pending_guilds.deinit(s.gpa);
         for (s.recent_mentions.items) |*m| s.freeMessage(m);
         s.recent_mentions.deinit(s.gpa);
         var gc = s.guild_channels.valueIterator();
@@ -703,6 +706,7 @@ pub const Store = struct {
             old.icon = g.icon;
             old.banner = g.banner;
             old.can_banner = g.can_banner;
+            old.onboarding = g.onboarding;
             old.description = g.description;
             if (g.owner != 0) old.owner = g.owner;
             if (g.joined_id != 0) old.joined_id = g.joined_id;
@@ -1027,6 +1031,10 @@ pub const Store = struct {
             // O castigo aparece na hora (a lista de membros confirma depois).
             .moderated => |m| if (m.ok and (m.acao == .timeout or m.acao == .untimeout))
                 s.setTimeout(m.guild, m.user, if (m.acao == .timeout) m.ate_s else 0),
+            // O resto é da janela das regras e das boas-vindas (ver App.afterEvent).
+            .entrada => |e| if (e == .pending) {
+                if (e.pending.pending) try s.pending_guilds.put(s.gpa, e.pending.guild, {}) else _ = s.pending_guilds.remove(e.pending.guild);
+            },
             .ready => |r| {
                 s.me = r.me;
                 s.me_rev +%= 1;
@@ -1869,6 +1877,11 @@ pub const Store = struct {
         if (p & types.perm.view_channel == 0) return false;
         if (ch.kind == .voice and p & types.perm.connect == 0) return false;
         return true;
+    }
+
+    /// Entramos, mas o servidor ainda pede as regras antes de deixar falar.
+    pub fn isPending(s: *const Store, gid: Id) bool {
+        return gid != 0 and s.pending_guilds.contains(gid);
     }
 
     pub fn canSend(s: *const Store, ch: *const types.Channel) bool {
@@ -3020,4 +3033,18 @@ test "privada: quem sai sem gerenciar threads deixa de vê-la; quem gerencia con
     try s.apply(.{ .channel_upsert = try testThread(101, 10, 0) }, 0);
     try s.apply(.{ .thread_joined = .{ .thread = 101, .joined = false } }, 0);
     try std.testing.expect(s.channel(101) != null);
+}
+
+test "membro pendente: entra e sai do conjunto só pelo campo que veio" {
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    try std.testing.expect(!s.isPending(7));
+    try s.apply(.{ .entrada = .{ .pending = .{ .guild = 7, .pending = true } } }, 0);
+    try std.testing.expect(s.isPending(7));
+    try std.testing.expect(!s.isPending(0));
+    // O resto (formulário, envio) não mexe no conjunto.
+    try s.apply(.{ .entrada = .{ .form_sent = .{ .guild = 7, .status = .ok, .application = .approved } } }, 0);
+    try std.testing.expect(s.isPending(7));
+    try s.apply(.{ .entrada = .{ .pending = .{ .guild = 7, .pending = false } } }, 0);
+    try std.testing.expect(!s.isPending(7));
 }
