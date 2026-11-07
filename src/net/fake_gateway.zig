@@ -16,6 +16,7 @@ const Id = types.Id;
 const alloc = std.heap.c_allocator;
 
 const voice_mod = @import("voice.zig");
+const fake_interactions = @import("fake_interactions.zig");
 
 pub const Sink = struct {
     ctx: *anyopaque,
@@ -296,6 +297,12 @@ pub const Gateway = struct {
                     g.emit(.{ .message_update = .{ .channel = m.channel, .id = m.id, .content = shown, .raw = raw } });
                 },
                 .delete_message => |m| g.emit(.{ .message_delete = .{ .channel = m.channel, .id = m.id } }),
+                // O bot da demonstração (net/fake_interactions.zig).
+                .interaction => |ic| {
+                    const out = try fake_interactions.handle(ic, nowMs(), g.rng.random().int(u22));
+                    for (out.events[0..out.n]) |e| g.emit(e);
+                    if (out.reply) |m| try g.nonce_replies.append(alloc, .{ .at_ms = nowMs() + 350, .msg = m });
+                },
                 .delete_thread => |id| g.emit(.{ .channel_delete = id }),
                 .leave_guild => |id| g.emit(.{ .guild_delete = id }),
                 .edit_place => |e| try g.editPlace(e),
@@ -1701,6 +1708,8 @@ fn buildHistory(channel: Id, now_ms: i64) ![]types.Message {
         e[0] = .{ .color = 0xFFA500, .has_color = true, .blocks = blocks };
         m.embeds = e;
     }
+    // #bugs: o bot com botões, menus, modal e comandos de barra.
+    if (channel == fake_interactions.channel()) try fake_interactions.demoMessage(&msgs[n - 1]);
     // #interface: links do Discord, convites e menções clicáveis.
     if (channel == channelId(0, 10)) {
         const set = struct {

@@ -6,6 +6,7 @@
 //! passam a pertencer ao Store.
 const types = @import("types.zig");
 const InviteCode = @import("links.zig").InviteCode;
+const interaction = @import("interaction.zig");
 const Id = types.Id;
 
 pub const Ready = struct {
@@ -164,6 +165,8 @@ pub const Event = union(enum) {
     thread_members: struct { thread: Id, replace: bool = false, count: ?u32 = null, added: []Id = &.{}, removed: []Id = &.{} },
     /// A thread que acabamos de criar existe: abre ela.
     thread_open: Id,
+    /// Botões, menus, modais e comandos de barra (core/interaction.zig).
+    interaction: interaction.Event,
 };
 
 /// `rejected`: o Discord recusou o token (4004). Vem logo antes de `failed`.
@@ -286,6 +289,8 @@ pub const Command = union(enum) {
     join_thread: struct { thread: Id, join: bool },
     /// Quem está na thread, pelo REST (a lista do op 14 pode não vir).
     fetch_thread_members: Id,
+    /// Interação com um bot ou o índice de comandos (core/interaction.zig).
+    interaction: interaction.Cmd,
     shutdown,
 };
 
@@ -427,4 +432,7 @@ pub const Action = union(enum) {
     join_thread: struct { thread: Id, join: bool },
     /// A primeira página (se ainda não veio ou falhou) ou a próxima.
     fetch_threads: struct { channel: Id, archived: bool },
+    /// Um clique num botão, uma escolha num menu, um modal ou um comando:
+    /// sempre um pedido só (ui/interact.zig). Textos no c_allocator.
+    interaction: interaction.Cmd,
 };

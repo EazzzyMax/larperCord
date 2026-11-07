@@ -35,6 +35,7 @@ const read_json = @import("read_state_json.zig");
 const voice_mod = @import("voice.zig");
 const thread_json = @import("thread_json.zig");
 const user_json = @import("user_json.zig");
+const interaction = @import("../core/interaction.zig");
 const Id = types.Id;
 const Value = std.json.Value;
 
@@ -326,6 +327,10 @@ pub const Gateway = struct {
             .join_invite => |code| g.emit(.{ .invite_joined = .{ .code = code, .status = .failed } }),
             .create_invite => |ci| g.emit(.{ .invite_created = .{ .req = ci.req, .status = .failed } }),
             .fetch_threads => |ft| g.emit(.{ .threads_page = .{ .channel = ft.channel, .archived = ft.archived, .failed = true } }),
+            .interaction => |ic| switch (ic) {
+                .send => |s| g.emit(.{ .interaction = .{ .failed = .{ .nonce = s.nonce } } }),
+                .fetch_commands => |sc| g.emit(.{ .interaction = .{ .commands = .{ .key = sc.key(), .index = null } } }),
+            },
             else => {},
         }
         freeCommand(cmd);
@@ -984,6 +989,7 @@ pub const Gateway = struct {
             if (g.sub_guild != 0) g.subscribe(g.sub_guild, g.sub_channel, g.sub_thread);
             return;
         }
+        if (std.mem.startsWith(u8, t, "INTERACTION_") or std.mem.eql(u8, t, "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE")) return g.onInteraction(t, d);
         if (std.mem.eql(u8, t, "MESSAGE_CREATE")) {
             g.upsertUsers(d);
             if (j.get(d, "member")) |m| g.memberColor(j.id(j.get(d, "guild_id")) orelse 0, j.id(j.get(j.get(d, "author") orelse .null, "id")) orelse 0, m);
@@ -1722,6 +1728,8 @@ pub const Gateway = struct {
                 if (j.id(j.get(u, "id")) == g.me) break true;
             } else false,
             .thread = thread,
+            .flags = @truncate(@as(u64, @bitCast(j.int(j.get(m, "flags")) orelse 0))),
+            .app = j.id(j.get(m, "application_id")) orelse 0,
         };
     }
 
@@ -1869,12 +1877,30 @@ pub const Gateway = struct {
         return if (v) |x| x == .bool and x.bool else false;
     }
 
-    /// Só os botões de link funcionam aqui; os outros pedem uma interação com
-    /// o bot, que o app não faz.
+    /// Botão de link (abre o endereço) ou de interação (manda o `custom_id`
+    /// ao bot, ui/interact.zig). O de compra (estilo 6) fica de fora.
     fn linkButton(btn: Value, out: *std.ArrayList(types.EmbedMedia)) !void {
+        var lb: [128]u8 = undefined;
+        const label = interaction.buttonLabel(&lb, btn);
+        const style = j.int(j.get(btn, "style")) orelse 0;
+        if (style >= 1 and style <= 4) {
+            const cid = j.str(j.get(btn, "custom_id")) orelse return;
+            if (cid.len == 0 or cid.len > 100) return;
+            const owned = try alloc.dupe(u8, cid);
+            errdefer alloc.free(owned);
+            try out.append(alloc, .{ .custom_id = owned, .label = try dupeOpt(label), .style = @intCast(style), .disabled = isTrue(j.get(btn, "disabled")) });
+            return;
+        }
         const url = j.str(j.get(btn, "url")) orelse return;
         if (!isHttp(url)) return;
-        try out.append(alloc, .{ .link = try alloc.dupe(u8, url), .label = try dupeOpt(j.str(j.get(btn, "label")) orelse url) });
+        try out.append(alloc, .{ .link = try alloc.dupe(u8, url), .label = try dupeOpt(if (label.len > 0) label else url) });
+    }
+
+    /// Menu de seleção de uma fileira: vira um bloco só dele.
+    fn selectBlock(out: *std.ArrayList(types.EmbedBlock), v: Value) !void {
+        const sel = (try interaction.parseOwnedSelect(alloc, v)) orelse return;
+        errdefer interaction.freeOwnedSelect(sel);
+        try out.append(alloc, .{ .kind = .select, .select = sel });
     }
 
     /// Um componente vira um bloco (a seção com botão vira dois).
@@ -1923,9 +1949,12 @@ pub const Gateway = struct {
             },
             // Separador.
             14 => try out.append(alloc, .{ .kind = .separator, .divider = if (j.get(cv, "divider")) |dv| dv == .bool and dv.bool else true, .large = (j.int(j.get(cv, "spacing")) orelse 1) == 2 }),
-            // Fileira de botões.
+            // Fileira de botões (ou um menu de seleção).
             1 => {
-                for (j.array(j.get(cv, "components"))) |btn| if ((j.int(j.get(btn, "type")) orelse 0) == 2) try linkButton(btn, &media);
+                for (j.array(j.get(cv, "components"))) |btn| {
+                    const k = j.int(j.get(btn, "type")) orelse 0;
+                    if (k == 2) try linkButton(btn, &media) else if (k >= 0 and k <= 255 and interaction.isSelect(@intCast(k))) try selectBlock(out, btn);
+                }
                 if (media.items.len > 0) try out.append(alloc, .{ .kind = .buttons, .media = try media.toOwnedSlice(alloc) });
             },
             else => {},
@@ -2073,6 +2102,80 @@ pub const Gateway = struct {
         }
         try componentCards(m, &list);
         return list.toOwnedSlice(alloc);
+    }
+
+    /// Eventos das nossas interações (topics/gateway-events): o Discord aceitou,
+    /// o bot respondeu, falhou, abriu um modal ou mandou sugestões.
+    fn onInteraction(g: *Gateway, t: []const u8, d: Value) !void {
+        const nonce = j.id(j.get(d, "nonce")) orelse 0;
+        const id = j.id(j.get(d, "id")) orelse 0;
+        const e: interaction.Event = if (std.mem.eql(u8, t, "INTERACTION_CREATE"))
+            .{ .created = .{ .nonce = nonce, .id = id } }
+        else if (std.mem.eql(u8, t, "INTERACTION_SUCCESS"))
+            .{ .succeeded = .{ .nonce = nonce, .id = id } }
+        else if (std.mem.eql(u8, t, "INTERACTION_FAILURE"))
+            .{ .failed = .{ .nonce = nonce, .reason = @intCast(std.math.clamp(j.int(j.get(d, "reason_code")) orelse 0, 0, 255)) } }
+        else if (std.mem.eql(u8, t, "INTERACTION_MODAL_CREATE"))
+            .{ .modal = (try interaction.parseModal(alloc, d)) orelse return }
+        else if (std.mem.eql(u8, t, "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE"))
+            .{ .autocomplete = try interaction.parseChoices(alloc, d) }
+        else
+            // INTERACTION_IFRAME_MODAL_CREATE (atividade embutida): não abrimos.
+            return;
+        g.emit(.{ .interaction = e });
+    }
+
+    /// POST /interactions (multipart quando há anexo) e o índice de comandos.
+    fn interact(g: *Gateway, cmd: interaction.Cmd) void {
+        var path_buf: [96]u8 = undefined;
+        switch (cmd) {
+            .send => |s| {
+                const failed: ev.Event = .{ .interaction = .{ .failed = .{ .nonce = s.nonce } } };
+                const body = interaction.payload(alloc, s, g.session_id[0..g.session_len]) catch return g.emit(failed);
+                defer alloc.free(body);
+                var mime: ?*c.curl_mime = null;
+                defer if (mime) |mp| c.curl_mime_free(mp);
+                if (s.files.len > 0) {
+                    mime = c.curl_mime_init(g.rest);
+                    const mp = mime orelse return g.emit(failed);
+                    const pj = c.curl_mime_addpart(mp);
+                    _ = c.curl_mime_name(pj, "payload_json");
+                    _ = c.curl_mime_data(pj, body.ptr, body.len);
+                    _ = c.curl_mime_type(pj, "application/json");
+                    for (s.files, 0..) |f, i| {
+                        var nbuf: [32]u8 = undefined;
+                        const field = std.fmt.bufPrintSentinel(&nbuf, "files[{d}]", .{i}, 0) catch return g.emit(failed);
+                        const fp = c.curl_mime_addpart(mp);
+                        _ = c.curl_mime_name(fp, field.ptr);
+                        _ = c.curl_mime_filedata(fp, f.ptr);
+                    }
+                }
+                var resp = g.requestEx("POST", "/interactions", if (mime == null) body else null, mime) orelse return g.emit(failed);
+                defer resp.body.deinit(alloc);
+                if (resp.status >= 300) {
+                    g.emit(failed);
+                    g.noticeHttp(i18n.tr("a interação falhou", "the interaction failed"), &resp);
+                }
+            },
+            .fetch_commands => |sc| {
+                const key = sc.key();
+                const failed: ev.Event = .{ .interaction = .{ .commands = .{ .key = key, .index = null } } };
+                const path = (if (sc.user)
+                    std.fmt.bufPrint(&path_buf, "/users/@me/application-command-index", .{})
+                else if (sc.guild != 0)
+                    std.fmt.bufPrint(&path_buf, "/guilds/{d}/application-command-index", .{sc.guild})
+                else
+                    std.fmt.bufPrint(&path_buf, "/channels/{d}/application-command-index", .{sc.channel})) catch return g.emit(failed);
+                var resp = g.request("GET", path, null) orelse return g.emit(failed);
+                defer resp.body.deinit(alloc);
+                if (resp.status != 200) return g.emit(failed);
+                var arena = std.heap.ArenaAllocator.init(alloc);
+                defer arena.deinit();
+                const root = std.json.parseFromSliceLeaky(Value, arena.allocator(), resp.body.items, .{}) catch return g.emit(failed);
+                const ix = interaction.parseIndex(alloc, root) catch return g.emit(failed);
+                g.emit(.{ .interaction = .{ .commands = .{ .key = key, .index = ix } } });
+            },
+        }
     }
 
     /// GET /users/{id}/profile: banner, bio, desde quando está no servidor,
@@ -2314,6 +2417,8 @@ pub const Gateway = struct {
     fn usesGateway(cmd: ev.Command) bool {
         return switch (cmd) {
             .subscribe_guild, .set_status, .join_voice, .voice_flags => true,
+            // Os eventos da interação vão para a sessão do READY (session_id).
+            .interaction => |ic| ic == .send,
             else => false,
         };
     }
@@ -2718,6 +2823,7 @@ pub const Gateway = struct {
             .gif_search => |q| alloc.free(q.query),
             .forward_message => |f| alloc.free(f.text),
             .ack_bulk => |list| if (list.len > 0) alloc.free(list),
+            .interaction => |ic| interaction.freeCmd(alloc, ic),
             .create_thread => |m| alloc.free(m.name),
             .edit_place => |e| freeEdit(e),
             .create_post => |m| {
@@ -2959,6 +3065,7 @@ pub const Gateway = struct {
         defer freeCommand(cmd);
         var path_buf: [256]u8 = undefined;
         switch (cmd) {
+            .interaction => |ic| g.interact(ic),
             .fetch_history => |ch| {
                 const path = std.fmt.bufPrint(&path_buf, "/channels/{d}/messages?limit=50", .{ch}) catch return;
                 var resp = g.request("GET", path, null) orelse return g.emit(.{ .history = .{ .channel = ch, .messages = &.{} } });

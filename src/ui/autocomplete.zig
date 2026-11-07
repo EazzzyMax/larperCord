@@ -1,5 +1,5 @@
 //! Autocompletar da caixa de texto: `@` (pessoas, cargos, @everyone), `#`
-//! (canais), `:ab` (emojis) e `/` (comandos dos plugins). A lista aparece
+//! (canais), `:ab` (emojis) e `/` (comandos dos bots e dos plugins). A lista aparece
 //! acima da caixa; setas e Tab/Enter escolhem, Esc fecha, o mouse também vale.
 //!
 //! A busca roda só quando o trecho digitado muda; parada, a lista só desenha
@@ -21,9 +21,10 @@ const engine = @import("../plugins/engine.zig");
 const types = @import("../core/types.zig");
 const mentions = @import("../core/mentions.zig");
 const State = @import("state.zig").State;
+const interact = @import("interact.zig");
 const Id = types.Id;
 
-const Kind = enum { user, role, everyone, here, channel, voice, emoji, custom, command, suggestion };
+const Kind = enum { user, role, everyone, here, channel, voice, emoji, custom, command, app_command, suggestion };
 
 const Item = struct {
     kind: Kind,
@@ -347,6 +348,33 @@ fn searchCommands(q: []const u8) void {
     }
 }
 
+/// Comandos de barra dos bots (ui/interact.zig). O primeiro `/` num lugar pede
+/// o índice; quando ele chega, a lista é refeita (`refreshList`).
+fn searchAppCommands(ctx: *d.Ctx, ch_id: Id, q: []const u8) void {
+    var found: [64]interact.Found = undefined;
+    const n = interact.appCommands(ctx, ch_id, &found);
+    for (found[0..n]) |f| {
+        const sc = nameScore(f.cmd.label, q);
+        if (sc == 0) continue;
+        var it: Item = .{ .kind = .app_command, .id = f.cmd.id, .score = sc };
+        var nb: [40]u8 = undefined;
+        it.setName(std.fmt.bufPrint(&nb, "/{s}", .{f.cmd.label}) catch f.cmd.label);
+        it.setHint(f.app);
+        add(it);
+    }
+}
+
+/// O índice de comandos chegou: refaz a busca no próximo quadro.
+pub fn refreshList() void {
+    last_trig = 0;
+    last_len = std.math.maxInt(usize);
+}
+
+/// Onde a lista fica (a base encosta em y): logo acima da caixa de texto.
+pub fn anchorRect() d.Rect {
+    return anchor;
+}
+
 /// Sugestões dos plugins com este gatilho: uma lista pronta, sem chamar o plugin.
 fn searchSuggestions(q: []const u8, trigger: u8) void {
     const e = engine.current orelse return;
@@ -380,7 +408,11 @@ fn runSearch(ctx: *d.Ctx, ch_id: Id, q: []const u8, ch: u8) void {
         '@' => searchUsers(ctx, &cs.info, cs.messages.items, q),
         '#' => searchChannels(ctx, &cs.info, q),
         ':' => searchEmoji(ctx, &cs.info, q),
-        '/' => searchCommands(q),
+        '/' => {
+            // Com a mesma nota, os dos plugins ficam na frente (vêm primeiro).
+            searchCommands(q);
+            searchAppCommands(ctx, ch_id, q);
+        },
         else => searchSuggestions(q, ch),
     }
 }
@@ -527,6 +559,19 @@ fn choose(ctx: *d.Ctx, index: usize) void {
     var buf: [160]u8 = undefined;
     var rb: [48]u8 = undefined;
     const name = it.name();
+    if (it.kind == .app_command) {
+        // O comando de um bot abre o formulário das opções; a caixa fica vazia.
+        if (interact.openCommand(ctx, slots_channel, it.id)) {
+            @memset(&st.input, 0);
+            st.input_sync = true;
+            pending_cursor = 0;
+            cursor = 0;
+        }
+        dismissed_at = null;
+        last_trig = 0;
+        close();
+        return;
+    }
     if (it.kind == .suggestion) {
         // Pelo nome: o plugin pode ter trocado a lista depois da busca.
         const e = engine.current orelse return close();
@@ -544,7 +589,7 @@ fn choose(ctx: *d.Ctx, index: usize) void {
         .custom => std.fmt.bufPrint(&buf, ":{s}:", .{name}) catch return,
         .emoji => emoji_data.glyphOf(it.uni),
         .command => name,
-        .suggestion => unreachable,
+        .suggestion, .app_command => unreachable,
     };
     const repl: ?[]const u8 = switch (it.kind) {
         .user => std.fmt.bufPrint(&rb, "<@{d}>", .{it.id}) catch null,
@@ -572,7 +617,7 @@ fn title() []const u8 {
         '@' => i18n.tr("PESSOAS E CARGOS", "PEOPLE AND ROLES"),
         '#' => i18n.tr("CANAIS", "CHANNELS"),
         ':' => i18n.tr("EMOJIS", "EMOJI"),
-        '/' => i18n.tr("COMANDOS DOS PLUGINS", "PLUGIN COMMANDS"),
+        '/' => i18n.tr("COMANDOS", "COMMANDS"),
         else => i18n.tr("SUGESTÕES DOS PLUGINS", "PLUGIN SUGGESTIONS"),
     };
 }
@@ -646,7 +691,7 @@ fn drawRow(ctx: *d.Ctx, dl: *c.ImDrawList, it: *const Item, row: d.Rect) void {
             d.text(dl, fam.get(.bold), 17, ix - tw / 2, cy - 17 * 0.6, ctx.col(.muted), "#");
         },
         .voice => icons.speaker(dl, ix, cy, ctx.col(.muted).u()),
-        .command => {
+        .command, .app_command => {
             const tw = d.width(fam.get(.bold), 17, "/");
             d.text(dl, fam.get(.bold), 17, ix - tw / 2, cy - 17 * 0.6, ctx.col(.accent), "/");
         },

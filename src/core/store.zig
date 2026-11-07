@@ -882,6 +882,8 @@ pub const Store = struct {
         switch (ev) {
             // Quem cuida é a busca (ver App.afterEvent).
             .search_results, .invite_joined, .invite_created => {},
+            // Quem cuida é ui/interact.zig; aqui só chega o que sobrou da conexão que acabou.
+            .interaction => |x| @import("interaction.zig").freeEvent(x),
             .ready => |r| {
                 s.me = r.me;
                 s.me_rev +%= 1;

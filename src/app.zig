@@ -38,6 +38,7 @@ const theme_mod = @import("theme/theme.zig");
 const plugin_host = @import("plugins/host.zig");
 const mentions = @import("core/mentions.zig");
 const autocomplete = @import("ui/autocomplete.zig");
+const interact = @import("ui/interact.zig");
 const inbox_core = @import("core/inbox.zig");
 const leitura = @import("core/leitura.zig");
 const saved_ui = @import("ui/saved.zig");
@@ -511,6 +512,7 @@ pub const App = struct {
     pub fn resetSession(app: *App) void {
         // O que estava na tela vai para o cache antes de sumir.
         msg_cache.flushDirty(&app.store);
+        interact.reset();
         @import("ui/search.zig").close();
         _ = app.st.drafts.switchTo(app.gpa, 0, &app.st.input, app.st.editing == 0);
         app.st.filtros.resetSession();
@@ -1228,6 +1230,8 @@ pub const App = struct {
                 app.cmd(.{ .gif_favorites = app.store.gif_favorites.req });
             },
             .search_messages => |s| app.cmd(.{ .search_messages = s }),
+            // Sem rede (antes do login): o pedido não vai a lugar nenhum.
+            .interaction => |ic| if (app.net == .none) @import("core/interaction.zig").freeCmd(std.heap.c_allocator, ic) else app.cmd(.{ .interaction = ic }),
             .join_invite => |code| app.cmd(.{ .join_invite = code }),
             .create_invite => |ci| app.cmd(.{ .create_invite = ci }),
             .open_pins => |id| {
@@ -1676,6 +1680,11 @@ pub const App = struct {
         var reconnected = false;
         var new_session = false;
         for (batch.items) |e| {
+            // Botões, menus, modais e comandos: o estado é da interface.
+            if (e == .interaction) {
+                interact.onEvent(&app.st, &app.store, e.interaction);
+                continue;
+            }
             if (e == .status and e.status == .ready) reconnected = true;
             if (e == .ready and was_ready) new_session = true;
             if (e == .notice) {

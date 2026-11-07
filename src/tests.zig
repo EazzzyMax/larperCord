@@ -48,6 +48,7 @@ test {
     _ = @import("ui/settings_state.zig");
     _ = @import("ui/guild_color.zig");
     _ = @import("net/jsonx.zig");
+    _ = @import("core/interaction.zig");
     _ = @import("net/web_client.zig");
     _ = @import("net/read_state_json.zig");
     _ = @import("net/media_url.zig");

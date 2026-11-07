@@ -1,5 +1,6 @@
 //! Modelo de dados, espelhando o do Discord (IDs são snowflakes de 64 bits).
 const std = @import("std");
+const interaction = @import("interaction.zig");
 
 pub const Id = u64;
 
@@ -385,10 +386,15 @@ pub const EmbedMedia = struct {
     size: u32 = 0,
     video: bool = false,
     spoiler: bool = false,
+    /// Botão de interação (não de link): o `custom_id` que vai para o bot,
+    /// o estilo (1 primário, 2 secundário, 3 sucesso, 4 perigo) e se está desligado.
+    custom_id: []const u8 = "",
+    style: u8 = 0,
+    disabled: bool = false,
 };
 
 pub const EmbedBlock = struct {
-    kind: enum { text, separator, gallery, file, buttons } = .text,
+    kind: enum { text, separator, gallery, file, buttons, select } = .text,
     /// Markdown (`.text`).
     text: []const u8 = "",
     /// `.text`: a miniatura ao lado, se houver. Os outros: os itens.
@@ -396,13 +402,16 @@ pub const EmbedBlock = struct {
     /// `.separator`: linha visível e espaço maior.
     divider: bool = false,
     large: bool = false,
+    /// `.select`: o menu de seleção (core/interaction.zig), com a própria memória.
+    select: ?*interaction.OwnedSelect = null,
 };
 
 pub fn freeBlocks(gpa: std.mem.Allocator, list: []const EmbedBlock) void {
     for (list) |b| {
         if (b.text.len > 0) gpa.free(b.text);
-        for (b.media) |m| for ([_][]const u8{ m.url, m.link, m.label }) |t| if (t.len > 0) gpa.free(t);
+        for (b.media) |m| for ([_][]const u8{ m.url, m.link, m.label, m.custom_id }) |t| if (t.len > 0) gpa.free(t);
         if (b.media.len > 0) gpa.free(b.media);
+        if (b.select) |sel| interaction.freeOwnedSelect(sel);
     }
     if (list.len > 0) gpa.free(list);
 }
@@ -452,6 +461,10 @@ pub const Message = struct {
     pinned: bool = false,
     /// Thread aberta a partir desta mensagem (0 = nenhuma): o cartão clicável.
     thread: Id = 0,
+    /// Flags do Discord (só quem usou vê = 1 << 6, o bot está pensando = 1 << 7…).
+    flags: u32 = 0,
+    /// Aplicação dona da mensagem (resposta de interação); 0 = o autor.
+    app: Id = 0,
 
     /// O texto que vai para a caixa ao editar (e volta ao Discord).
     pub fn editable(m: *const Message) []const u8 {
