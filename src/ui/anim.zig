@@ -51,7 +51,9 @@ pub fn to(key: u32, target: f32, speed: f32) f32 {
 
 /// Mesmo easing de `to`, para valores guardados fora do mapa.
 pub fn step(value: f32, target: f32, speed: f32) f32 {
-    if (instant) return target;
+    // Já no alvo (quase sempre: cada hover da tela passa aqui a cada quadro): sem
+    // o `@exp`, que é a parte cara. O resultado é o mesmo do caminho de baixo.
+    if (instant or value == target) return target;
     const k = 1.0 - @exp(-speed * dt);
     const v = value + (target - value) * k;
     // `v == value`: o passo ficou menor que a precisão do f32 (rolagem alta com
@@ -67,4 +69,16 @@ test "passo menor que a precisão do f32 termina" {
     active = false;
     try std.testing.expectEqual(@as(f32, 15847.22), step(15847.197, 15847.22, 18));
     try std.testing.expect(!active);
+}
+
+test "já no alvo: devolve o alvo sem marcar animação" {
+    instant = false;
+    dt = 1.0 / 60.0;
+    active = false;
+    try std.testing.expectEqual(@as(f32, 42), step(42, 42, 18));
+    try std.testing.expect(!active);
+    // Fora do alvo continua andando (e pedindo quadro).
+    const v = step(0, 42, 18);
+    try std.testing.expect(v > 0 and v < 42);
+    try std.testing.expect(active);
 }
