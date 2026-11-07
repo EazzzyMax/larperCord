@@ -3113,7 +3113,7 @@ const ops_theme = [_]Op{
     .{ .shot = "tema-pequena" },
     .{ .resize = .{ 1280, 800 } },
     .{ .wait = 200 },
-} ++ @import("qa_plugins.zig").ops_theme;
+} ++ @import("qa_plugins.zig").ops_theme ++ @import("qa_rtl.zig").ops_theme;
 
 // --- Tela de login -------------------------------------------------------------
 

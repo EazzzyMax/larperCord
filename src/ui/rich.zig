@@ -10,6 +10,7 @@ const i18n = @import("i18n.zig");
 const qa = @import("qa.zig");
 const syntax = @import("syntax.zig");
 const emoji_img = @import("emoji_img.zig");
+const bidi = @import("bidi.zig");
 
 /// Contexto do quadro (o app marca): é ele que dá acesso às imagens dos emojis,
 /// em qualquer lugar onde tenha texto (mensagem, embed, bio).
@@ -47,6 +48,8 @@ pub const Opts = struct {
     /// da coluna dos números (o `layout` calcula).
     code_line: u32 = 0,
     code_gutter: f32 = 0,
+    /// Só na passada que mede para a ordem visual (ver `Plan`): onde anotar cada pedaço.
+    plan: ?*Plan = null,
 };
 
 /// Tamanho de um trecho em relação ao texto normal (títulos e `-#`).
@@ -238,6 +241,158 @@ fn relativeText(buf: []u8, unix: i64) []const u8 {
     return (if (delta < 0) f(buf, "há {d} {s}", .{ n, name }) else f(buf, "em {d} {s}", .{ n, name })) catch "?";
 }
 
+/// Texto com árabe ou hebraico: cada palavra se molda sozinha no `d.text` (ver `bidi`), mas a
+/// ordem das palavras na linha também muda. Uma passada que só mede anota onde cada pedaço caiu
+/// (a quebra é feita com as larguras moldadas) e cada linha ganha a ordem visual antes de
+/// desenhar. Só o x muda: seleção e cópia seguem os bytes do texto original.
+const Plan = struct {
+    const max = 1024;
+    n: usize = 0,
+    /// Passou de `max`: o último parágrafo fica na ordem lógica.
+    full: bool = false,
+    x: [max]f32 = undefined,
+    y: [max]f32 = undefined,
+    w: [max]f32 = undefined,
+    cls: [max]bidi.Class = undefined,
+    /// Começa um parágrafo (\n antes) / começa uma linha / não sai do lugar (marcador de
+    /// lista e linha de bloco de código).
+    para: [max]bool = undefined,
+    line: [max]bool = undefined,
+    fixed: [max]bool = undefined,
+    /// O x de cada pedaço na ordem visual.
+    vx: [max]f32 = undefined,
+    /// A linha do pedaço mudou de ordem: onde ela começa e termina na tela, a direção do
+    /// parágrafo e se o pedaço é o último dela no texto (a sonda do mouse usa, ver `select`).
+    moved: [max]bool = undefined,
+    lo: [max]f32 = undefined,
+    hi: [max]f32 = undefined,
+    rtl: [max]bool = undefined,
+    last: [max]bool = undefined,
+    /// O vão até o próximo pedaço do texto, na tela: à direita ou à esquerda, conforme a
+    /// ordem (a seleção pinta o espaço entre as palavras ali).
+    gap_lo: [max]f32 = undefined,
+    gap_hi: [max]f32 = undefined,
+
+    const Line = struct { lo: f32, hi: f32, rtl: bool, last: bool, gap_lo: f32, gap_hi: f32 };
+
+    fn add(p: *Plan, x: f32, y: f32, w: f32, cls: bidi.Class, para: bool, line: bool, fixed: bool) void {
+        if (p.n == max) {
+            p.full = true;
+            return;
+        }
+        p.x[p.n] = x;
+        p.y[p.n] = y;
+        p.w[p.n] = w;
+        p.cls[p.n] = cls;
+        p.para[p.n] = para or p.n == 0;
+        p.line[p.n] = line;
+        p.fixed[p.n] = fixed;
+        p.n += 1;
+    }
+
+    fn xAt(p: *const Plan, k: usize, x: f32) f32 {
+        return if (k < p.n) p.vx[k] else x;
+    }
+
+    fn lineOf(p: *const Plan, k: usize) ?Line {
+        if (k >= p.n or !p.moved[k]) return null;
+        return .{ .lo = p.lo[k], .hi = p.hi[k], .rtl = p.rtl[k], .last = p.last[k], .gap_lo = p.gap_lo[k], .gap_hi = p.gap_hi[k] };
+    }
+
+    fn resolve(p: *Plan) void {
+        var i: usize = 0;
+        while (i < p.n) {
+            var j = i + 1;
+            while (j < p.n and !p.para[j]) j += 1;
+            for (i..j) |k| {
+                p.vx[k] = p.x[k];
+                p.moved[k] = false;
+            }
+            if (!(j == p.n and p.full)) p.paragraph(i, j);
+            i = j;
+        }
+    }
+
+    /// A ordem visual de um parágrafo, linha por linha. Cada linha começa onde começava.
+    fn paragraph(p: *Plan, from: usize, to: usize) void {
+        var idx: [max]u16 = undefined;
+        var cls: [max]bidi.Class = undefined;
+        var gap: [max]bool = undefined;
+        var starts: [max]bool = undefined;
+        var order: [max]u16 = undefined;
+        var n: usize = 0;
+        for (from..to) |k| {
+            if (p.fixed[k]) continue;
+            const prev = if (n > 0) idx[n - 1] else 0;
+            idx[n] = @intCast(k);
+            cls[n] = p.cls[k];
+            starts[n] = n == 0 or p.line[k] or p.y[k] != p.y[prev];
+            gap[n] = !starts[n] and p.x[k] > p.x[prev] + p.w[prev] + 0.5;
+            n += 1;
+        }
+        if (!bidi.anyRtl(cls[0..n])) return;
+        const rtl = bidi.orderWords(cls[0..n], gap[0..n], starts[0..n], order[0..n]) orelse return;
+        var a: usize = 0;
+        while (a < n) {
+            var b = a + 1;
+            while (b < n and !starts[b]) b += 1;
+            const lo = p.x[idx[a]];
+            var cx = lo;
+            for (a..b) |v| {
+                const q = order[v];
+                p.vx[idx[q]] = cx;
+                cx += p.w[idx[q]];
+                if (v + 1 < b) cx += p.gapBetween(idx[0..n], q, order[v + 1]);
+            }
+            // `idx` está na ordem do texto: o último de a..b é o fim da linha no texto.
+            for (a..b) |v| {
+                const k = idx[v];
+                p.moved[k] = true;
+                p.lo[k] = lo;
+                p.hi[k] = cx;
+                p.rtl[k] = rtl;
+                p.last[k] = v + 1 == b;
+                p.gap_lo[k] = 0;
+                p.gap_hi[k] = 0;
+                if (v + 1 == b) continue;
+                const nx = idx[v + 1];
+                if (p.vx[nx] >= p.vx[k]) {
+                    p.gap_lo[k] = p.vx[k] + p.w[k];
+                    p.gap_hi[k] = p.vx[nx];
+                } else {
+                    p.gap_lo[k] = p.vx[nx] + p.w[nx];
+                    p.gap_hi[k] = p.vx[k];
+                }
+            }
+            a = b;
+        }
+    }
+
+    /// O espaço entre duas palavras vizinhas na tela: o que havia entre elas no texto ou, se
+    /// não eram vizinhas, o da fronteira entre os trechos.
+    fn gapBetween(p: *const Plan, idx: []const u16, q: u16, r: u16) f32 {
+        const lo = @min(q, r);
+        const hi = @max(q, r);
+        const at = if (hi - lo == 1) lo else hi - 1;
+        const k = idx[at];
+        const next = idx[at + 1];
+        return @max(0, p.x[next] - (p.x[k] + p.w[k]));
+    }
+};
+
+var plan: Plan = .{};
+
+/// Algum trecho de texto tem letra RTL? (Menção e emoji não contam: são neutros na linha.)
+fn anyRtl(spans: []const md.Span) bool {
+    for (spans) |*sp| if (!sp.flags.block and sp.mention == .none and sp.emoji == 0 and bidi.hasRtl(sp.text)) return true;
+    return false;
+}
+
+fn classFor(sp: *const md.Span, s: []const u8) bidi.Class {
+    if (sp.mention != .none or sp.emoji != 0 or sp.flags.bullet) return .neutral;
+    return bidi.classOf(s);
+}
+
 /// Largura de uma palavra. Uma enorme ("kkkk…"): se o começo já não cabe na
 /// linha, não precisa medir o resto (ela vai em pedaços de qualquer jeito).
 fn wordWidth(font: *c.ImFont, size: f32, s: []const u8, wrap: f32) f32 {
@@ -274,6 +429,17 @@ pub fn layout(dl: ?*c.ImDrawList, store: *const Store, th_col: anytype, spans: [
     var syn: syntax.State = .normal;
     // "Copiar" do bloco: desenhado depois da última linha, para ficar por cima.
     var copy: ?struct { sp: *const md.Span, x: f32, y: f32, at_top: bool } = null;
+    // Árabe ou hebraico: primeiro só mede, para a ordem visual de cada linha (ver `Plan`).
+    const planned: ?*const Plan = if (dl != null and o_in.plan == null and anyRtl(spans)) blk: {
+        var po = o_in;
+        po.plan = &plan;
+        plan.n = 0;
+        plan.full = false;
+        _ = layout(null, store, th_col, spans, x0, y0, wrap, po, mouse);
+        plan.resolve();
+        break :blk &plan;
+    } else null;
+    var piece: usize = 0;
     while (it.next()) |word_in| {
         var word = word_in;
         // Palavra maior que a linha (link, "kkkkk…"): vai em pedaços.
@@ -317,6 +483,10 @@ pub fn layout(dl: ?*c.ImDrawList, store: *const Store, th_col: anytype, spans: [
                 s = word.text;
                 w = d.width(font, size, s) + pad * 2;
             }
+            if (o.plan) |p| p.add(x, y, w, classFor(sp, s), word.breaks > 0, line_start, sp.flags.bullet or sp.flags.block);
+            // Onde o pedaço vai na tela: na ordem visual, se a linha tem texto RTL.
+            const px = if (planned) |p| p.xAt(piece, x) else x;
+            piece += 1;
             if (dl) |l| {
                 const block_top = sp.flags.block and word.text.ptr == sp.text.ptr;
                 if (block_top) {
@@ -335,11 +505,12 @@ pub fn layout(dl: ?*c.ImDrawList, store: *const Store, th_col: anytype, spans: [
                     ol.code_gutter = gutter;
                 }
                 if (line_start and sp.flags.quote) d.rect(l, .{ .x = x0, .y = y0 + y, .w = 3, .h = cur_h }, th_col.c(.faint).alpha(o.color.a), 1.5);
-                drawWord(l, th_col, sp, font, size, s, x0 + x, y0 + y, w, pad, ol, mouse, &syn);
+                drawWord(l, th_col, sp, font, size, s, x0 + px, y0 + y, w, pad, ol, mouse, &syn);
                 // A seleção vem por cima: o fundo do código não pode cobri-la.
                 const sel_pad = if (sp.flags.block) pad + 4 + ol.code_gutter else pad;
-                if (o.base) |base| select(l, th_col, base, word, sp, font, size, sel_pad, x0 + x, y0 + y, w, space_w, ol, line_start);
-                if (block_top and o.ctx != null) copy = .{ .sp = sp, .x = x0 + x, .y = y0 + y, .at_top = y == 0 };
+                const vline: ?Plan.Line = if (planned) |p| p.lineOf(piece - 1) else null;
+                if (o.base) |base| select(l, th_col, base, word, sp, font, size, sel_pad, x0 + px, y0 + y, w, space_w, ol, line_start, vline, x0);
+                if (block_top and o.ctx != null) copy = .{ .sp = sp, .x = x0 + px, .y = y0 + y, .at_top = y == 0 };
             }
             line_start = false;
             x += w;
@@ -380,23 +551,51 @@ pub fn offsetAt(font: *c.ImFont, size: f32, t: []const u8, px: f32) u32 {
     return @intCast(t.len);
 }
 
-/// Desenha o fundo da seleção e responde à sonda do mouse.
-fn select(dl: *c.ImDrawList, th: anytype, base: [*]const u8, word: Word, sp: *const md.Span, font: *c.ImFont, size: f32, pad: f32, x: f32, y: f32, w: f32, space_w: f32, o: Opts, line_start: bool) void {
+/// Desenha o fundo da seleção e responde à sonda do mouse. `vline`: a linha está na ordem
+/// visual (ver `Plan`), e o x das palavras não cresce junto com o texto. `x0`: onde o texto começa.
+fn select(dl: *c.ImDrawList, th: anytype, base: [*]const u8, word: Word, sp: *const md.Span, font: *c.ImFont, size: f32, pad: f32, x: f32, y: f32, w: f32, space_w: f32, o: Opts, line_start: bool, vline: ?Plan.Line, x0: f32) void {
     const start: u32 = @intCast(@intFromPtr(word.text.ptr) - @intFromPtr(base));
     const end: u32 = start + @as(u32, @intCast(word.text.len));
     const atomic = sp.flags.bullet or sp.mention != .none or sp.emoji != 0;
+    // Palavra RTL sai de trás para frente: o começo dela fica à direita.
+    const mirror = !atomic and bidi.baseRtl(word.text);
     if (o.sel_from < o.sel_to and start < o.sel_to and end > o.sel_from) {
         var hx0 = x;
         var hx1 = x + w;
-        if (!atomic) {
+        if (!atomic and mirror) {
+            const right = x + w - pad;
+            if (o.sel_from > start) hx1 = right - d.width(font, size, word.text[0 .. o.sel_from - start]);
+            if (o.sel_to < end) hx0 = right - d.width(font, size, word.text[0 .. o.sel_to - start]);
+        } else if (!atomic) {
             if (o.sel_from > start) hx0 = x + pad + d.width(font, size, word.text[0 .. o.sel_from - start]);
             if (o.sel_to < end) hx1 = x + pad + d.width(font, size, word.text[0 .. o.sel_to - start]);
         }
-        if (word.space_after and o.sel_to > end) hx1 += space_w;
-        d.rect(dl, .{ .x = hx0, .y = y, .w = hx1 - hx0, .h = o.line_h }, th.c(.accent).alpha(0.32), 0);
+        const sel_col = th.c(.accent).alpha(0.32);
+        if (word.space_after and o.sel_to > end) {
+            // Linha na ordem visual: o espaço até a próxima palavra do texto pode estar de
+            // qualquer lado.
+            if (vline) |vl| {
+                if (vl.gap_hi > vl.gap_lo) d.rect(dl, .{ .x = x0 + vl.gap_lo, .y = y, .w = vl.gap_hi - vl.gap_lo, .h = o.line_h }, sel_col, 0);
+            } else hx1 += space_w;
+        }
+        d.rect(dl, .{ .x = hx0, .y = y, .w = hx1 - hx0, .h = o.line_h }, sel_col, 0);
     }
     if (o.probe) |pr| if (pr.y >= y and pr.y < y + o.line_h) {
-        if (pr.x >= x) {
+        if (vline) |vl| {
+            // Só vale a palavra sob o mouse (com meio espaço de cada lado).
+            if (pr.x >= x - space_w / 2 and pr.x < x + w + space_w / 2) {
+                const tw = @max(0, w - pad * 2);
+                const rel = std.math.clamp(pr.x - x - pad, 0, tw);
+                pr.out = if (atomic) (if (pr.x < x + w / 2) start else end) else if (mirror) start + offsetAt(font, size, word.text, tw - rel) else start + offsetAt(font, size, word.text, rel);
+            } else {
+                // Fora das palavras: antes do começo da linha (à direita, se ela é RTL) vale o
+                // começo; depois do fim, o fim.
+                const left = pr.x < x0 + vl.lo;
+                const right = pr.x >= x0 + vl.hi;
+                if (line_start and (if (vl.rtl) right else left)) pr.out = start;
+                if (vl.last and (if (vl.rtl) left else right)) pr.out = end;
+            }
+        } else if (pr.x >= x) {
             pr.out = if (pr.x >= x + w) end else if (atomic) (if (pr.x < x + w / 2) start else end) else start + offsetAt(font, size, word.text, pr.x - x - pad);
         } else if (line_start) pr.out = start;
     };

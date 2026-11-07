@@ -788,7 +788,7 @@ fn page(p: *Page, previews: []const Preview) void {
                 "By default the app follows your system language. Changes apply right away.",
                 "デフォルトではシステムの言語に従います。変更はすぐに反映されます。",
             ));
-            if (ctx.fonts.scripts_tried and ctx.fonts.cjk_n == 0) p.note(i18n.tr(
+            if (ctx.fonts.triedGroup(.cjk) and !ctx.fonts.hasGroup(.cjk)) p.note(i18n.tr(
                 "Nenhuma fonte de japonês, coreano ou chinês foi encontrada neste sistema, e esses textos aparecem como ???. Instale uma, como a Noto Sans CJK (pacote noto-fonts-cjk ou fonts-noto-cjk).",
                 "No Japanese, Korean or Chinese font was found on this system, so those texts show as ???. Install one, such as Noto Sans CJK (package noto-fonts-cjk or fonts-noto-cjk).",
             ));
@@ -1197,5 +1197,5 @@ fn about(p: *Page) void {
     p.note(i18n.tr("Cliente não oficial: usar contas de usuário fora do app oficial vai contra os termos do Discord.", "Unofficial client: using user accounts outside the official app is against Discord's terms."));
     p.divider();
     p.heading(i18n.tr("Feito com", "Built with"));
-    for ([_][]const u8{ "Zig 0.17", "SDL 3.4", "Dear ImGui 1.93 (dear_bindings)", "FreeType + fontconfig", "libcurl + zlib", "stb_image", "Lua 5.4 (plugins)", "Inter, JetBrains Mono, Noto Color Emoji" }) |t| p.note(t);
+    for ([_][]const u8{ "Zig 0.17", "SDL 3.4", "Dear ImGui 1.93 (dear_bindings)", "FreeType + fontconfig", "GNU FriBidi", "libcurl + zlib", "stb_image", "Lua 5.4 (plugins)", "Inter, JetBrains Mono, Noto Color Emoji" }) |t| p.note(t);
 }

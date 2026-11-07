@@ -95,8 +95,10 @@ fn build(ctx: *const d.Ctx, tx: *const tfx.TextFx, out: *[max_runs]Run, advs: *A
 }
 
 fn rawText(dl: *c.ImDrawList, font: *c.ImFont, sz: f32, x: f32, y: f32, col: u32, s: []const u8) void {
-    const b: [*]const u8 = s.ptr;
-    c.ImDrawList_AddTextImFontPtrEx(dl, font, sz, d.v(@round(x), @round(y)), col, b, b + s.len, 0, null);
+    // Como no `d.text`: árabe e hebraico já moldados e na ordem da tela.
+    const t = @import("bidi.zig").visual(s) orelse s;
+    const b: [*]const u8 = t.ptr;
+    c.ImDrawList_AddTextImFontPtrEx(dl, font, sz, d.v(@round(x), @round(y)), col, b, b + t.len, 0, null);
 }
 
 /// Desenha todos os runs a partir de (x, base). `over` troca a cor (sombra, contorno).

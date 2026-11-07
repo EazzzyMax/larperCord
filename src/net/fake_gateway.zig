@@ -1715,7 +1715,40 @@ fn buildHistory(channel: Id, now_ms: i64) ![]types.Message {
         try set(&msgs[n - 4], try i18n.allocPrint(alloc, "a regra fixada é esta: https://discord.com/channels/{d}/{d}/{d}", "the pinned rule is this one: https://discord.com/channels/{d}/{d}/{d}", .{ guildId(0), channel, oldPinId(channel, now_ms) }));
         try set(&msgs[n - 6], try i18n.allocPrint(alloc, "vejam <#{d}> e falem com <@1001>; o outro canal: https://ptb.discord.com/channels/{d}/{d}", "check <#{d}> and talk to <@1001>; the other channel: https://ptb.discord.com/channels/{d}/{d}", .{ channelId(0, 4), guildId(0), channelId(0, 5) }));
     }
+    if (channel == rtl_channel) try demoRtlMessages(msgs);
     return msgs;
+}
+
+/// #música: árabe e hebraico (texto da direita para a esquerda, ui/bidi.zig), um deles no
+/// meio de uma frase em português e outro num embed. O QA confere que aparecem (qa_rtl.zig).
+pub const rtl_channel: Id = 500_008;
+pub const rtl_arabic = "السلام عليكم ورحمة الله **وبركاته** 🌙 هل سمعتم الأغنية الجديدة؟";
+pub const rtl_hebrew = "שלום לכולם! השיר הזה מושלם, 10 מתוך 10 🔥";
+
+fn demoRtlMessages(msgs: []types.Message) !void {
+    const n = msgs.len;
+    const texts = [_]struct { back: usize, text: []const u8 }{
+        .{ .back = 1, .text = rtl_hebrew },
+        .{ .back = 2, .text = rtl_arabic },
+        .{ .back = 6, .text = pick("ouvindo agora: فيروز - كيفك إنت 🎶", "listening now: فيروز - كيفك إنت 🎶") },
+    };
+    for (texts) |t| {
+        const m = &msgs[n - t.back];
+        alloc.free(m.content);
+        m.content = try alloc.dupe(u8, t.text);
+        m.reply_to = 0;
+    }
+    const e = try alloc.alloc(types.Embed, 1);
+    e[0] = .{
+        .provider = try alloc.dupe(u8, "YouTube"),
+        .author = try alloc.dupe(u8, "فيروز"),
+        .title = try alloc.dupe(u8, "كيفك إنت"),
+        .url = try alloc.dupe(u8, "https://www.youtube.com/"),
+        .description = try alloc.dupe(u8, "أغنية من ألبوم **كيفك إنت** (1991)"),
+        .color = 0xFF0000,
+        .has_color = true,
+    };
+    msgs[n - 6].embeds = e;
 }
 
 /// Emoji personalizado no meio do texto, mensagens só de emoji (grandes) e
