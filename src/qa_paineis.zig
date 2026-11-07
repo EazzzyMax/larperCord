@@ -457,6 +457,87 @@ fn gifPreviewsReset(app: *App) void {
     app.st.settings.gif_hosts = false;
 }
 
+// --- GIFs favoritos ----------------------------------------------------------------
+
+const cat_gif = "https://tenor.com/view/dancing-cat-gif-1000";
+const loading_gif = "https://tenor.com/view/larper-loading";
+var fav_writes: u64 = 0;
+
+fn favWritesMark(_: *App) void {
+    fav_writes = gw.sent.gif_favorite_writes.load(.monotonic);
+}
+/// A demonstração gravou `n` vezes desde a marca, e o resto das configurações da conta
+/// (o que não é favorito) continuou igual byte a byte.
+fn favWritten(n: u64) bool {
+    return gw.sent.gif_favorite_writes.load(.monotonic) == fav_writes + n and gw.sent.frecency_intact.load(.monotonic) == 1;
+}
+fn favStarUnstarred(app: *App) bool {
+    const l = &app.store.gif_favorites;
+    return favWritten(1) and l.state == .ready and l.items.len == 2 and !l.has(cat_gif) and qa.find("gif:1") != null;
+}
+fn favStarStarred(app: *App) bool {
+    const l = &app.store.gif_favorites;
+    return favWritten(2) and l.state == .ready and l.items.len == 3 and std.mem.eql(u8, l.items[0].url, cat_gif);
+}
+fn favTabShowsNew(app: *App) bool {
+    return favStarStarred(app) and qa.find("gif:2") != null and app.st.popup == .gif;
+}
+fn findDemoGif(app: *App) ?struct { id: types.Id, i: usize } {
+    const ch = app.st.activeChannel() orelse return null;
+    const cs = app.store.channel(ch) orelse return null;
+    for (cs.messages.items) |*m| for (m.msg.attachments, 0..) |a, i| {
+        if (std.mem.eql(u8, a.url, "demo:gif")) return .{ .id = m.msg.id, .i = i };
+    };
+    return null;
+}
+fn jumpToDemoGif(app: *App) void {
+    const f = findDemoGif(app) orelse return;
+    app.st.jump = f.id;
+}
+fn tDemoGif(app: *App, b: []u8) []const u8 {
+    const f = findDemoGif(app) orelse return "";
+    return std.fmt.bufPrint(b, "att:{d}:{d}", .{ f.id, f.i }) catch "";
+}
+fn tDemoGifStar(app: *App, b: []u8) []const u8 {
+    const f = findDemoGif(app) orelse return "";
+    return std.fmt.bufPrint(b, "att-star:{d}:{d}", .{ f.id, f.i }) catch "";
+}
+fn msgGifStarred(app: *App) bool {
+    const l = &app.store.gif_favorites;
+    return favWritten(3) and l.items.len == 4 and std.mem.eql(u8, l.items[0].url, loading_gif);
+}
+fn msgGifUnstarred(app: *App) bool {
+    const l = &app.store.gif_favorites;
+    return favWritten(4) and l.items.len == 3 and !l.has(loading_gif);
+}
+
+// --- GIF longo --------------------------------------------------------------------
+
+const images_mod = @import("ui/images.zig");
+
+/// Pedir a imagem é o que faz a animação andar (como desenhar na tela).
+fn longGifEntry(app: *App) ?*images_mod.Entry {
+    _ = app.images.get("demo:longgif", 400, 240);
+    var it = app.images.map.iterator();
+    while (it.next()) |e| if (std.mem.endsWith(u8, e.key_ptr.*, " demo:longgif")) return e.value_ptr;
+    return null;
+}
+fn longGifStreams(app: *App) bool {
+    const e = longGifEntry(app) orelse return false;
+    return e.state == .ready and e.stream != null and e.frames.len == 1;
+}
+fn longGifFullLoop(app: *App) bool {
+    const e = longGifEntry(app) orelse return false;
+    const st = e.stream orelse return false;
+    return st.loopFrames() == images_mod.demo_long_frames and st.out_of_order == 0 and st.max_delay_ms == 30 and
+        st.shown + @import("core/gif_quadros.zig").ring_len >= images_mod.demo_long_frames;
+}
+fn longGifMemory(app: *App) bool {
+    const e = longGifEntry(app) orelse return false;
+    const all_frames: usize = images_mod.demo_long_frames * 400 * 240 * 4;
+    return e.bytes <= images_mod.gif_limit_bytes.load(.monotonic) and e.bytes < all_frames / 2;
+}
+
 const ffmpeg_mod = @import("platform/ffmpeg.zig");
 const ffmpeg_get = @import("net/ffmpeg_get.zig");
 
@@ -594,8 +675,35 @@ pub const ops_extras = [_]Op{
     click("gif-previews-on"),
     .{ .expect = .{ .name = "e o botão liga a opção de verdade", .check = gifPreviewsOn, .timeout_ms = 2000 } },
     .{ .run = gifPreviewsReset },
+    .{ .run = favWritesMark },
+    .{ .hover = .{ .mark = "gif:0" } },
+    .{ .wait = 100 },
+    click("gif-star:0"),
+    .{ .expect = .{ .name = "a estrela nos favoritos tira o GIF, na hora e na conta (só os favoritos mudam)", .check = favStarUnstarred, .timeout_ms = 3000 } },
+    click("gif-tab:0"),
+    .{ .hover = .{ .mark = "gif:0" } },
+    .{ .wait = 100 },
+    .{ .shot = "gif-estrela-seletor" },
+    click("gif-star:0"),
+    .{ .expect = .{ .name = "a estrela em alta guarda o GIF como o mais novo", .check = favStarStarred, .timeout_ms = 3000 } },
+    click("gif-tab:1"),
+    .{ .expect = .{ .name = "e a aba de favoritos já mostra", .check = favTabShowsNew, .timeout_ms = 2000 } },
     click("gif:1"),
     .{ .expect = .{ .name = "clicar manda o link e não mexe no que estava escrito", .check = gifSent, .timeout_ms = 3000 } },
+    s("estrela no GIF da conversa"),
+    .{ .run = jumpToDemoGif },
+    .{ .wait = 500 },
+    .{ .hover = .{ .dyn = tDemoGif } },
+    .{ .wait = 150 },
+    .{ .click = .{ .dyn = tDemoGifStar } },
+    .{ .expect = .{ .name = "a estrela no GIF da conversa guarda nos favoritos", .check = msgGifStarred, .timeout_ms = 3000 } },
+    .{ .shot = "gif-estrela-conversa" },
+    .{ .click = .{ .dyn = tDemoGifStar } },
+    .{ .expect = .{ .name = "e de novo tira", .check = msgGifUnstarred, .timeout_ms = 3000 } },
+    s("GIF longo toca aos poucos, com todos os quadros"),
+    .{ .expect = .{ .name = "passou do limite: toca decodificando aos poucos em vez de juntar quadros", .check = longGifStreams, .timeout_ms = 10000 } },
+    .{ .expect = .{ .name = "uma volta inteira mostra os 96 quadros, em ordem, 30 ms cada", .check = longGifFullLoop, .timeout_ms = 25000 } },
+    expect("e a memória fica bem abaixo da de todos os quadros", longGifMemory),
     .{ .key = .{ .key = c.ImGuiKey_A, .ctrl = true } },
     key(c.ImGuiKey_Backspace),
     s("sair do servidor (o que está aberto)"),

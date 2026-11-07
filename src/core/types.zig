@@ -212,6 +212,9 @@ pub const Gif = struct {
     src: []const u8,
     preview: []const u8 = "",
     title: []const u8 = "",
+    /// Tamanho original (0 = não veio): vai junto quando vira favorito.
+    width: u16 = 0,
+    height: u16 = 0,
 };
 
 pub const Guild = struct {

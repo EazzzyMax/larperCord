@@ -11,6 +11,7 @@ const StoredMessage = @import("../core/store.zig").StoredMessage;
 const state = @import("state.zig");
 const i18n = @import("i18n.zig");
 const video = @import("video.zig");
+const gif_fav = @import("gif_fav.zig");
 
 const Attachment = types.Attachment;
 
@@ -83,7 +84,7 @@ pub fn draw(ctx: *d.Ctx, dl: *c.ImDrawList, m: *const StoredMessage, x: f32, y_i
         if (a.isImage()) {
             const sz = imageSize(a, avail);
             const r: d.Rect = .{ .x = x, .y = y, .w = sz[0], .h = sz[1] };
-            image(ctx, dl, a, r, scale, alpha, hid, m.msg.id, i);
+            image(ctx, dl, a, r, scale, alpha, hid, m.msg.id, i, gif_fav.keyOf(m.msg.content, a));
             markVisible(r, m.msg.id, i);
             y += sz[1];
         } else {
@@ -108,7 +109,7 @@ fn markVisible(r: d.Rect, msg_id: types.Id, index: usize) void {
     if (x1 > x0 and y1 > y0) qa.mark(.{ .x = x0, .y = y0, .w = x1 - x0, .h = y1 - y0 }, "att:{d}:{d}", .{ msg_id, index });
 }
 
-fn image(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, scale: f32, alpha: f32, hid: usize, msg_id: types.Id, index: usize) void {
+fn image(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, scale: f32, alpha: f32, hid: usize, msg_id: types.Id, index: usize, fav_key: []const u8) void {
     const radius: f32 = 8;
     // Vídeo tocando aqui: o player ocupa o lugar da prévia.
     const vkey = video.keyOf(msg_id, index);
@@ -117,12 +118,16 @@ fn image(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, scale:
         video.draw(ctx, dl, r, alpha, msg_id, if (pv == .ready) pv.ready else null);
         return;
     }
+    // Estrela de favorito no GIF com o mouse em cima: a área dela vem antes da do GIF.
+    const star_r: ?d.Rect = if (fav_key.len > 0 and msg_id != 0 and gif_fav.shows(ctx, r)) gif_fav.rect(r) else null;
+    const star_hb: ?d.Hit = if (star_r) |sr| d.hit(ctx, hid ^ 0x57A2_0000, sr) else null;
     const hb = d.hit(ctx, hid, r);
+    const hovered = hb.hovered or (if (star_hb) |sh| sh.hovered else false);
     const set = &ctx.st.settings;
     // GIF de fora (Tenor/Giphy) desligado nas configurações: fica a prévia.
     var url = if (a.still.len > 0 and !set.gif_hosts) a.still else a.url;
     // Sem tocar sozinho, o GIF anda com o mouse em cima (como no Discord).
-    const play = set.autoplay_gifs or hb.hovered;
+    const play = set.autoplay_gifs or hovered;
     var look = ctx.images.getEx(url, r.w * scale, r.h * scale, play);
     if (look == .failed and a.still.len > 0 and url.ptr != a.still.ptr) {
         url = a.still;
@@ -139,7 +144,7 @@ fn image(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, scale:
             playing = t.animated and play;
             // Cortar em vez de esticar: a imagem muito fina tem um tamanho mínimo na conversa.
             @import("embeds.zig").imageCover(dl, t, r, alpha, radius, 0);
-            if (hb.hovered) d.rect(dl, r, d.Rgba.white.alpha(0.06), radius);
+            if (hovered) d.rect(dl, r, d.Rgba.white.alpha(0.06), radius);
         },
         .loading => {
             // Esqueleto com um brilho passando enquanto baixa.
@@ -170,6 +175,13 @@ fn image(ctx: *d.Ctx, dl: *c.ImDrawList, a: *const Attachment, r: d.Rect, scale:
         d.rect(dl, br, d.Rgba.black.alpha(0.6 * alpha), 4);
         const f = ctx.ui.get(.bold);
         d.text(dl, f, 11, br.x + (br.w - d.width(f, 11, "GIF")) / 2, d.centerY(br, 11), d.Rgba.white.alpha(alpha), "GIF");
+    }
+    if (star_r) |sr| {
+        gif_fav.want(ctx);
+        const on = gif_fav.isOn(ctx, fav_key);
+        qa.mark(sr, "att-star:{d}:{d}", .{ msg_id, index });
+        gif_fav.draw(ctx, dl, sr, star_hb.?, on);
+        if (star_hb.?.clicked) gif_fav.toggle(ctx, fav_key, a.url, a.width, a.height, on);
     }
     if (hb.clicked) {
         // Vídeo toca aqui (com FFmpeg) ou abre no navegador.

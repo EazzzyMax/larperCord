@@ -163,15 +163,87 @@ pub const GifList = struct {
     req: u32 = 0,
     state: enum { none, loading, ready, failed } = .none,
     items: []types.Gif = &.{},
+
+    pub fn has(list: *const GifList, url: []const u8) bool {
+        for (list.items) |g| if (std.mem.eql(u8, g.url, url)) return true;
+        return false;
+    }
+
+    /// A estrela muda a lista na hora (o novo vai na frente, como o mais novo); a
+    /// resposta do Discord, com o mesmo `req`, substitui depois. Respostas mais
+    /// velhas (de antes do clique) não valem mais.
+    pub fn toggleLocal(list: *GifList, url: []const u8, shown: []const u8, add: bool) void {
+        list.req +%= 1;
+        if (list.state != .ready) return;
+        if (add) {
+            if (list.has(url) or shown.len == 0) return;
+            const items = ev_alloc.alloc(types.Gif, list.items.len + 1) catch return;
+            const u = ev_alloc.dupe(u8, url) catch {
+                ev_alloc.free(items);
+                return;
+            };
+            const s = ev_alloc.dupe(u8, shown) catch {
+                ev_alloc.free(u);
+                ev_alloc.free(items);
+                return;
+            };
+            items[0] = .{ .url = u, .src = s };
+            @memcpy(items[1..], list.items);
+            if (list.items.len > 0) ev_alloc.free(list.items);
+            list.items = items;
+            return;
+        }
+        var n: usize = 0;
+        for (list.items) |g| {
+            if (!std.mem.eql(u8, g.url, url)) n += 1;
+        }
+        if (n == list.items.len) return;
+        const items: []types.Gif = if (n == 0) &.{} else ev_alloc.alloc(types.Gif, n) catch return;
+        var i: usize = 0;
+        for (list.items) |g| {
+            if (std.mem.eql(u8, g.url, url)) {
+                freeGif(g);
+                continue;
+            }
+            items[i] = g;
+            i += 1;
+        }
+        ev_alloc.free(list.items);
+        list.items = items;
+    }
 };
 
+test "a estrela muda a lista de favoritos na hora" {
+    var l: GifList = .{ .state = .ready };
+    defer freeGifs(l.items);
+    l.toggleLocal("a", "sa", true);
+    l.toggleLocal("b", "sb", true);
+    l.toggleLocal("a", "sa", true);
+    try std.testing.expectEqual(2, l.items.len);
+    try std.testing.expectEqualStrings("b", l.items[0].url);
+    try std.testing.expectEqualStrings("sa", l.items[1].src);
+    try std.testing.expectEqual(3, l.req);
+    l.toggleLocal("a", "", false);
+    try std.testing.expectEqual(1, l.items.len);
+    try std.testing.expect(!l.has("a") and l.has("b"));
+    l.toggleLocal("b", "", false);
+    try std.testing.expectEqual(0, l.items.len);
+    // Lista ainda não carregada: só deixa velhas as respostas pendentes.
+    var none: GifList = .{};
+    none.toggleLocal("a", "sa", true);
+    try std.testing.expectEqual(0, none.items.len);
+    try std.testing.expectEqual(1, none.req);
+}
+
+fn freeGif(g: types.Gif) void {
+    ev_alloc.free(g.url);
+    ev_alloc.free(g.src);
+    ev_alloc.free(g.preview);
+    ev_alloc.free(g.title);
+}
+
 fn freeGifs(items: []types.Gif) void {
-    for (items) |g| {
-        ev_alloc.free(g.url);
-        ev_alloc.free(g.src);
-        ev_alloc.free(g.preview);
-        ev_alloc.free(g.title);
-    }
+    for (items) |g| freeGif(g);
     if (items.len > 0) ev_alloc.free(items);
 }
 

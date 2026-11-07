@@ -81,6 +81,42 @@ pub fn gifFromVideo(buf: []u8, video: []const u8) ?[]const u8 {
     return null;
 }
 
+/// O contrário de `gifFromVideo`, para guardar um favorito como o app oficial guarda
+/// (o MP4, no formato vídeo):
+///   media.tenor.com/<id><5 letras>/nome.<ext> -> media.tenor.com/<id>AAAPo/nome.mp4
+///   media.giphy.com/media/<id>/giphy.<ext>    -> .../giphy.mp4
+/// null = não é do Tenor nem do Giphy (fica a imagem como está).
+pub fn videoFromGif(buf: []u8, url: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, url, "https://")) return null;
+    const path = url[0 .. std.mem.indexOfAny(u8, url, "?#") orelse url.len];
+    const last_slash = std.mem.lastIndexOfScalar(u8, path, '/') orelse return null;
+    const dot = std.mem.lastIndexOfScalar(u8, path, '.') orelse return null;
+    if (dot < last_slash) return null;
+    const host = hostOf(path);
+    if (std.mem.eql(u8, host, "media.tenor.com")) {
+        const start = 8 + host.len + 1;
+        const slash = std.mem.indexOfScalarPos(u8, path, start, '/') orelse return null;
+        if (slash != last_slash or slash - start < 6) return null;
+        return std.fmt.bufPrint(buf, "https://media.tenor.com/{s}AAAPo/{s}.mp4", .{ path[start .. slash - 5], path[slash + 1 .. dot] }) catch null;
+    }
+    if (isGiphy(host)) return std.fmt.bufPrint(buf, "{s}.mp4", .{path[0..dot]}) catch null;
+    return null;
+}
+
+test "vídeo do tenor e do giphy a partir do gif (para guardar o favorito)" {
+    var b: [256]u8 = undefined;
+    var b2: [256]u8 = undefined;
+    const mp4 = "https://media.tenor.com/H5y5Fk9VdKcAAAPo/cat-dance.mp4";
+    // Ida e volta com gifFromVideo.
+    try std.testing.expectEqualStrings(mp4, videoFromGif(&b, gifFromVideo(&b2, mp4).?).?);
+    try std.testing.expectEqualStrings(mp4, videoFromGif(&b, "https://media.tenor.com/H5y5Fk9VdKcAAAA1/cat-dance.webp?x=1").?);
+    try std.testing.expectEqualStrings("https://media.giphy.com/media/abc/giphy.mp4", videoFromGif(&b, "https://media.giphy.com/media/abc/giphy.webp").?);
+    try std.testing.expect(videoFromGif(&b, "https://cdn.discordapp.com/attachments/1/2/x.gif") == null);
+    try std.testing.expect(videoFromGif(&b, "https://media.tenor.com/abc/x.gif") == null);
+    try std.testing.expect(videoFromGif(&b, "https://media.tenor.com/H5y5Fk9VdKcAAAPo/a/b.gif") == null);
+    try std.testing.expect(videoFromGif(&b, "demo:gif") == null);
+}
+
 /// O tamanho guardado de uma imagem pedida com `v` pixels. Pequenas ficam no tamanho exato,
 /// porque a placa de vídeo só reduz bem até umas 2 vezes. Nas maiores, passos largos para
 /// redimensionar a janela não baixar tudo de novo.
