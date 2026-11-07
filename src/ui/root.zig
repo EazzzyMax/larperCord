@@ -176,6 +176,8 @@ pub fn frame(ctx: *d.Ctx, placed: *std.ArrayList(layout.Placed), previews: []con
 
     const t1 = if (profile) c.SDL_GetTicksNS() else 0;
     popup.draw(ctx);
+    // Formulário de comando e modal de bot: por cima dos popups.
+    @import("interact.zig").draw(ctx);
     settings.draw(ctx, previews);
     if (profile) profAdd("overlays", (c.SDL_GetTicksNS() - t1) / 1000);
     @import("attachments.zig").viewer(ctx);

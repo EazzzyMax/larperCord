@@ -243,7 +243,8 @@ pub fn save(store: *Store, cs: *ChannelState) void {
     while (i > 0 and n < channel_msgs) {
         i -= 1;
         const m = &items[i];
-        if (m.pending or m.msg.id == 0 or m.deleted) continue;
+        // Só quem usou vê (resposta de interação): não fica guardada.
+        if (m.pending or m.msg.id == 0 or m.deleted or m.msg.flags & (1 << 6) != 0) continue;
         var est: usize = 48 + m.msg.content.len + m.msg.raw.len;
         for (m.msg.attachments) |a| est += 24 + a.url.len + a.filename.len + a.still.len + a.link.len;
         if (n > 0 and bytes + est > channel_bytes) break;

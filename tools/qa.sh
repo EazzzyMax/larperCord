@@ -33,6 +33,7 @@ mkdir -p qa-out/run && chmod 700 qa-out/run
 QA_SUITE=presenca XDG_RUNTIME_DIR="$PWD/qa-out/run" run "presença" $bin --qa --theme classico
 QA_SUITE=moderacao run "moderação" $bin --qa --theme classico
 QA_SUITE=entrada run "entrada" $bin --qa --theme classico
+QA_SUITE=interacoes run "interações" $bin --qa --theme classico
 # Plugins: o que fica gravado ao fechar continua lá ao abrir de novo (outro processo).
 QA_SUITE=plugins-a run "plugins (antes)" $bin --qa
 sleep 2.5

@@ -17,6 +17,7 @@ const w_ui = @import("widgets.zig");
 const links = @import("../core/links.zig");
 const links_ui = @import("links.zig");
 const cover = @import("media_cover.zig");
+const interact = @import("interact.zig");
 
 const max_w: f32 = 520;
 const gap: f32 = 6;
@@ -156,7 +157,10 @@ pub fn appendText(ctx: *d.Ctx, out: *std.ArrayList(u8), m: *const StoredMessage,
 /// se `dl` não for null.
 pub fn block(ctx: *d.Ctx, dl: ?*c.ImDrawList, m: *const StoredMessage, x: f32, y_in: f32, avail: f32, alpha: f32, sel_in: Sel) f32 {
     const invites = hasInvite(m);
-    if (m.msg.embeds.len == 0 and !invites) return 0;
+    const foot = interact.footerHeight(m);
+    if (m.msg.embeds.len == 0 and !invites and foot == 0) return 0;
+    // Botões e menus dos cartões sabem de que mensagem são.
+    interact.beginMessage(m);
     var y = y_in;
     var k: usize = 0;
     var sel = sel_in;
@@ -192,6 +196,11 @@ pub fn block(ctx: *d.Ctx, dl: ?*c.ImDrawList, m: *const StoredMessage, x: f32, y
             if (dl) |l| inviteCard(ctx, l, sp.target(), x, y, @min(avail, invite_w), alpha, m.msg.id ^ shown);
             y += invite_h;
         }
+    }
+    // "Pensando…", "falhou" e "só você vê" (respostas de interação).
+    if (foot > 0) {
+        y += 4;
+        y += interact.footer(ctx, dl, m, x, y, alpha);
     }
     return y - y_in;
 }
@@ -493,7 +502,8 @@ fn fileRow(ctx: *d.Ctx, dl: ?*c.ImDrawList, it: *const types.EmbedMedia, x: f32,
     return h;
 }
 
-/// Botões de link de um bot (os outros pedem uma interação, que não fazemos).
+/// Botões de um bot: os de link abrem o endereço; os outros mandam a
+/// interação (ui/interact.zig).
 fn buttons(ctx: *d.Ctx, dl: ?*c.ImDrawList, b: *const types.EmbedBlock, x: f32, y: f32, w: f32, alpha: f32) f32 {
     const f = ctx.ui.get(.semibold);
     const bh: f32 = 30;
@@ -506,13 +516,17 @@ fn buttons(ctx: *d.Ctx, dl: ?*c.ImDrawList, b: *const types.EmbedBlock, x: f32, 
             cy += bh + 6;
         }
         if (dl) |l| {
-            const r: d.Rect = .{ .x = x + cx, .y = y + cy, .w = bw, .h = bh };
-            const hb = d.hit(ctx, @truncate(@intFromPtr(it)), r);
-            qa.mark(r, "embed-button", .{});
-            d.rect(l, r, (if (hb.hovered) ctx.col(.hover) else ctx.col(.text).alpha(0.08)).alpha(alpha), 6);
-            _ = d.textClipped(l, f, 13, r.x + 12, d.centerY(r, 13), ctx.col(.text).alpha(alpha), it.label, bw - 24);
-            d.tip(ctx, r, it.link, hb.hovered);
-            if (hb.clicked) links_ui.open(ctx, it.link);
+            if (it.custom_id.len > 0) {
+                interact.drawButton(ctx, l, it, .{ .x = x + cx, .y = y + cy, .w = bw, .h = bh }, alpha);
+            } else {
+                const r: d.Rect = .{ .x = x + cx, .y = y + cy, .w = bw, .h = bh };
+                const hb = d.hit(ctx, @truncate(@intFromPtr(it)), r);
+                qa.mark(r, "embed-button", .{});
+                d.rect(l, r, (if (hb.hovered) ctx.col(.hover) else ctx.col(.text).alpha(0.08)).alpha(alpha), 6);
+                _ = d.textClipped(l, f, 13, r.x + 12, d.centerY(r, 13), ctx.col(.text).alpha(alpha), it.label, bw - 24);
+                d.tip(ctx, r, it.link, hb.hovered);
+                if (hb.clicked) links_ui.open(ctx, it.link);
+            }
         }
         cx += bw + 6;
     }
@@ -545,6 +559,9 @@ fn blocks(ctx: *d.Ctx, dl: ?*c.ImDrawList, e: *const types.Embed, spans: []const
                 y += fileRow(ctx, dl, it, x, y, w, alpha);
             },
             .buttons => y += buttons(ctx, dl, b, x, y, w, alpha),
+            .select => if (b.select) |s| {
+                y += interact.selectBox(ctx, dl, s, x, y, w, alpha);
+            },
         }
     }
     return y - y0;

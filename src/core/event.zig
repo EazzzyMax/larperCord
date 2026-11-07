@@ -13,6 +13,7 @@ const stickers = @import("stickers.zig");
 const UrlPair = @import("media_refresh.zig").Pair;
 const moderacao = @import("moderacao.zig");
 const entrada = @import("entrada.zig");
+const interaction = @import("interaction.zig");
 const Id = types.Id;
 
 pub const Ready = struct {
@@ -226,6 +227,8 @@ pub const Event = union(enum) {
     sticker_packs: struct { packs: []stickers.Pack = &.{}, ok: bool = true },
     /// POST /attachments/refresh-urls: os links novos (vazio = não veio).
     urls_refreshed: []UrlPair,
+    /// Botões, menus, modais e comandos de barra (core/interaction.zig).
+    interaction: interaction.Event,
 };
 
 /// `rejected`: o Discord recusou o token (4004). Vem logo antes de `failed`.
@@ -420,6 +423,8 @@ pub const Command = union(enum) {
     fetch_sticker_packs,
     /// Manda uma figurinha (`sticker_ids`) na conversa.
     send_sticker: struct { channel: Id, sticker: Id, nonce: u64 },
+    /// Interação com um bot ou o índice de comandos (core/interaction.zig).
+    interaction: interaction.Cmd,
     shutdown,
 };
 
@@ -590,4 +595,7 @@ pub const Action = union(enum) {
     fetch_sticker_packs,
     /// Um clique numa figurinha do seletor: manda na conversa.
     send_sticker: struct { channel: Id, sticker: Id },
+    /// Um clique num botão, uma escolha num menu, um modal ou um comando:
+    /// sempre um pedido só (ui/interact.zig). Textos no c_allocator.
+    interaction: interaction.Cmd,
 };

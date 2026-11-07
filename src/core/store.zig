@@ -1035,6 +1035,8 @@ pub const Store = struct {
             .entrada => |e| if (e == .pending) {
                 if (e.pending.pending) try s.pending_guilds.put(s.gpa, e.pending.guild, {}) else _ = s.pending_guilds.remove(e.pending.guild);
             },
+            // Quem cuida é ui/interact.zig; aqui só chega o que sobrou da conexão que acabou.
+            .interaction => |x| @import("interaction.zig").freeEvent(x),
             .ready => |r| {
                 s.me = r.me;
                 s.me_rev +%= 1;
