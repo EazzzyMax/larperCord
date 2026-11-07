@@ -894,6 +894,7 @@ const Worker = struct {
         });
         if (debugOn() and now - w.stats_ms >= 3000) {
             dbg("recebido: {d} pacotes de {d} pessoas, fora de ordem {d}, perdidos refeitos {d}, inventados {d}, fila vazia {d}, pausas de quem fala {d}, maior vão {d} ms, descartados {d}, recomeços {d}, sem decifrar {d}; thread: acordou atrasada até {d} ms, ocupada até {d} ms", .{ w.stats.packets, w.n_sources, w.stats.late, w.stats.rebuilt, w.stats.concealed, w.stats.starved, w.stats.paused, w.stats.gap_max_ms, w.stats.skipped, w.stats.cleared, w.stats.undecrypted, w.stats.wake_late_ms, w.stats.busy_ms });
+            dbg("extra: com padding {d}, silêncios decodificados {d}, quadros quase no limite {d}, mistura estourou {d} amostras", .{ w.stats.padded, w.stats.silence_frames, w.stats.near_full, mix_over.swap(0, .monotonic) });
             w.stats = .{};
             dbg("mic: {s}, rms máx {d:.0}, {d} quadros enviados, DAVE {s}", .{ if (w.mic.stream == null) "sem microfone" else if (blocked) "mudo" else "ligado", w.mic_peak_rms, w.sent_frames, if (w.dave) |dv| (if (dv.enabled) "cifrando" else "esperando") else "não" });
             w.stats_ms = now;
@@ -1011,6 +1012,7 @@ const Worker = struct {
         // marker and the ciphertext goes to the Opus decoder.
         var end = cipher.len;
         if (buf[0] & 0x20 != 0) {
+            w.stats.padded += 1;
             if (end == 0 or plain[end - 1] == 0 or plain[end - 1] > end) return;
             end -= plain[end - 1];
         }
@@ -1021,6 +1023,11 @@ const Worker = struct {
         const seq = std.mem.readInt(u16, buf[2..4], .big);
         const ts = std.mem.readInt(u32, buf[4..8], .big);
         if (std.mem.eql(u8, frame, &silence)) {
+            // Passa pelo decodificador: ele prevê o volume de cada quadro a partir do anterior.
+            // Sem isto, a próxima fala pode sair muitas vezes mais alta por uns 100 ms.
+            var quiet: [5760 * channels]i16 = undefined;
+            _ = c.opus_decode(src.dec, frame.ptr, @intCast(frame.len), &quiet, 5760, 0);
+            w.stats.silence_frames += 1;
             src.jitter.silenceFrame(seq, ts);
             return;
         }
@@ -1185,6 +1192,8 @@ const Worker = struct {
         }
         if (plan.gap) src.seam.dropped();
         if (plan.paused) w.stats.paused += 1;
+        // Depois de uma pausa ou de um buraco grande, o estado dele é de outra hora.
+        if (spurt or plan.fresh) _ = c.opus_decoder_ctl(src.dec, c.OPUS_RESET_STATE);
         if (!spurt and !plan.clear and !plan.paused and queued_ms == 0) w.stats.starved += 1;
         if (plan.pad_ms > 0) {
             const silence_buf: [voz.Jitter.cushion_max * bytes_per_ms]u8 = @splat(0);
@@ -1212,12 +1221,27 @@ const Worker = struct {
         var pcm: [5760 * channels]i16 = undefined;
         const n = c.opus_decode(src.dec, frame.ptr, @intCast(frame.len), &pcm, 5760, 0);
         if (n <= 0) return;
+        if (debugOn()) w.noteLevel(src, pcm[0..@as(usize, @intCast(n)) * channels], since, spurt, plan, frame);
         if (plan.skip) {
             w.stats.skipped += 1;
             src.seam.dropped();
             return;
         }
         src.put(st, pcm[0..@as(usize, @intCast(n)) * channels]);
+    }
+
+    /// Com a depuração ligada: o estalo some na média de 3 s, então o salto vai para o registro
+    /// na hora, com o que pode explicar ele.
+    fn noteLevel(w: *Worker, src: *Source, pcm: []const i16, since: i64, spurt: bool, plan: voz.Jitter.Plan, frame: []const u8) void {
+        var peak: i32 = 0;
+        for (pcm) |v| peak = @max(peak, @as(i32, @intCast(@abs(@as(i32, v)))));
+        if (peak >= 32000) w.stats.near_full += 1;
+        const now = nowMs();
+        if (peak >= 8000 and peak > src.peak_prev * 3 and now - src.jump_ms >= 200) {
+            src.jump_ms = now;
+            dbg("salto de volume: ssrc {d}, pessoa {d}: pico {d} -> {d}, {d} bytes, TOC {x:0>2}, {d} ms sem pacote, perdidos {d}, começo de fala {}, pausa {}", .{ src.ssrc, src.user, src.peak_prev, peak, frame.len, frame[0], since, plan.lost, spurt, plan.paused });
+        }
+        src.peak_prev = peak;
     }
 
     /// A fila de alguém seca antes da próxima volta: em vez de um corte seco no
@@ -1248,6 +1272,7 @@ const Worker = struct {
         if (w.out.dev == 0 or !c.SDL_GetAudioDeviceFormat(w.out.dev, &fmt, &frames) or frames <= 0 or fmt.freq <= 0) return;
         w.pull_ms = @intCast(@divTrunc(frames * 1000, fmt.freq) + 1);
         dbg("saída: {d} Hz, {d} quadros de cada vez ({d} ms)", .{ fmt.freq, frames, w.pull_ms });
+        if (debugOn()) _ = c.SDL_SetAudioPostmixCallback(w.out.dev, mixCheck, null);
         for (w.sources[0..w.n_sources]) |*s| s.jitter.pull_ms = w.pull_ms;
     }
 
@@ -1259,6 +1284,18 @@ const Worker = struct {
         };
     }
 };
+
+/// Amostras da mistura final fora de -1..1 (o SDL corta seco): a soma das vozes estourou.
+var mix_over: std.atomic.Value(u32) = .init(0);
+
+fn mixCheck(_: ?*anyopaque, _: [*c]const c.SDL_AudioSpec, buffer: [*c]f32, buflen: c_int) callconv(.c) void {
+    const n: usize = @intCast(@divTrunc(buflen, @sizeOf(f32)));
+    var over: u32 = 0;
+    for (buffer[0..n]) |v| {
+        if (@abs(v) > 1) over += 1;
+    }
+    if (over > 0) _ = mix_over.fetchAdd(over, .monotonic);
+}
 
 /// O que aconteceu com o áudio desde o último relatório (LARPER_VOICE_DEBUG=1).
 const Stats = struct {
@@ -1275,6 +1312,10 @@ const Stats = struct {
     skipped: u32 = 0,
     cleared: u32 = 0,
     undecrypted: u32 = 0,
+    /// Pacotes com padding no RTP, quadros de silêncio e quadros quase no limite de 16 bits.
+    padded: u32 = 0,
+    silence_frames: u32 = 0,
+    near_full: u32 = 0,
     wake_late_ms: i64 = 0,
     busy_ms: i64 = 0,
 };
@@ -1290,6 +1331,9 @@ const Source = struct {
     last_emit_ms: i64 = 0,
     jitter: voz.Jitter = .{},
     seam: voz.Seam = .{},
+    /// Só para o registro de depuração: o pico do último quadro e do último salto avisado.
+    peak_prev: i32 = 0,
+    jump_ms: i64 = 0,
 
     /// Entrega áudio ao stream, sem degrau onde ele não continua de onde parou.
     fn put(s: *Source, st: *c.SDL_AudioStream, pcm: []i16) void {

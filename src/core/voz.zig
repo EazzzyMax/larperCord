@@ -460,6 +460,8 @@ pub const Jitter = struct {
         paused: bool = false,
         /// Este áudio não continua de onde o anterior parou.
         gap: bool = false,
+        /// Perdeu tanto que o decodificador ficou em outra hora: ele recomeça do zero.
+        fresh: bool = false,
     };
 
     /// A folga nunca pode ser menor que uma puxada do dispositivo mais um quadro.
@@ -497,7 +499,7 @@ pub const Jitter = struct {
         j.ended = false;
         if (queued_ms > j.cushion_ms + reset_ms) return .{ .clear = true, .pad_ms = j.cushion_ms };
         if (queued_ms > j.cushion_ms + behind_ms) return .{ .skip = true };
-        var out: Plan = .{ .lost = if (lost <= max_lost) lost -| concealed else 0, .paused = paused, .gap = paused or lost > max_lost };
+        var out: Plan = .{ .lost = if (lost <= max_lost) lost -| concealed else 0, .fresh = lost > max_lost, .paused = paused, .gap = paused or lost > max_lost };
         if (paused) {
             // Refaz a folga dentro da pausa dele, onde ninguém ouve.
             out.pad_ms = j.cushion_ms -| queued_ms;
@@ -1060,4 +1062,14 @@ test "bipes: curtos, sem estourar, sem estalo no fim, diferentes entre si" {
     @memcpy(&first, a);
     try t_expect(!std.mem.eql(i16, &first, synth(.leave, &buf)[0..4000]));
     try t_expect(soundLen(.mute) < soundLen(.join));
+}
+
+test "buraco grande pede o decodificador do zero, e um pequeno não" {
+    const f: u32 = frame_samples;
+    var j: Jitter = .{};
+    _ = j.plan(1, f, true, 0);
+    const small = j.plan(3, 3 * f, false, 60);
+    try t_expect(!small.fresh and small.lost == 1);
+    const big = j.plan(10, 10 * f, false, 60);
+    try t_expect(big.fresh and big.lost == 0);
 }
