@@ -45,8 +45,12 @@ pub fn draw(p: anytype) void {
     const working = s.phase == .checking or s.phase == .downloading;
     if (working) anim.every(100);
     if (s.phase == .available) {
-        if (p.button(i18n.tr("Baixar e instalar", "Download and install"), false)) updater.install();
-        p.sameLine();
+        if (updater.managedBySystem()) {
+            p.note(i18n.tr("Instalado por um gerenciador de pacotes: atualize por ele.", "Installed by a package manager: update through it."));
+        } else {
+            if (p.button(i18n.tr("Baixar e instalar", "Download and install"), false)) updater.install();
+            p.sameLine();
+        }
     }
     if (s.phase == .ready) {
         if (p.button(i18n.tr("Reiniciar agora", "Restart now"), false)) ctx.act(.restart);

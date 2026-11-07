@@ -1594,6 +1594,10 @@ pub const App = struct {
                 st.palette.forward = 0;
                 st.focus_input = true;
             },
+            .toggle_fullscreen => {
+                const on = c.SDL_GetWindowFlags(app.win.window) & c.SDL_WINDOW_FULLSCREEN != 0;
+                _ = c.SDL_SetWindowFullscreen(app.win.window, !on);
+            },
             .open_settings => {
                 st.palette.open = false;
                 st.settings.open = true;

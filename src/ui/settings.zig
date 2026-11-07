@@ -751,6 +751,7 @@ fn page(p: *Page, previews: []const Preview) void {
             p.keyRow(i18n.tr("Configurações", "Settings"), "Ctrl+,");
             p.keyRow(i18n.tr("Aumentar ou diminuir a interface", "Make the interface bigger or smaller"), "Ctrl + / Ctrl -");
             p.keyRow(i18n.tr("Interface no tamanho normal", "Interface at normal size"), "Ctrl 0");
+            p.keyRow(i18n.tr("Tela cheia", "Fullscreen"), "F11 / Alt+Enter");
             p.keyRow(i18n.tr("Próximo tema", "Next theme"), "F2");
             p.keyRow(i18n.tr("Tema anterior", "Previous theme"), "Shift+F2");
             p.keyRow(i18n.tr("Próxima aba", "Next tab"), "Ctrl+Tab");

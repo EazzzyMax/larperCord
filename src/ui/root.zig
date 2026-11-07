@@ -224,6 +224,8 @@ fn shortcuts(ctx: *d.Ctx) void {
     const shift = io.*.KeyShift;
     if (c.ImGui_IsKeyPressed(c.ImGuiKey_Escape) and ctx.st.popup == .none and !ctx.st.selection.empty()) ctx.st.selection = .{};
     if (ctrl) zoomKeys(ctx);
+    const alt_enter = io.*.KeyAlt and (c.ImGui_IsKeyPressedEx(c.ImGuiKey_Enter, false) or c.ImGui_IsKeyPressedEx(c.ImGuiKey_KeypadEnter, false));
+    if (c.ImGui_IsKeyPressedEx(c.ImGuiKey_F11, false) or alt_enter) ctx.act(.toggle_fullscreen);
     if (ctrl and c.ImGui_IsKeyPressed(c.ImGuiKey_Comma)) ctx.act(if (ctx.st.settings.open) .close_settings else .open_settings);
     if (ctrl and c.ImGui_IsKeyPressed(c.ImGuiKey_K)) {
         palette.commands_first = false;

@@ -495,6 +495,17 @@ fn textStyleDefault(app: *App) bool {
     const src = app.fonts.faces.items[0].font.Sources.Data[0];
     return app.st.settings.text_weight == 1 and src.*.RasterizerMultiply == 1 and src.*.FontLoaderFlags & 31 == 8 and textWidth(app) == text_width_before;
 }
+fn windowFullscreen(app: *App) bool {
+    _ = c.SDL_SyncWindow(app.win.window);
+    return c.SDL_GetWindowFlags(app.win.window) & c.SDL_WINDOW_FULLSCREEN != 0;
+}
+fn windowNotFullscreen(app: *App) bool {
+    return !windowFullscreen(app);
+}
+fn composerKept(app: *App) bool {
+    return std.mem.eql(u8, std.mem.sliceTo(&app.st.input, 0), "sem enviar");
+}
+
 var stylized_w: f32 = 0;
 var question_w: f32 = 0;
 fn probeLetters(app: *App) void {
@@ -583,6 +594,19 @@ pub const ops_extras = [_]Op{
     expect("nada se sobrepõe com o texto mudado", noOverlap),
     click("button:Voltar ao padrão"),
     .{ .expect = .{ .name = "e voltar ao padrão restaura tudo", .check = textStyleDefault, .timeout_ms = 2000 } },
+    s("tela cheia"),
+    key(c.ImGuiKey_Escape),
+    click("composer"),
+    .{ .text = "sem enviar" },
+    .{ .key = .{ .key = c.ImGuiKey_Enter, .alt = true } },
+    .{ .expect = .{ .name = "Alt+Enter liga a tela cheia", .check = windowFullscreen, .timeout_ms = 2000 } },
+    expect("e não manda o que estava escrito", composerKept),
+    .{ .key = .{ .key = c.ImGuiKey_F11 } },
+    .{ .expect = .{ .name = "F11 desliga", .check = windowNotFullscreen, .timeout_ms = 2000 } },
+    .{ .key = .{ .key = c.ImGuiKey_A, .ctrl = true } },
+    key(c.ImGuiKey_Backspace),
+    .{ .key = .{ .key = c.ImGuiKey_Comma, .ctrl = true } },
+    .{ .wait = 150 },
     s("letras sem fonte"),
     .{ .run = probeLetters },
     .{ .expect = .{ .name = "letra estilizada não vira ?", .check = stylizedNotQuestion, .timeout_ms = 2000 } },

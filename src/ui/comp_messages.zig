@@ -1642,7 +1642,9 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
     const was_active = vim.composer_active;
     var kept: @TypeOf(st.input) = undefined;
     if (keep) kept = st.input;
-    if (c.ImGui_InputTextMultilineEx("##composer", &st.input, st.input.len, d.v(input_w, frame_h), flags, inputCallback, st)) submit(ctx);
+    if (c.ImGui_InputTextMultilineEx("##composer", &st.input, st.input.len, d.v(input_w, frame_h), flags, inputCallback, st))
+        // Alt+Enter é tela cheia (ui/root.zig): não manda a mensagem.
+        if (!ctx.io.*.KeyAlt) submit(ctx);
     // Avisa o Discord quando o texto muda (o app limita a um a cada 8 s).
     if (c.ImGui_IsItemEdited() and st.input[0] != 0) ctx.act(.{ .typing = ch_id });
     const active = c.ImGui_IsItemActive();

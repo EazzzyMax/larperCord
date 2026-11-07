@@ -313,6 +313,7 @@ pub const Action = union(enum) {
     close_palette,
     open_settings,
     close_settings,
+    toggle_fullscreen,
     /// Grava as configurações (uma mudança que não passa pela tela delas).
     save_settings,
     reply: Id,

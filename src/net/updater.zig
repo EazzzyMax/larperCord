@@ -232,6 +232,14 @@ fn assetUrl(buf: []u8, name: []const u8) ![:0]const u8 {
     return std.fmt.bufPrintSentinel(buf, "{s}", .{u}, 0) catch error.NoRelease;
 }
 
+/// Instalado por um gerenciador de pacotes (a pasta do programa não é de quem usa): é ele quem
+/// atualiza, e trocar o arquivo daqui daria errado de qualquer jeito.
+pub fn managedBySystem() bool {
+    if (sys.windows) return false;
+    const base = c.SDL_GetBasePath() orelse return false;
+    return c.access(base, c.W_OK) != 0;
+}
+
 fn runInstall() !void {
     const base_c = c.SDL_GetBasePath() orelse return error.Disk;
     const base = std.mem.span(base_c);
