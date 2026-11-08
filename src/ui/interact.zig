@@ -499,32 +499,48 @@ pub fn selectBox(ctx: *d.Ctx, dl: ?*c.ImDrawList, os: *const ix.OwnedSelect, x: 
 
 // --- Rodapé da mensagem: pensando, falhou, só você vê --------------------------------
 
-fn thinking(m: *const StoredMessage) bool {
-    return m.msg.flags & ix.loading_flag != 0 and m.msg.content.len == 0 and m.msg.embeds.len == 0 and m.msg.attachments.len == 0;
+/// Resposta adiada ainda vazia: pensando (com os pontinhos) até o token da interação
+/// vencer; depois, uma linha parada (ela nunca vai sair disso).
+fn loadState(m: *const StoredMessage, now_ms: i64) ix.Loading {
+    const empty = m.msg.content.len == 0 and m.msg.embeds.len == 0 and m.msg.attachments.len == 0;
+    return ix.loading(m.msg.flags, empty, m.msg.id, now_ms);
 }
 
 /// Altura das linhas de baixo (0 = nenhuma). Barato: chamado em toda medida.
-pub fn footerHeight(m: *const StoredMessage) f32 {
+pub fn footerHeight(m: *const StoredMessage, now_ms: i64) f32 {
     var h: f32 = 0;
-    if (thinking(m)) h += 24;
+    // As duas linhas têm a mesma altura: quando o prazo vence, a mensagem não pula.
+    if (loadState(m, now_ms) != .none) h += 24;
     if (isFailed(m.msg.id)) h += 20;
     if (m.msg.flags & ix.ephemeral_flag != 0) h += 22;
     return h;
 }
 
 pub fn footer(ctx: *d.Ctx, dl: ?*c.ImDrawList, m: *const StoredMessage, x: f32, y_in: f32, alpha: f32) f32 {
-    const h = footerHeight(m);
+    const h = footerHeight(m, ctx.now_ms);
     const l = dl orelse return h;
     if (h == 0) return 0;
     var y = y_in;
     const f = ctx.ui.get(.regular);
-    if (thinking(m)) {
-        const name = if (ctx.store.user(m.msg.author)) |u| u.name else "bot";
-        var tb: [128]u8 = undefined;
-        const t = i18n.fmt(&tb, "{s} está pensando", "{s} is thinking", .{name});
-        d.text(l, ctx.ui.get(.medium), 13.5, x, y + 3, ctx.col(.muted).alpha(alpha), t);
-        w.typingDots(l, x + d.width(ctx.ui.get(.medium), 13.5, t) + 8, y + 13, ctx.col(.muted).alpha(alpha), ctx.now_ms);
-        y += 24;
+    switch (loadState(m, ctx.now_ms)) {
+        .none => {},
+        .thinking => {
+            const name = if (ctx.store.user(m.msg.author)) |u| u.name else "bot";
+            var tb: [128]u8 = undefined;
+            const t = i18n.fmt(&tb, "{s} está pensando", "{s} is thinking", .{name});
+            d.text(l, ctx.ui.get(.medium), 13.5, x, y + 3, ctx.col(.muted).alpha(alpha), t);
+            w.typingDots(l, x + d.width(ctx.ui.get(.medium), 13.5, t) + 8, y + 13, ctx.col(.muted).alpha(alpha), ctx.now_ms);
+            y += 24;
+        },
+        // Sem animação: parada, a tela dorme como qualquer outra mensagem.
+        .expired => {
+            const t = i18n.tr("O aplicativo não respondeu", "The application did not respond");
+            d.circle(l, x + 6, y + 12, 6, ctx.col(.danger).alpha(alpha));
+            d.text(l, ctx.ui.get(.bold), 10, x + 3.5, y + 5, d.Rgba.white.alpha(alpha), "!");
+            d.text(l, f, 13, x + 18, y + 4, ctx.col(.danger).alpha(alpha), t);
+            qa.mark(.{ .x = x, .y = y, .w = 200, .h = 24 }, "ix-expired:{d}", .{m.msg.id});
+            y += 24;
+        },
     }
     if (isFailed(m.msg.id)) {
         const t = i18n.tr("Esta interação falhou", "This interaction failed");

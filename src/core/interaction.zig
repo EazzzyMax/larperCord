@@ -19,6 +19,19 @@ pub const Kind = enum(u8) { command = 2, component = 3, autocomplete = 4, modal_
 pub const ephemeral_flag: u32 = 1 << 6;
 pub const loading_flag: u32 = 1 << 7;
 
+/// O token de uma interação vale 15 minutos (docs.discord.food, "Receiving and
+/// Responding"): depois disso o bot não consegue mais responder.
+pub const token_ttl_ms: i64 = 15 * 60_000;
+
+/// Uma resposta adiada ainda vazia: o bot está pensando, ou o prazo dele já passou e a
+/// mensagem nunca vai sair disso.
+pub const Loading = enum { none, thinking, expired };
+
+pub fn loading(flags: u32, empty: bool, id: Id, now_ms: i64) Loading {
+    if (flags & loading_flag == 0 or !empty) return .none;
+    return if (now_ms - types.snowflakeTime(id) < token_ttl_ms) .thinking else .expired;
+}
+
 /// Tipos de componente que este módulo entende.
 pub const comp = struct {
     pub const action_row = 1;
@@ -948,6 +961,19 @@ test "payload de componente tem os campos do Discord" {
     try testing.expectEqualStrings("sess", j.str(j.get(v, "session_id")).?);
     try testing.expectEqualStrings("55", j.str(j.get(v, "nonce")).?);
     try testing.expectEqualStrings("azul", j.str(j.array(j.get(j.get(v, "data").?, "values"))[0]).?);
+}
+
+test "pensando só enquanto o token da interação vale" {
+    const t0: i64 = 1_700_000_000_000;
+    const id = types.makeSnowflake(t0, 7);
+    try testing.expectEqual(Loading.thinking, loading(loading_flag | ephemeral_flag, true, id, t0 + 1000));
+    try testing.expectEqual(Loading.thinking, loading(loading_flag, true, id, t0 + token_ttl_ms - 1));
+    // Antiga (do histórico) e nunca respondida: não fica "pensando" para sempre.
+    try testing.expectEqual(Loading.expired, loading(loading_flag, true, id, t0 + token_ttl_ms));
+    try testing.expectEqual(Loading.expired, loading(loading_flag, true, id, t0 + 86_400_000));
+    // Já respondeu, ou nunca foi adiada.
+    try testing.expectEqual(Loading.none, loading(loading_flag, false, id, t0 + 1000));
+    try testing.expectEqual(Loading.none, loading(ephemeral_flag, true, id, t0 + 1000));
 }
 
 test "interação velha não sai: o prazo é o mesmo da interface" {
