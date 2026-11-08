@@ -238,7 +238,11 @@ fn closeSlot(sl: *Slot) void {
                 var n: c.DWORD = 0;
                 _ = c.GetOverlappedResult(p, &sl.rov, &n, 1);
             }
-            _ = c.DisconnectNamedPipe(p);
+            // Sem DisconnectNamedPipe: ele descarta o que o cliente ainda não leu, e o CLOSE
+            // com o código e o motivo (net/rpc_proto.zig) nunca chegava. Fechando só esta ponta,
+            // o cliente lê o que já está no pipe e depois recebe ERROR_BROKEN_PIPE. Cada conexão
+            // tem a própria instância, que nunca é reaproveitada: não há o que desconectar.
+            // FlushFileBuffers esperaria o cliente ler, sem prazo, e travaria a thread.
             _ = c.CloseHandle(p);
         }
         if (sl.rov.hEvent) |e| _ = c.CloseHandle(e);
