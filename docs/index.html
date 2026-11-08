@@ -416,23 +416,10 @@
     </div>
   </div>
   </div>
-  <p class="foot reveal"><span id="dl-version"></span><a href="https://github.com/RshaCuDeVidro/larperCord/releases">All versions and checksums</a> · <a href="https://github.com/RshaCuDeVidro/larperCord/blob/main/CHANGELOG.md">What changed</a> · <a href="guide/getting-started.html#install">Install guide</a></p>
+  <p class="foot reveal"><span id="dl-version">v0.6.1 · </span><a href="https://github.com/RshaCuDeVidro/larperCord/releases">All versions and checksums</a> · <a href="https://github.com/RshaCuDeVidro/larperCord/blob/main/CHANGELOG.md">What changed</a> · <a href="guide/getting-started.html#install">Install guide</a></p>
   <span class="close">}</span>
   <link rel="stylesheet" href="assets/site/extra.css">
   <script src="assets/site/os.js" defer></script>
-  <script>
-  (function () {
-    // Só enfeite: os botões funcionam sem isso, até com a API fora do ar.
-    fetch('https://api.github.com/repos/RshaCuDeVidro/larperCord/releases/latest').then(function (r) { return r.ok ? r.json() : null; }).then(function (rel) {
-      if (!rel) return;
-      document.getElementById('dl-version').textContent = rel.tag_name + ' · ';
-      (rel.assets || []).forEach(function (a) {
-        var b = document.querySelector('[data-asset="' + a.name + '"]');
-        if (b) b.insertAdjacentHTML('beforeend', ' <small>' + (a.size / 1048576).toFixed(1) + ' MB</small>');
-      });
-    }).catch(function () {});
-  })();
-  </script>
 </section>
 
 <section class="node" id="install" style="padding-top:clamp(40px,6vw,72px)">

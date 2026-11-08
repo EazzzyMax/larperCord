@@ -22,7 +22,7 @@
     role: "cargo", roleDesc: "Nomes de usuário e ícones de servidor", palDesc: "Cor da paleta base, para os layouts que usam wal:", baseName: "cor base", baseDesc: "O gerador monta os dois modos a partir dela",
     mode: { dark: "escuro", light: "claro" }, editing: "Editando: ", cap: { dark: "Escuro", light: "Claro" },
     def: "padrão", on: "ligado", off: "desligado", follows: "segue ", when: "só com ", unless: "sem ",
-    advOk: "ok: o layout é válido", kept: "a prévia anterior continua", errAt: "Erro no arquivo, linha ",
+    advOk: "ok: o layout é válido", kept: "a prévia anterior continua", fallback: function (n) { return "até isto ser corrigido, a prévia usa o layout " + n; }, errAt: "Erro no arquivo, linha ",
     custom: "personalizado", layoutNow: "Layout: ", noOptions: "Este layout não tem opções.", noProps: "Nada para ajustar nesta camada além de esconder e mover.",
     hide: "Esconder", show: "Mostrar", up: "Subir", down: "Descer", reset: "Voltar ao padrão",
     contrastOk: "Tudo legível neste modo.",
@@ -94,7 +94,7 @@
     role: "role", roleDesc: "Usernames and server icons", palDesc: "Base palette color, for layouts that use wal:", baseName: "base color", baseDesc: "The generator builds both modes from it",
     mode: { dark: "dark", light: "light" }, editing: "Editing: ", cap: { dark: "Dark", light: "Light" },
     def: "default", on: "on", off: "off", follows: "follows ", when: "only with ", unless: "without ",
-    advOk: "ok: the layout is valid", kept: "the previous preview stays", errAt: "Error in the file, line ",
+    advOk: "ok: the layout is valid", kept: "the previous preview stays", fallback: function (n) { return "until this is fixed, the preview uses the " + n + " layout"; }, errAt: "Error in the file, line ",
     custom: "custom", layoutNow: "Layout: ", noOptions: "This layout has no options.", noProps: "Nothing to tweak on this layer besides hiding and moving it.",
     hide: "Hide", show: "Show", up: "Move up", down: "Move down", reset: "Back to the default",
     contrastOk: "Everything is readable in this mode.",
@@ -251,10 +251,11 @@
   }
 
   // ------------------------------------------------------------ Estado ----
-  var structures = {}, startSwatches = {};
+  var structures = {}, startSwatches = {}, startMeta = {};
   DATA.order.forEach(function (n) {
     var st = TB.fromSource(DATA.themes[n].src, { base: n, name: n });
     structures[n] = st.structure;
+    startMeta[n] = { desc: st.meta.desc, descEn: st.meta.descEn, preview: st.meta.preview };
     startSwatches[n] = ["rail", "sidebar", "bg", "elevated", "accent", "mention", "text"].map(function (t) { return st.colors.dark[t]; });
   });
   function builtinStructure(n) { return TB.own(structures, n) ? structures[n] : undefined; }
@@ -322,6 +323,23 @@
   // ------------------------------------------------------------- Aviso ----
   // `action` ({ label, run }): um botão no aviso, que fica mais tempo na tela.
   var toast = null, toastTimer = 0;
+  // Com o editor de cor aberto, o aviso vai para perto dele sem cobri-lo (o rodapé do editor e as
+  // amostras continuam à vista); sem o editor, fica no canto de sempre (o CSS).
+  function placeToast() {
+    var st = toast.style;
+    st.top = st.left = st.right = st.bottom = "";
+    if (!popState || pop.hidden) return;
+    var p = pop.getBoundingClientRect(), th = toast.offsetHeight, tw = toast.offsetWidth, vw = innerWidth, vh = innerHeight, x = p.left, y;
+    if (p.top - th - 10 >= 8) y = p.top - th - 10;
+    else if (p.bottom + 10 + th <= vh - 8) y = p.bottom + 10;
+    else {
+      y = Math.max(8, p.top);
+      x = p.left - tw - 10 >= 8 ? p.left - tw - 10 : p.right + 10;
+    }
+    st.top = Math.round(y) + "px";
+    st.left = Math.round(clamp(x, 8, Math.max(8, vw - tw - 8))) + "px";
+    st.right = st.bottom = "auto";
+  }
   function say(text, action) {
     if (!toast) {
       toast = h("div", { "class": "toast tb-toast", role: "status" });
@@ -335,6 +353,7 @@
       b.addEventListener("click", function () { toast.classList.remove("on"); action.run(); });
       toast.appendChild(b);
     }
+    placeToast();
     toast.classList.add("on");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toast.classList.remove("on"); }, action ? 7000 : 2400);
@@ -375,7 +394,10 @@
   var screens = $$("[data-screen]").map(function (sc) { return { el: sc, fbox: $("[data-fbox]", sc), frame: $("[data-frame]", sc), cap: $("[data-cap]", sc), mode: "dark", k: 1 }; });
   // A janela que a prévia imita (fit() escolhe pelo espaço do palco) e a escala de agora.
   var frameSize = { w: W, h: H }, curK = 1, fitK = 1, stacked = false, pinch = null;
-  function screenModes() { return view === "split" ? ["dark", "light"] : [mode]; }
+  // Com o editor de cor aberto numa tela estreita (popKind), só o modo que está sendo editado:
+  // os dois lado a lado ficariam pequenos demais no espaço acima do editor.
+  var popKind = "";
+  function screenModes() { return view === "split" && !popKind ? ["dark", "light"] : [mode]; }
   function renderPreviews() {
     var modes = screenModes(), noMessages = false;
     screens.forEach(function (sc, i) {
@@ -402,12 +424,14 @@
   // modos, escolhe lado a lado ou um embaixo do outro, o que der a prévia maior. Devolve true
   // quando a janela imitada mudou de tamanho (a prévia precisa ser desenhada de novo).
   function measure() {
-    stage.classList.toggle("tbx-split", view === "split");
+    // Dois modos na tela (com o editor aberto num celular, mesmo em "os dois" fica um só).
+    var two = screenModes().length > 1;
+    stage.classList.toggle("tbx-split", two);
     // offsetWidth/Height contam a barra de rolagem: com zoom ela aparece, e a janela imitada não
     // deve mudar por isso (nem a prévia ser refeita no meio de uma pinça).
     var cw = canvas.offsetWidth, ch = canvas.offsetHeight;
     if (!cw || !ch) return false;
-    var cs = getComputedStyle(screensBox), two = view === "split";
+    var cs = getComputedStyle(screensBox);
     var padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0), padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     var gap = parseFloat(cs.columnGap) || parseFloat(cs.gap) || 0, capH = 0;
     if (two) {
@@ -532,6 +556,8 @@
   }
   function setEditMode(m) {
     if (mode === m) return;
+    // Num celular o editor aberto mostra só o modo dele: trocar de modo fecha o editor.
+    if (popKind) closePop();
     mode = m;
     if (view !== "split") view = m;
     changed();
@@ -605,12 +631,14 @@
   canvas.addEventListener("click", function (e) {
     var sc = screenOf(e.target);
     if (!sc) return;
-    var info = P.tokensAt(e.target, sc.frame);
+    var info = P.tokensAt(e.target, sc.frame), fr = sc.fbox.getBoundingClientRect();
+    var at = { x: e.clientX, y: e.clientY, fx: (e.clientX - fr.left) / fr.width, fy: (e.clientY - fr.top) / fr.height };
     if (view === "split") setEditMode(sc.mode);
-    openPop(info.tokens, info.tokens[0], sc.mode, { x: e.clientX, y: e.clientY }, info);
+    openPop(info.tokens, info.tokens[0], sc.mode, at, info);
   });
 
   // ---------------------------------------------- O editor de cor ----
+  var NARROW = "(max-width: 899.98px)", SIDEWAYS = "(max-width: 899.98px) and (orientation: landscape)";
   var pop = $("[data-cpop]"), popState = null, recent = [];
   try { recent = JSON.parse(store("lc-tb-recent") || "[]").filter(function (x) { return typeof x === "string" && readHex(x); }).slice(0, 20); } catch (e) { recent = []; }
   var model = store("lc-tb-model") === "hsl" ? "hsl" : "oklch";
@@ -868,8 +896,37 @@
     syncPop(false);
     placePop(anchor);
     hideHl();
+    popRoom(anchor);
     if (kbd) { cp.hex.focus(); cp.hex.select(); }
   }
+  // Numa tela estreita o editor é uma folha (embaixo; com o aparelho deitado, uma coluna à direita)
+  // e cobriria a prévia. Então o palco encolhe para o espaço que sobra (o CSS lê --pop-h e --pop-w),
+  // a prévia é ajustada de novo ali, mostra só o modo editado e, com zoom, rola até o ponto clicado.
+  function popSize() {
+    body.style.setProperty("--pop-h", pop.offsetHeight + "px");
+    body.style.setProperty("--pop-w", pop.offsetWidth + "px");
+  }
+  function popRoom(anchor) {
+    var kind = popState && matchMedia(NARROW).matches ? (matchMedia(SIDEWAYS).matches ? "side" : "bottom") : "";
+    if (kind) popSize();
+    if (kind !== popKind) {
+      popKind = kind;
+      if (kind) body.dataset.pop = kind; else delete body.dataset.pop;
+      // O tema dos dois modos é refeito: o que mudou enquanto um deles estava fora da vista aparece.
+      if (state) refresh();
+      lastCanvas = canvas.offsetWidth + "x" + canvas.offsetHeight;
+    }
+    if (kind && anchor && anchor.fx !== undefined && zoom !== "fit") reveal(anchor);
+  }
+  function reveal(a) {
+    var sc = screens.filter(function (x) { return !x.el.hidden && x.mode === popState.mode; })[0];
+    if (!sc) return;
+    var r = sc.fbox.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+    canvas.scrollLeft += r.left + a.fx * r.width - (c.left + canvas.clientWidth / 2);
+    canvas.scrollTop += r.top + a.fy * r.height - (c.top + canvas.clientHeight / 2);
+  }
+  if (window.ResizeObserver) new ResizeObserver(function () { if (popKind) popSize(); }).observe(pop);
+  addEventListener("resize", function () { if (popState || popKind) popRoom(); });
   // Enquanto o foco está no editor, o Tab dá a volta dentro dele; Esc fecha e devolve o foco.
   pop.addEventListener("keydown", function (e) {
     if (e.key !== "Tab") return;
@@ -881,14 +938,19 @@
   });
   function closePop(focusBack) {
     if (!popState) return;
-    if (focusBack && popState.opener && popState.opener.isConnected) popState.opener.focus();
+    var back = focusBack && popState.opener && popState.opener.isConnected ? popState.opener : null;
     popState = null;
     pop.hidden = true;
     $$(".tbx-tok.on", box).forEach(function (t) { t.classList.remove("on"); });
+    // Primeiro o painel volta (numa tela estreita ele desceu), depois o foco vai para quem abriu.
+    popRoom();
+    if (back) back.focus();
   }
   document.addEventListener("pointerdown", function (e) {
     if (!popState || pop.contains(e.target)) return;
-    if (e.target.closest(".tbx-fbox,[data-pop-src]")) return;
+    // A barra de baixo (zoom, contraste) também não fecha: numa tela estreita, fechar ali mexeria o
+    // palco antes do clique chegar ao botão.
+    if (e.target.closest(".tbx-fbox,[data-pop-src],.tbx-status")) return;
     closePop();
   });
   buildSliders();
@@ -1121,6 +1183,7 @@
     });
   });
   chip.addEventListener("click", function () {
+    closePop();
     selectTab("tbx-t-colors");
     var c = $("[data-contrast-box]");
     scrollPanelTo(c, false);
@@ -1302,7 +1365,18 @@
     var b = h("button", { type: "button", "class": "tbx-thumb", "aria-pressed": "false", "data-s": n + " layout" }, [mini, h("span", { text: n })]);
     b.title = (lang === "pt" ? DATA.themes[n].desc : DATA.themes[n].descEn) || n;
     b.addEventListener("click", function () {
-      set(function (s) { s.structure = structures[n]; s.layoutFrom = n; });
+      set(function (s) {
+        // A miniatura nas Configurações e a descrição que vieram do layout anterior sem ninguém
+        // mexer acompanham o layout novo; o que a pessoa escreveu ou escolheu fica.
+        var from = s.layoutFrom || s.base, old = from && TB.own(startMeta, from) ? startMeta[from] : null, nw = startMeta[n];
+        if (old && from !== n) {
+          if (s.meta.preview === old.preview) s.meta.preview = nw.preview;
+          if (s.meta.desc === old.desc) s.meta.desc = nw.desc;
+          if (s.meta.descEn === old.descEn) s.meta.descEn = nw.descEn;
+        }
+        s.structure = structures[n];
+        s.layoutFrom = n;
+      });
       say(S.layoutNow + n);
     });
     thumbsBox.appendChild(b);
@@ -1382,7 +1456,8 @@
   var STATUS_ITEMS = ["conn", "ping", "ram", "frame", "voice", "spacer", "theme", "keys", "clock", "me", "mic", "deaf"];
   function propControl(o, f) {
     var path = o.path, wrap = h("div", { "class": "tbx-prop" }), head = h("p", {}, [h("code", { text: f.key })]);
-    wrap.appendChild(head);
+    // Os números levam o nome na mesma linha do campo, e o controle deslizante ganha a largura toda.
+    if (f.kind !== "num") wrap.appendChild(head);
     if (f.kind === "enum") wrap.appendChild(chipGroup(path, f, f.options.map(function (x) { return [x, x]; })));
     else if (f.kind === "bool") wrap.appendChild(chipGroup(path, f, [[true, S.on], [false, S.off]]));
     else if (f.kind === "num") {
@@ -1400,7 +1475,7 @@
         if (isFinite(n)) { slider.value = n; apply(clamp(n, -1, 4000)); }
       });
       reset.addEventListener("click", function () { apply(null); });
-      wrap.appendChild(h("div", { "class": "tbx-propnum" }, [slider, number, reset]));
+      wrap.appendChild(h("div", { "class": "tbx-propnum" }, [h("code", { text: f.key }), number, reset, slider]));
     } else {
       var inp = h("input", { type: "text", "class": "tbx-in mono", spellcheck: "false", value: f.value === undefined ? "" : String(f.value), "data-ctl": path + ":" + f.key, "aria-label": f.key });
       inp.addEventListener("input", function () { editNode(path, function (t, st) { return TB.setProp(t, st, f.key, inp.value === "" ? null : inp.value); }, "tw:" + path + ":" + f.key); });
@@ -1596,6 +1671,8 @@
     put("[data-f-radius]", Math.min(24, state.radius));
     put("[data-f-radius-n]", state.radius);
     put("[data-f-transparent]", state.transparent);
+    // Janela transparente com o bg opaco: nada muda, no app nem na prévia. O aviso diz o que falta.
+    $("[data-f-clear-note]").hidden = !(state.transparent && MODES.every(function (m) { return TB.hexRgba(colorOf("bg", m))[3] >= 0.999; }));
     $$("[data-font]").forEach(function (b) { b.setAttribute("aria-pressed", b.dataset.font === state.fonts.ui || b.dataset.font === state.fonts.mono ? "true" : "false"); });
     $$("[data-r]").forEach(function (b) { b.setAttribute("aria-pressed", +b.dataset.r === state.radius ? "true" : "false"); });
     $$("[data-kind]").forEach(function (b) { var on = b.dataset.kind === state.meta.preview; b.setAttribute("aria-checked", on ? "true" : "false"); b.tabIndex = on ? 0 : -1; });
@@ -1690,12 +1767,22 @@
       if (screenModes().indexOf(m) < 0 && lastGood[m]) return;
       try { lastGood[m] = TB.loadTheme(kdl, { mode: m }); } catch (e) { failed = failed || e; }
     });
+    // Nada desenhado ainda (um link com o layout estragado, logo ao abrir): em vez do palco vazio,
+    // as suas cores no layout de que o tema partiu, e o aviso diz isso.
+    var fellBack = "";
+    if (failed) MODES.forEach(function (m) {
+      if (lastGood[m]) return;
+      var n = [state.layoutFrom, state.base, html.dataset.theme, "orbital"].filter(function (x) { return x && TB.own(structures, x); })[0];
+      if (!n) return;
+      try { var alt = TB.clone(state); alt.structure = structures[n]; lastGood[m] = TB.loadTheme(TB.toKdl(alt, { url: DATA.url }), { mode: m }); fellBack = n; }
+      catch (e) { try { lastGood[m] = TB.loadTheme(DATA.themes[n].src, { mode: m }); fellBack = n; } catch (e2) {} }
+    });
     if (failed) {
-      var line = failed.line ? failed.line - (kdl.slice(0, structBase).split("\n").length - 1) : 0, why = TB.errorText(failed, lang);
+      var line = failed.line ? failed.line - (kdl.slice(0, structBase).split("\n").length - 1) : 0, why = TB.errorText(failed, lang), kept = fellBack ? S.fallback(fellBack) : S.kept;
       errBox.hidden = false;
-      errBox.textContent = S.errAt + (failed.line || "?") + (failed.column ? ":" + failed.column : "") + ": " + why + " · " + S.kept;
+      errBox.textContent = S.errAt + (failed.line || "?") + (failed.column ? ":" + failed.column : "") + ": " + why + " · " + kept;
       advStatus.className = "tbx-adv-status err";
-      advStatus.textContent = (line > 0 ? "layout:" + line + (failed.column ? ":" + failed.column : "") + ": " : "") + why + " · " + S.kept;
+      advStatus.textContent = (line > 0 ? "layout:" + line + (failed.column ? ":" + failed.column : "") + ": " : "") + why + " · " + kept;
     } else {
       errBox.hidden = true;
       advStatus.className = "tbx-adv-status";
@@ -1787,7 +1874,8 @@
   function openExport() {
     closePop();
     closeMenu();
-    sheetOpener = document.activeElement;
+    var a = document.activeElement;
+    sheetOpener = a && a !== document.body && a.focus && !sheet.contains(a) ? a : null;
     sheet.classList.add("open");
     sheet.removeAttribute("aria-hidden");
     if (!scrim) {
@@ -1804,7 +1892,9 @@
     sheet.classList.remove("open");
     sheet.setAttribute("aria-hidden", "true");
     if (scrim && scrim.parentNode) scrim.remove();
-    if (sheetOpener && sheetOpener.focus) sheetOpener.focus();
+    // Quem abriu pode ter sumido (ou era o <body>, pelo atalho E): então o botão Exportar da barra.
+    var back = sheetOpener && sheetOpener.isConnected && sheetOpener.offsetParent !== null ? sheetOpener : $(".tbx-top [data-export-open]");
+    if (back) back.focus();
   }
   sheet.setAttribute("aria-hidden", "true");
   $$("[data-export-open]").forEach(function (b) { b.addEventListener("click", openExport); });
@@ -2087,7 +2177,7 @@
   function fromHash(hash) {
     var m;
     if ((m = /^t=(.+)$/.exec(hash))) {
-      TB.decode(decodeURIComponent(m[1]), builtinStructure).then(function (s) {
+      TB.decode(m[1], builtinStructure).then(function (s) {
         if (state && JSON.stringify(s) === JSON.stringify(state)) return;
         hashReady = true;
         take(s);

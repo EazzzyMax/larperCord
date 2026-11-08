@@ -1946,6 +1946,11 @@
   var LINK_MAX = 1 << 20;
   function decode(token, builtinStructure) {
     token = String(token);
+    // O token vem do endereço (#t=…). base64url não precisa de %, mas um app de conversa pode ter
+    // codificado o link; um % estragado (link cortado, "%%") é um link danificado, não uma exceção.
+    if (token.indexOf("%") >= 0) {
+      try { token = decodeURIComponent(token); } catch (e) { return Promise.reject(linkError("link-broken")); }
+    }
     var kind = token.slice(0, 2), body = token.slice(2);
     function done(json) { return expand(JSON.parse(json), builtinStructure); }
     // Só os nossos códigos passam: DOMException e zlib também têm `code`, com outro sentido.

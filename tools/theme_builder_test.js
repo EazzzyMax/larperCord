@@ -363,7 +363,19 @@ tasks.push(test("damaged or hostile share links are refused with a reason", () =
     TB.decode("j.@@@", builtinStructure).then(() => { throw new Error("accepted j.@@@"); }, (e) => assert.strictEqual(e.code, "link-broken")),
     TB.decode("d.AAAA", builtinStructure).then(() => { throw new Error("accepted d.AAAA"); }, (e) => assert.strictEqual(e.code, "link-broken")),
     TB.decode("x.", builtinStructure).then(() => { throw new Error("accepted x."); }, (e) => assert.strictEqual(e.code, "link-broken")),
+    // Um % estragado (link cortado por um app de conversa, "%%") é um link danificado, não uma exceção
+    // que deixaria a página sem tema nenhum.
+    ...["d.%%%%", "j.%E0%A4%A", "d.abc%", "j.%ZZ"].map((tk) => TB.decode(tk, builtinStructure).then(() => { throw new Error("accepted " + tk); }, (e) => assert.strictEqual(e.code, "link-broken", tk))),
   ]);
+}));
+// Um link que algum app codificou com % continua abrindo o mesmo tema.
+tasks.push(test("share links still open after percent-encoding", () => {
+  const state = TB.fromSource(sources.bolhas, { base: "bolhas", name: "b" });
+  return TB.encode(state, builtinStructure).then((token) => {
+    const mangled = token.replace(/[.\-_]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+    assert.notStrictEqual(mangled, token);
+    return Promise.all([TB.decode(token, builtinStructure), TB.decode(mangled, builtinStructure)]).then(([a, b]) => assert.deepStrictEqual(b, a));
+  });
 }));
 
 // 8. Erros: o leitor aponta linha e coluna, como o app.
@@ -1350,6 +1362,54 @@ tasks.push(test("builder page: export overlay in the sheet's layer, labels stay 
     assert.ok(page.includes("data-next-theme") && page.includes("data-toggle-mode"), file + " page theme still reachable");
   }
   assert.ok(!/\.tbx-zoom[^{]*\{[^}]*display:none/.test(cssText), "zoom never hidden");
+}));
+// A prévia é o desenho do app: os ícones do editor (.tbx svg) não podem encolher os SVGs dela
+// (fundos procedurais, formas, ícones) para 18 px, como aconteceu. E o resto do que esta rodada
+// conferiu na página: texto pequeno legível, controles deslizantes largos, o editor de cor num
+// celular sem cobrir a prévia, o aviso fora do editor e o foco que volta para um botão que existe.
+tasks.push(test("builder page: editor icons stay out of the preview, readable small text, phone color editor", () => {
+  const js = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder.js"), "utf8");
+  const cssText = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder.css"), "utf8");
+  const rules = [...cssText.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}@]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), body: m[2] }));
+  const ruleOf = (sel) => rules.find((r) => r.sel.split(",").map((x) => x.trim()).includes(sel));
+  let generic = 0;
+  for (const r of rules) for (const sel of r.sel.split(",").map((x) => x.trim())) {
+    // Um "svg" solto logo depois de .tbx (sem classe própria) alcança qualquer SVG da página, a prévia também.
+    if (/^\.tbx\s+svg(?![.\[#\w-])/.test(sel)) { generic++; assert.ok(sel.includes(":where(:not(.tb-frame svg))"), "reaches the preview: " + sel); }
+  }
+  assert.ok(generic >= 1, "the editor icon rule is still there");
+  assert.ok(/width:100%;height:100%/.test(ruleOf(".pv-bgsvg").body), "backdrops fill the frame");
+  assert.ok(/width:1\.15em;height:1\.15em/.test(ruleOf(".pv-ic").body), "preview icons follow the text");
+  // Texto do editor em --faint ficava abaixo de 4,5:1 nos dois modos da página.
+  for (const r of rules) if (/^\.tbx/.test(r.sel) && !/\.pv-/.test(r.sel)) assert.ok(!/(^|;)color:var\(--faint\)/.test(r.body), r.sel + " uses --faint for text");
+  const fsOf = (sel) => +/font:[^;]*?([\d.]+)px/.exec(ruleOf(sel).body)[1];
+  assert.ok(fsOf(".tbx-rail [role=tab]") >= 11, "tab labels at least 11px");
+  assert.ok(+/font-size:([\d.]+)px/.exec(ruleOf(".tbx-zv small").body)[1] >= 11, "zoom suffix at least 11px");
+  assert.ok(!/outline:none/.test(ruleOf(".tbx-pane:focus-visible").body), "tab panels show focus");
+  // Controle deslizante com a linha toda, embaixo do rótulo e do valor.
+  assert.ok(/grid-template-areas:"l v" "r r"/.test(ruleOf(".tbx-slider").body) && /grid-template-areas:"k n x" "r r r"/.test(ruleOf(".tbx-propnum").body), "sliders on their own row");
+  assert.ok(js.includes('h("div", { "class": "tbx-propnum" }, [h("code", { text: f.key }), number, reset, slider])'), "layer numbers: name, field, reset, then the slider");
+  // Celular: o palco encolhe para o espaço acima do editor (ou à esquerda, deitado) e mostra um modo só.
+  assert.ok(/min-height:0/.test(ruleOf(".tbx-stage").body), "the stage can shrink");
+  const phone = cssText.slice(cssText.indexOf("@media (max-width:899.98px){"));
+  assert.ok(/\.tbx-body\[data-pop\]\{padding-bottom:var\(--pop-h/.test(phone) && /\.tbx-body\[data-pop\] \.tbx-side\{visibility:hidden/.test(phone), "room above the editor sheet");
+  assert.ok(/orientation:landscape\)\{[^]*?\.tbx-body\[data-pop\]\{padding-bottom:0;padding-right:var\(--pop-w/.test(cssText), "room beside the editor when sideways");
+  assert.ok(js.includes('return view === "split" && !popKind ? ["dark", "light"] : [mode];') && js.includes("var two = screenModes().length > 1;"), "one mode while the phone editor is open");
+  assert.ok(js.includes('closest(".tbx-fbox,[data-pop-src],.tbx-status")'), "zooming doesn't close the editor");
+  assert.ok(/function say\([^]*?placeToast\(\);/.test(js) && js.includes("function placeToast()"), "the toast keeps clear of the editor");
+  assert.ok(js.includes('$(".tbx-top [data-export-open]")') && !/sheetOpener = document\.activeElement;/.test(js), "focus returns to a real button");
+  assert.ok(!/TB\.decode\(decodeURIComponent/.test(js), "a bad % never throws in the page");
+  // O topo do criador é o mesmo das outras páginas (só mais baixo): logo e margens iguais.
+  assert.ok(!/html\[data-page=builder\] \.brand/.test(cssText) && !/html\[data-page=builder\] \.topnav\{padding/.test(cssText), "same logo and margins as the other pages");
+}));
+// A inicial não pergunta nada a ninguém: a versão vem do build, como no topo da página.
+tasks.push(test("landing page makes no request to another site", () => {
+  const version = /number = "(.+?)"/.exec(fs.readFileSync(path.join(ROOT, "src/core/version.zig"), "utf8"))[1];
+  for (const file of ["docs/index.html", "docs/pt/index.html"]) {
+    const page = fs.readFileSync(path.join(ROOT, file), "utf8");
+    assert.ok(!page.includes("api.github.com") && !/fetch\(/.test(page), file + " asks another site");
+    assert.ok(page.includes('<span id="dl-version">v' + version + " · </span>"), file + " version");
+  }
 }));
 // O topo do site: grupos com menu, que sem JavaScript são links, e a demonstração só com o build dela.
 tasks.push(test("site header: grouped menus, plain links without JS, try link only with the demo build", () => {
