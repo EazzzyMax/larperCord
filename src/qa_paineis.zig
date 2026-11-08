@@ -414,13 +414,36 @@ fn guildGone(app: *App) bool {
 fn guildOpen(app: *App) bool {
     return leaving != 0 and app.st.guild == leaving;
 }
+fn fileHas(path: [*:0]const u8, needle: []const u8) bool {
+    var size: usize = 0;
+    const data = c.SDL_LoadFile(path, &size) orelse return false;
+    defer c.SDL_free(data);
+    return std.mem.indexOf(u8, @as([*]const u8, @ptrCast(data))[0..size], needle) != null;
+}
 fn debugFileHasLine(_: *App) bool {
     const debug_log = @import("platform/debug_log.zig");
     if (!debug_log.isOn()) return false;
-    var size: usize = 0;
-    const data = c.SDL_LoadFile((debug_log.path() orelse return false).ptr, &size) orelse return false;
-    defer c.SDL_free(data);
-    return std.mem.indexOf(u8, @as([*]const u8, @ptrCast(data))[0..size], "registro ligado: larperCord") != null;
+    return fileHas((debug_log.path() orelse return false).ptr, "registro ligado: larperCord");
+}
+var debug_old_buf: [700]u8 = undefined;
+var debug_old: ?[:0]const u8 = null;
+/// Com o registro ligado, troca o nome do arquivo e registra uma linha. Se o app segurasse o
+/// arquivo aberto, no Windows a troca falharia e no Linux a linha iria para o de nome trocado.
+fn debugRename(_: *App) void {
+    const p = @import("platform/debug_log.zig").path() orelse return;
+    const old = std.fmt.bufPrintSentinel(&debug_old_buf, "{s}.antes", .{p}, 0) catch return;
+    _ = c.SDL_RemovePath(old.ptr);
+    debug_old = if (c.SDL_RenamePath(p.ptr, old.ptr)) old else null;
+    std.log.info("registro: linha depois de trocar o nome do arquivo", .{});
+}
+fn debugNewFile(_: *App) bool {
+    const p = @import("platform/debug_log.zig").path() orelse return false;
+    const old = debug_old orelse return false;
+    return fileHas(p.ptr, "depois de trocar o nome") and !fileHas(p.ptr, "registro ligado") and fileHas(old.ptr, "registro ligado");
+}
+fn debugRenameUndo(_: *App) void {
+    if (debug_old) |old| _ = c.SDL_RemovePath(old.ptr);
+    debug_old = null;
 }
 fn debugOff(_: *App) bool {
     return !@import("platform/debug_log.zig").isOn();
@@ -734,6 +757,9 @@ pub const ops_extras = [_]Op{
     .{ .shot = "avancado-depuracao" },
     click("toggle:Salvar registro de depuração"),
     .{ .expect = .{ .name = "ligado, o arquivo começa com a versão e o sistema", .check = debugFileHasLine, .timeout_ms = 3000 } },
+    .{ .run = debugRename },
+    expect("o arquivo só fica aberto durante cada linha: com o nome trocado, a próxima linha cria outro", debugNewFile),
+    .{ .run = debugRenameUndo },
     expect("nada se sobrepõe", noOverlap),
     click("toggle:Salvar registro de depuração"),
     .{ .expect = .{ .name = "e desliga", .check = debugOff, .timeout_ms = 2000 } },

@@ -98,6 +98,7 @@
 - Offline members' names are readable again in every theme.
 - Context menus stop at the window's height and scroll.
 - Holding Ctrl+Tab switches tabs once per press, and flipping quickly through channels only asks Discord for the member list of the one you stop on.
+- On Windows, the debug log can be opened, copied or attached while it's on. Before, no other program could read the file until you turned it off.
 
 **Known limitations**
 - Arabic and Hebrew you type in the message box still go left to right. The message shows correctly once it's sent.

@@ -98,6 +98,7 @@
 - O nome de quem está offline voltou a ficar legível em todos os temas.
 - Os menus de contexto param na altura da janela e rolam.
 - Segurar Ctrl+Tab troca de aba uma vez por toque, e passar rápido pelos canais só pede ao Discord a lista de membros daquele em que você para.
+- No Windows, dá para abrir, copiar ou anexar o registro de depuração com ele ligado. Antes, nenhum outro programa conseguia ler o arquivo até você desligar.
 
 **Limitações conhecidas**
 - Árabe e hebraico digitados na caixa de mensagem ainda vão da esquerda para a direita. A mensagem aparece certa depois de enviada.

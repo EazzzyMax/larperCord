@@ -1,6 +1,8 @@
 //! Registro de depuração: ligado pelo botão em Configurações → Avançado, grava em
 //! `<cache>/larpercord/debug.log` o que o app registra, para a pessoa poder mandar sem
 //! precisar de terminal (no Windows o app nem tem console). Desligado, custa só uma leitura.
+//! Ligado, o arquivo só fica aberto enquanto cada linha é escrita: dá para abrir, copiar
+//! ou anexar o debug.log sem desligar antes, também no Windows.
 const std = @import("std");
 const c = @import("c");
 const sys = @import("sys.zig");
@@ -12,7 +14,8 @@ const max_bytes: i64 = 4 * 1024 * 1024;
 pub var ui_on = false;
 var enabled: std.atomic.Value(bool) = .init(false);
 var mutex: ?*c.SDL_Mutex = null;
-var file: ?*c.SDL_IOStream = null;
+/// Quanto o arquivo já tem, contado a cada linha (para recomeçar em `max_bytes`).
+var size: i64 = 0;
 var path_buf: [640]u8 = undefined;
 var path_len: usize = 0;
 var dir_len: usize = 0;
@@ -55,14 +58,28 @@ pub fn set(on: bool) void {
     if (mutex == null) mutex = c.SDL_CreateMutex();
     c.SDL_LockMutex(mutex);
     defer c.SDL_UnlockMutex(mutex);
-    if (on and file == null) {
-        const p = path() orelse return;
-        file = c.SDL_IOFromFile(p.ptr, "ab");
-    } else if (!on) {
-        if (file) |f| _ = c.SDL_CloseIO(f);
-        file = null;
-    }
-    enabled.store(on and file != null, .monotonic);
+    enabled.store(on and (isOn() or prepare()), .monotonic);
+}
+
+/// Confere na hora de ligar que dá para gravar lá (sem isso o botão ficaria ligado sem
+/// gravar nada) e conta o que o arquivo de antes já tem.
+fn prepare() bool {
+    const p = path() orelse return false;
+    const fd = open(p, false);
+    if (fd < 0) return false;
+    _ = c.close(fd);
+    var info: c.SDL_PathInfo = undefined;
+    size = if (c.SDL_GetPathInfo(p.ptr, &info)) @intCast(info.size) else 0;
+    return true;
+}
+
+/// Pelo `open` do C, que no Windows divide o arquivo com quem quiser ler ou escrever. O
+/// SDL_IOFromFile em modo de escrita não divide com ninguém: com o registro ligado, nem o
+/// Bloco de Notas, nem uma cópia, nem o navegador ao anexar conseguiam abrir o arquivo.
+fn open(p: [:0]const u8, restart: bool) c_int {
+    const mode = c.O_WRONLY | c.O_CREAT | (if (restart) c.O_TRUNC else c.O_APPEND);
+    const flags = if (sys.windows) mode | c.O_BINARY else mode | c.O_CLOEXEC;
+    return c.open(p.ptr, flags, @as(c_uint, 0o600));
 }
 
 /// `std_options.logFn`: continua indo para o terminal e, ligado, também para o arquivo.
@@ -75,16 +92,21 @@ pub fn logFn(comptime level: std.log.Level, comptime scope: @EnumLiteral(), comp
     write(line);
 }
 
+/// Abre, escreve no fim e fecha: entre uma linha e outra o arquivo fica livre para quem
+/// for ler, e o que foi escrito já está nele (sem buffer para esvaziar).
 fn write(line: []const u8) void {
     c.SDL_LockMutex(mutex);
     defer c.SDL_UnlockMutex(mutex);
-    const f = file orelse return;
-    _ = c.SDL_WriteIO(f, line.ptr, line.len);
-    _ = c.SDL_FlushIO(f);
-    if (c.SDL_GetIOSize(f) > max_bytes) {
-        _ = c.SDL_CloseIO(f);
-        file = c.SDL_IOFromFile((path() orelse return).ptr, "wb");
-    }
+    // Desligou entre a conferência do `logFn` e aqui.
+    if (!isOn()) return;
+    const p = path() orelse return;
+    const restart = size + @as(i64, @intCast(line.len)) > max_bytes;
+    const fd = open(p, restart);
+    if (fd < 0) return;
+    defer _ = c.close(fd);
+    if (restart) size = 0;
+    const n = c.write(fd, line.ptr, @intCast(line.len));
+    if (n > 0) size += n;
 }
 
 fn tokenChar(ch: u8) bool {
