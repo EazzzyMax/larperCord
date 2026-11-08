@@ -755,6 +755,8 @@ fn page(p: *Page, previews: []const Preview) void {
             p.toggle(i18n.tr("Modo desenvolvedor", "Developer Mode"), i18n.tr("Mostra o ID das mensagens e põe \"Copiar ID\" nos menus.", "Shows message IDs and adds \"Copy ID\" to menus."), &s.developer_mode);
             p.toggle(i18n.tr("Recarregar temas ao salvar", "Reload themes on save"), if (sys.windows)
                 i18n.tr("Salvar um .kdl em themes/ ou %APPDATA%\\larpercord\\themes aplica na hora. Uma pasta nova só vale depois de reiniciar o app.", "Saving a .kdl in themes/ or %APPDATA%\\larpercord\\themes applies it right away. A new folder only counts after restarting the app.")
+            else if (sys.macos)
+                i18n.tr("Salvar um .kdl em themes/ ou ~/Library/Application Support/larpercord/themes aplica na hora. Uma pasta nova só vale depois de reiniciar o app.", "Saving a .kdl in themes/ or ~/Library/Application Support/larpercord/themes applies it right away. A new folder only counts after restarting the app.")
             else
                 i18n.tr("Salvar um .kdl em themes/ ou ~/.config/larpercord/themes aplica na hora. Uma pasta nova só vale depois de reiniciar o app.", "Saving a .kdl in themes/ or ~/.config/larpercord/themes applies it right away. A new folder only counts after restarting the app."), &s.hot_reload);
             // Uma opção só para a bandeja: ligada, o ícone fica lá da abertura até sair e
@@ -762,7 +764,12 @@ fn page(p: *Page, previews: []const Preview) void {
             // fechar sai. Clicar no ícone alterna a janela nos dois sistemas (no Linux pelo
             // StatusNotifierItem do processo do ícone, platform/sni.zig).
             const has_tray = tray.hostSeen(ctx.now_ms);
-            p.toggleIf(i18n.tr("Fechar para a bandeja", "Close to tray"), i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto: clicar nele mostra ou esconde a janela, o menu tem Abrir e Sair, e fechar a janela deixa o app conectado lá. Com a opção desligada, não há ícone e fechar encerra o app.", "The icon stays in the system tray while the app runs: clicking it shows or hides the window, its menu has Open and Quit, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app."), &s.close_to_tray, has_tray);
+            // No macOS o ícone fica na barra de menus, e clicar nele abre o menu (platform/tray.zig).
+            const tray_note = if (sys.macos)
+                i18n.tr("O ícone fica na barra de menus enquanto o app estiver aberto: clicar nele abre o menu com Abrir e Sair, e fechar a janela deixa o app conectado lá. Com a opção desligada, não há ícone e fechar encerra o app.", "The icon stays in the menu bar while the app runs: clicking it opens its menu with Open and Quit, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app.")
+            else
+                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto: clicar nele mostra ou esconde a janela, o menu tem Abrir e Sair, e fechar a janela deixa o app conectado lá. Com a opção desligada, não há ícone e fechar encerra o app.", "The icon stays in the system tray while the app runs: clicking it shows or hides the window, its menu has Open and Quit, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app.");
+            p.toggleIf(i18n.tr("Fechar para a bandeja", "Close to tray"), tray_note, &s.close_to_tray, has_tray);
             if (!has_tray) {
                 const y0 = p.y;
                 p.note(i18n.tr("Indisponível: nenhum painel do sistema mostra ícones agora (StatusNotifier), então fechar a janela encerra o app. Com a opção ligada, o ícone aparece quando houver um.", "Unavailable: no system panel shows icons right now (StatusNotifier), so closing the window quits the app. While on, the icon appears once there is one."));
