@@ -225,6 +225,8 @@ fn toast(ctx: *d.Ctx) void {
     d.text(ctx.fg, font, fs, r.x + 18, d.centerY(r, fs), (if (t.is_error) d.Rgba.white else ctx.col(.text)).alpha(k), t.text());
 }
 
+/// A lista que as configurações e o site mostram fica em ui/atalhos.zig: mudou
+/// uma tecla aqui, mude lá também.
 fn shortcuts(ctx: *d.Ctx) void {
     const io = ctx.io;
     const ctrl = io.*.KeyCtrl;
