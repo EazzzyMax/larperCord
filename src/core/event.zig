@@ -529,6 +529,8 @@ pub const Action = union(enum) {
     logout,
     /// Abre o seletor de arquivos para anexar.
     pick_files,
+    /// Um arquivo só, para a opção de anexo de um comando de bot (ui/interact.zig).
+    pick_file,
     remove_upload: usize,
     /// Ctrl+V com uma imagem na área de transferência.
     paste_image,

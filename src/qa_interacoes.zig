@@ -10,6 +10,7 @@ const Op = R.Op;
 const qa = @import("ui/qa.zig");
 const interact = @import("ui/interact.zig");
 const fake = @import("net/fake_interactions.zig");
+const platform = @import("platform/window.zig");
 
 fn s(name: []const u8) Op {
     return .{ .section = name };
@@ -155,6 +156,52 @@ fn ticketSent(app: *App) bool {
         has("\"value\":\"teste\"") and ephemeral(app) != null;
 }
 
+// --- Anexo de um comando ----------------------------------------------------------------
+
+/// Caminho completo de um arquivo pequeno em qa-out/ (criado na hora).
+fn qaFile(buf: []u8, name: []const u8) ?[]const u8 {
+    var rel: [64]u8 = undefined;
+    const r = std.fmt.bufPrintSentinel(&rel, "qa-out/{s}", .{name}, 0) catch return null;
+    if (!c.SDL_SaveFile(r.ptr, "oi", 2)) return null;
+    const cwd = c.SDL_GetCurrentDirectory() orelse return null;
+    defer c.SDL_free(cwd);
+    return std.fmt.bufPrint(buf, "{s}{s}", .{ std.mem.span(cwd), r }) catch null;
+}
+/// Um arquivo na bandeja da caixa, para uma mensagem comum.
+fn trayFile(app: *App) void {
+    var b: [1024]u8 = undefined;
+    app.attachFile(qaFile(&b, "ix-bandeja.txt") orelse return);
+}
+/// O seletor de arquivos "devolve" um arquivo, pelo mesmo caminho do de verdade.
+fn pickForForm(app: *App) void {
+    var b: [1024]u8 = undefined;
+    const path = qaFile(&b, "ix-comando.txt") orelse return;
+    const z = std.heap.c_allocator.dupeSentinel(u8, path, 0) catch return;
+    app.picked.push(z);
+    platform.Window.wake(app.win.wake_type, .media);
+}
+fn clearTray(app: *App) void {
+    while (app.st.uploads.items.len > 0) app.handle(.{ .remove_upload = 0 });
+}
+fn avisarForm(app: *App) bool {
+    return qa.find("ix-form") != null and qa.find("ix-opt:quem") != null and qa.find("ix-file:print") != null and
+        qa.find("ix-file-clear:print") == null and app.st.uploads.items.len == 1;
+}
+fn whoOpen(_: *App) bool {
+    return qa.find("ix-pick:0") != null;
+}
+fn avisarNoFile(app: *App) bool {
+    return qa.find("ix-form") == null and sentOne() and has("\"name\":\"avisar\"") and has("\"attachments\":[]") and
+        app.st.uploads.items.len == 1;
+}
+fn fileChosen(_: *App) bool {
+    return qa.find("ix-file-clear:print") != null;
+}
+fn avisarWithFile(app: *App) bool {
+    return qa.find("ix-form") == null and sentOne() and has("{\"type\":11,\"name\":\"print\",\"value\":0}") and
+        has("\"filename\":\"ix-comando.txt\"") and app.st.uploads.items.len == 1;
+}
+
 pub const ops = [_]Op{
     s("Interações: botões e menus"),
     run(toBugs),
@@ -247,4 +294,34 @@ pub const ops = [_]Op{
     click("ix-choice:1"),
     click("ix-form-send"),
     expect("subcomando e escolha vão aninhados", ticketSent),
+
+    s("Interações: anexo de um comando"),
+    run(trayFile),
+    click("composer"),
+    text("/avisar"),
+    expect("a lista mostra o comando com anexo", listShown),
+    key(c.ImGuiKey_Enter),
+    expect("o formulário abre sem arquivo, mesmo com um na bandeja", avisarForm),
+    click("ix-opt:quem"),
+    expect("a lista de pessoas abre", whoOpen),
+    click("ix-pick:0"),
+    run(note),
+    click("ix-form-send"),
+    expect("o arquivo da bandeja não vai com o comando e continua lá", avisarNoFile),
+    click("composer"),
+    text("/avisar"),
+    expect("a lista mostra o comando de novo", listShown),
+    key(c.ImGuiKey_Enter),
+    expect("o formulário abre de novo, sem arquivo", avisarForm),
+    click("ix-file:print"),
+    run(pickForForm),
+    expect("o arquivo escolhido fica na opção do comando", fileChosen),
+    .{ .shot = "interacoes-anexo" },
+    click("ix-opt:quem"),
+    expect("a lista de pessoas abre", whoOpen),
+    click("ix-pick:0"),
+    run(note),
+    click("ix-form-send"),
+    expect("o comando leva o arquivo escolhido e a bandeja fica como estava", avisarWithFile),
+    run(clearTray),
 };

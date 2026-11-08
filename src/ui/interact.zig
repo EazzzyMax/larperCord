@@ -1022,14 +1022,50 @@ const FormState = struct {
     /// Onde fica o campo com a lista de sugestões aberta (neste quadro).
     ac_rect: ?d.Rect = null,
     active: ?usize = null,
+    /// O arquivo de cada opção de anexo (c_allocator), escolhido pelo "Escolher
+    /// arquivo" do próprio formulário: o que está na bandeja da caixa não entra.
+    files: [max_opts]?[:0]u8 = @splat(null),
+    /// A opção de anexo esperando o seletor de arquivos responder.
+    picking: ?usize = null,
 };
 var form: ?FormState = null;
+
+/// O mesmo limite dos anexos da caixa (App.attachFile): o do Discord sem Nitro.
+const max_upload: u64 = 10 * 1024 * 1024;
+
+fn clearFiles(fs: *FormState) void {
+    for (&fs.files) |*f| if (f.*) |p| {
+        std.heap.c_allocator.free(p);
+        f.* = null;
+    };
+    fs.picking = null;
+}
+
+/// O seletor de arquivos devolveu `path`: é da opção de anexo que pediu? Se não
+/// for (nenhuma pediu, ou o formulário fechou), ele vai para a bandeja da caixa.
+pub fn takePicked(st: *State, now_ms: i64, path: [:0]const u8) bool {
+    const fs = if (form) |*f| f else return false;
+    const i = fs.picking orelse return false;
+    fs.picking = null;
+    if (i >= fs.leaf.len or fs.leaf[i].kind != ix.opt.attachment) return false;
+    var info: c.SDL_PathInfo = undefined;
+    if (!c.SDL_GetPathInfo(path.ptr, &info) or info.type != c.SDL_PATHTYPE_FILE) {
+        st.showToast(now_ms, true, "não consegui abrir esse arquivo", "couldn't open that file", .{});
+    } else if (info.size > max_upload) {
+        st.showToast(now_ms, true, "arquivo maior que 10 MB (limite do Discord sem Nitro)", "file larger than 10 MB (Discord's limit without Nitro)", .{});
+    } else if (std.heap.c_allocator.dupeSentinel(u8, path, 0)) |p| {
+        if (fs.files[i]) |old| std.heap.c_allocator.free(old);
+        fs.files[i] = p;
+    } else |_| {}
+    return true;
+}
 
 fn setLeaf(fs: *FormState, opts: []const ix.CmdOption) void {
     for (&fs.bufs) |*b| if (b.len > 0) {
         gpa.free(b.*);
         b.* = &.{};
     };
+    clearFiles(fs);
     fs.leaf = opts[0..@min(opts.len, max_opts)];
     fs.name_len = @splat(0);
     for (fs.leaf, 0..) |*o, i| {
@@ -1045,6 +1081,7 @@ fn closeForm() void {
     if (form) |*fs| {
         for (fs.bufs) |b| if (b.len > 0) gpa.free(b);
         if (fs.ac_list) |l| ix.freeChoices(l);
+        clearFiles(fs);
     }
     form = null;
 }
@@ -1080,20 +1117,9 @@ fn setBuf(fs: *FormState, i: usize, text: []const u8, shown: []const u8) void {
     fs.name_len[i] = @intCast(s.len);
 }
 
-fn attachmentOrdinal(fs: *const FormState, i: usize) usize {
-    var k: usize = 0;
-    for (fs.leaf[0..i]) |o| {
-        if (o.kind == ix.opt.attachment) k += 1;
-    }
-    return k;
-}
-
-/// Texto que a validação vê (o anexo vale pelo arquivo na bandeja).
-fn optionText(ctx: *d.Ctx, fs: *const FormState, i: usize) []const u8 {
-    if (fs.leaf[i].kind == ix.opt.attachment) {
-        const k = attachmentOrdinal(fs, i);
-        return if (k < ctx.st.uploads.items.len) ctx.st.uploads.items[k].name() else "";
-    }
+/// Texto que a validação vê (o anexo vale pelo nome do arquivo escolhido para ele).
+fn optionText(fs: *const FormState, i: usize) []const u8 {
+    if (fs.leaf[i].kind == ix.opt.attachment) return if (fs.files[i]) |p| std.fs.path.basename(p) else "";
     return bufText(fs, i);
 }
 
@@ -1120,9 +1146,9 @@ fn optionHint(buf: []u8, o: *const ix.CmdOption) [*:0]const u8 {
 const opt_label_h: f32 = 20;
 const opt_ctrl_h: f32 = 34;
 
-fn optionHeight(fs: *const FormState, ctx: *d.Ctx, i: usize) f32 {
+fn optionHeight(fs: *const FormState, i: usize) f32 {
     var h: f32 = opt_label_h + opt_ctrl_h + 12;
-    if (fs.tried and ix.checkOption(&fs.leaf[i], optionText(ctx, fs, i)) != .none) h += 16;
+    if (fs.tried and ix.checkOption(&fs.leaf[i], optionText(fs, i)) != .none) h += 16;
     return h;
 }
 
@@ -1155,7 +1181,7 @@ fn drawForm(ctx: *d.Ctx) void {
     if (!fs.chosen) {
         content = @as(f32, @floatFromInt(n_subs)) * 40;
     } else for (fs.leaf, 0..) |_, i| {
-        content += optionHeight(fs, ctx, i);
+        content += optionHeight(fs, i);
     }
     if (fs.chosen and fs.leaf.len == 0) content = 4;
     const head_h: f32 = if (cmd.description.len > 0) 62 else 44;
@@ -1256,7 +1282,6 @@ fn drawForm(ctx: *d.Ctx) void {
             },
             ix.opt.user, ix.opt.channel, ix.opt.role, ix.opt.mentionable => entityBox(ctx, bdl, fs, i, cr),
             ix.opt.attachment => {
-                const k = attachmentOrdinal(fs, i);
                 const lbl = i18n.tr("Escolher arquivo", "Choose file");
                 const bw = d.width(fam.get(.medium), 13, lbl) + 28;
                 const br: d.Rect = .{ .x = x, .y = cr.y + 3, .w = bw, .h = cr.h - 6 };
@@ -1264,10 +1289,28 @@ fn drawForm(ctx: *d.Ctx) void {
                 qa.mark(br, "ix-file:{s}", .{o.name});
                 d.rect(bdl, br, if (hb.hovered) ctx.col(.hover) else ctx.col(.text).alpha(0.07), radius(ctx));
                 d.text(bdl, fam.get(.medium), 13, br.x + 14, d.centerY(br, 13), ctx.col(.text), lbl);
-                // O arquivo vai para a bandeja da caixa de texto, e dali para o comando.
-                if (hb.clicked) ctx.act(.pick_files);
-                const shown = if (k < ctx.st.uploads.items.len) ctx.st.uploads.items[k].name() else i18n.tr("nenhum arquivo", "no file");
-                _ = d.textClipped(bdl, fam.get(.regular), 13, br.right() + 12, d.centerY(cr, 13), if (k < ctx.st.uploads.items.len) ctx.col(.text) else ctx.col(.faint), shown, inner - bw - 12);
+                // O arquivo escolhido aqui é só desta opção (takePicked); a bandeja da caixa fica como está.
+                if (hb.clicked) {
+                    fs.picking = i;
+                    ctx.act(.pick_file);
+                }
+                const file = fs.files[i];
+                const shown = if (file) |p| std.fs.path.basename(p) else i18n.tr("nenhum arquivo", "no file");
+                const nx = br.right() + 12;
+                const nw = d.textClipped(bdl, fam.get(.regular), 13, nx, d.centerY(cr, 13), if (file != null) ctx.col(.text) else ctx.col(.faint), shown, inner - bw - 12 - 30);
+                if (file != null) {
+                    // O × tira o arquivo (a opção pode ser opcional).
+                    const fx: d.Rect = .{ .x = nx + nw + 4, .y = cr.y + 5, .w = 24, .h = cr.h - 10 };
+                    const fh = d.hit(ctx, 0x1A7E_0D00 + i, fx);
+                    qa.mark(fx, "ix-file-clear:{s}", .{o.name});
+                    const col = if (fh.hovered) ctx.col(.text) else ctx.col(.muted);
+                    d.line(bdl, fx.x + 7, fx.y + 7, fx.right() - 7, fx.bottom() - 7, col, 1.5);
+                    d.line(bdl, fx.right() - 7, fx.y + 7, fx.x + 7, fx.bottom() - 7, col, 1.5);
+                    if (fh.clicked) if (fs.files[i]) |p| {
+                        std.heap.c_allocator.free(p);
+                        fs.files[i] = null;
+                    };
+                }
             },
             else => {
                 if (fs.name_len[i] > 0) {
@@ -1296,7 +1339,7 @@ fn drawForm(ctx: *d.Ctx) void {
         }
         y += opt_ctrl_h;
         if (fs.tried) {
-            const p = ix.checkOption(o, optionText(ctx, fs, i));
+            const p = ix.checkOption(o, optionText(fs, i));
             if (p != .none) {
                 d.text(bdl, fam.get(.regular), 12, x, y + 1, ctx.col(.danger), problemText(p));
                 y += 16;
@@ -1459,25 +1502,21 @@ fn requestAutocomplete(ctx: *d.Ctx, fs: *FormState) void {
 }
 
 fn submitForm(ctx: *d.Ctx, fs: *FormState) void {
-    for (fs.leaf, 0..) |*o, i| if (ix.checkOption(o, optionText(ctx, fs, i)) != .none) {
+    for (fs.leaf, 0..) |*o, i| if (ix.checkOption(o, optionText(fs, i)) != .none) {
         fs.tried = true;
         return;
     };
     var vals: [max_opts]ix.OptValue = undefined;
     var names: [max_opts][]const u8 = undefined;
     var paths: [max_opts][:0]const u8 = undefined;
-    var used: [max_opts]usize = undefined;
     var n: usize = 0;
     var n_files: usize = 0;
     for (fs.leaf, 0..) |*o, i| {
-        const t = optionText(ctx, fs, i);
+        const t = optionText(fs, i);
         if (t.len == 0) continue;
         if (o.kind == ix.opt.attachment) {
-            const k = attachmentOrdinal(fs, i);
-            const up = &ctx.st.uploads.items[k];
-            names[n_files] = up.name();
-            paths[n_files] = up.path;
-            used[n_files] = k;
+            names[n_files] = t;
+            paths[n_files] = fs.files[i].?;
             n_files += 1;
         }
         vals[n] = .{ .opt = o, .text = t };
@@ -1498,14 +1537,6 @@ fn submitForm(ctx: *d.Ctx, fs: *FormState) void {
     const nonce = nextNonce(ctx.now_ms);
     send(ctx, .{ .kind = .command, .app = fs.cmd.app, .guild = fs.guild, .channel = fs.channel, .nonce = nonce, .data = data, .files = files });
     addPending(nonce, 0, 0, ctx.now_ms);
-    // O arquivo foi com o comando: sai da bandeja (a imagem colada fica; ela
-    // é um arquivo temporário que a bandeja apagaria antes do envio).
-    var k = n_files;
-    while (k > 0) {
-        k -= 1;
-        const up = &ctx.st.uploads.items[used[k]];
-        if (!types.isPastedFile(up.path)) ctx.act(.{ .remove_upload = used[k] });
-    }
     closeForm();
     ctx.st.focus_input = true;
 }
