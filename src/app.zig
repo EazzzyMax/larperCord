@@ -110,6 +110,12 @@ fn wakeTheme() void {
     platform.Window.wake(wake_type_global, .theme);
 }
 
+/// Hora de tentar de novo o ícone da bandeja (ver App.syncTray).
+fn trayRetryWake(_: ?*anyopaque, _: c.SDL_TimerID, _: u32) callconv(.c) u32 {
+    platform.Window.wake(wake_type_global, .tick);
+    return 0;
+}
+
 /// `none`: ainda na tela de login, sem conexão nenhuma.
 const Net = union(enum) { none, fake: Gateway, real: discord.Gateway };
 
@@ -142,6 +148,22 @@ pub const App = struct {
     restart_wanted: bool = false,
     /// Verificações seguidas sem painel com a janela escondida.
     tray_misses: u8 = 0,
+    /// A janela está escondida na bandeja (fechou, ou clicou no ícone).
+    in_tray: bool = false,
+    /// O ícone que está lá é o de "Ícone sempre na bandeja" (ver `syncTray`).
+    tray_kept: bool = false,
+    /// A opção como estava na volta anterior do laço: ligar tenta na hora.
+    tray_always_was: bool = false,
+    /// Idioma dos rótulos do menu do ícone que está lá.
+    tray_lang: i18n.Lang = .pt,
+    /// Quando tentar pôr o ícone de novo (SDL_GetTicks) e quantas vezes já tentou.
+    tray_retry_ms: u64 = 0,
+    tray_tries: u8 = 0,
+    /// A tentativa para a qual já há um alarme (ver `syncTray`).
+    tray_wake_at: u64 = 0,
+    /// O que o último clique no ícone fez (o QA confere: minimizar não muda as
+    /// flags da janela no driver offscreen).
+    tray_click: ?janela.Clique = null,
     images: images.Cache = undefined,
     /// Arquivos escolhidos no seletor (o SDL pode responder de outra thread).
     picked: Queue([:0]u8) = undefined,
@@ -287,6 +309,10 @@ pub const App = struct {
         updater.offline = opts.qa;
         updater.cleanLeftovers();
         if (opts.qa) tray.fake = false;
+        // O ícone de "sempre na bandeja" espera a janela aparecer: perguntar pelo
+        // painel e abrir o processo do ícone não atrasam o primeiro quadro.
+        app.tray_always_was = app.st.settings.tray_always;
+        app.tray_retry_ms = c.SDL_GetTicks() + 1500;
         timeline.mark(.create_fim);
         return app;
     }
@@ -298,8 +324,9 @@ pub const App = struct {
         if (app.opts.shot != null or app.restart_wanted) return false;
         const logged_in = app.store.ready and !app.login.visible();
         if (!janela.wantsTray(app.st.settings.close_to_tray, logged_in)) return false;
-        if (!tray.show(app.win.wake_type, i18n.trZ("Abrir o larperCord", "Open larperCord").ptr, i18n.trZ("Sair", "Quit").ptr)) return false;
+        if (!app.trayShow(true)) return false;
         _ = c.SDL_HideWindow(app.win.window);
+        app.in_tray = true;
         // Sem quadros daqui em diante: o que depende do quadro fica certo agora.
         // Ninguém está olhando: confirmar leitura e o medidor do microfone param,
         // e o vídeo (a imagem também parou) pausa em vez de cortar o som depois de 1 s.
@@ -316,13 +343,86 @@ pub const App = struct {
         return true;
     }
 
-    /// Volta da bandeja (ou traz para a frente, se a janela já estava aberta).
+    /// Volta da bandeja (ou traz para a frente, se a janela já estava aberta). Com
+    /// "Ícone sempre na bandeja" o ícone fica; desligada, ele só existia para voltar.
     fn showWindow(app: *App) void {
-        tray.hide();
+        if (!app.st.settings.tray_always) tray.hide();
+        app.in_tray = false;
         app.tray_misses = 0;
         _ = c.SDL_ShowWindow(app.win.window);
         _ = c.SDL_RestoreWindow(app.win.window);
         _ = c.SDL_RaiseWindow(app.win.window);
+    }
+
+    /// Põe o ícone, com o menu no idioma de agora (ver tray.show).
+    fn trayShow(app: *App, wait: bool) bool {
+        app.tray_lang = i18n.current();
+        return tray.show(app.win.wake_type, i18n.trZ("Abrir o larperCord", "Open larperCord").ptr, i18n.trZ("Sair", "Quit").ptr, wait);
+    }
+
+    /// Clique no ícone da bandeja: alterna a janela (ver janela.trayClick).
+    fn toggleWindow(app: *App) void {
+        const flags = c.SDL_GetWindowFlags(app.win.window);
+        const vista: janela.Vista = if (app.in_tray or flags & c.SDL_WINDOW_HIDDEN != 0)
+            .na_bandeja
+        else if (flags & (c.SDL_WINDOW_MINIMIZED | c.SDL_WINDOW_OCCLUDED) != 0)
+            .minimizada
+        else
+            .aberta;
+        const logged_in = app.store.ready and !app.login.visible();
+        app.tray_click = janela.trayClick(vista, app.st.settings.close_to_tray, logged_in);
+        switch (app.tray_click.?) {
+            .mostrar => app.showWindow(),
+            .para_bandeja => if (!app.hideToTray()) {
+                // O ícone sumiu bem agora: minimiza, como com a opção desligada.
+                app.tray_click = .minimizar;
+                _ = c.SDL_MinimizeWindow(app.win.window);
+            },
+            .minimizar => _ = c.SDL_MinimizeWindow(app.win.window),
+        }
+    }
+
+    /// "Ícone sempre na bandeja": o ícone aparece com a opção ligada (na abertura,
+    /// depois do primeiro quadro) e some quando ela desliga. Desligada desde o
+    /// começo, aqui só se compara: o ícone existe só com a janela escondida.
+    fn syncTray(app: *App) void {
+        if (app.opts.shot != null or app.restart_wanted) return;
+        const always = app.st.settings.tray_always;
+        if (always != app.tray_always_was) {
+            // Acabou de mudar nas Configurações: tenta já, do zero.
+            app.tray_always_was = always;
+            app.tray_retry_ms = 0;
+            app.tray_tries = 0;
+        }
+        const active = tray.active();
+        // O ícone de uma ida à bandeja vira o da opção.
+        if (always and active and !app.in_tray) app.tray_kept = true;
+        switch (janela.trayIcon(always, app.tray_kept, app.in_tray, active, app.tray_lang != i18n.current())) {
+            .nada => {},
+            .tirar => {
+                tray.hide();
+                app.tray_kept = false;
+            },
+            .refazer => {
+                tray.hide();
+                app.tray_kept = app.trayShow(false);
+            },
+            .criar => {
+                // Sem painel (ou o processo do ícone caiu): tenta de novo mais tarde.
+                const t = c.SDL_GetTicks();
+                if (t < app.tray_retry_ms) {
+                    // Parado, o laço só acorda com a rede ou a cada minuto: um alarme para a hora.
+                    if (app.tray_wake_at != app.tray_retry_ms) {
+                        app.tray_wake_at = app.tray_retry_ms;
+                        _ = c.SDL_AddTimer(@intCast(app.tray_retry_ms - t), trayRetryWake, null);
+                    }
+                    return;
+                }
+                app.tray_retry_ms = t + @as(u64, @intCast(janela.trayRetryMs(app.tray_tries)));
+                app.tray_tries +|= 1;
+                app.tray_kept = app.trayShow(false);
+            },
+        }
     }
 
     /// Pontos da interface para pixels da janela: o único fator de escala do app.
@@ -2489,8 +2589,10 @@ pub const App = struct {
                             // Por garantia: um aviso dos plugins pode ter se perdido com a fila cheia.
                             app.plugins.drain();
                             // O painel sumiu com a janela escondida (fechou, travou):
-                            // a janela volta em vez de ficar sem caminho de volta.
-                            if (tray.active()) {
+                            // a janela volta em vez de ficar sem caminho de volta. Com a
+                            // janela aberta não se pergunta: o ícone de "sempre na bandeja"
+                            // volta sozinho ao painel quando ele voltar.
+                            if (app.in_tray) {
                                 app.tray_misses = if (tray.hostAvailable()) 0 else app.tray_misses + 1;
                                 if (app.tray_misses >= janela.tray_misses_max) app.showWindow();
                             }
@@ -2506,7 +2608,26 @@ pub const App = struct {
                             app.gate.redraw();
                             pending = 3;
                         },
-                        .quit => running = false,
+                        .toggle => {
+                            app.toggleWindow();
+                            app.gate.redraw();
+                            pending = 3;
+                        },
+                        .tray_gone => if (tray.reap()) {
+                            app.tray_kept = false;
+                            // Escondida, a janela volta: o ícone era o caminho de volta.
+                            if (app.in_tray) {
+                                app.showWindow();
+                                app.gate.redraw();
+                                pending = 3;
+                            }
+                        },
+                        // Sair do menu da bandeja, até com a janela aberta: some da tela na
+                        // hora, como ao fechar; o resto do encerramento é por trás.
+                        .quit => {
+                            running = false;
+                            _ = c.SDL_HideWindow(app.win.window);
+                        },
                         .plugins => {
                             app.plugins.drain();
                             pending = @max(pending, 2);
@@ -2556,6 +2677,7 @@ pub const App = struct {
             }
             if (app.notifiers.items.len > 0) app.reapNotifiers();
             app.flushSubscribe();
+            if (running) app.syncTray();
 
             app.images.now_ms = now();
             if (app.images.pump()) bg_dirty = true;
@@ -2964,7 +3086,7 @@ pub const App = struct {
                         wl.pending = @max(wl.pending, 2);
                     },
                     .quit => return false,
-                    .theme, .token, .show => {},
+                    .theme, .token, .show, .toggle, .tray_gone => {},
                 }
                 continue;
             }

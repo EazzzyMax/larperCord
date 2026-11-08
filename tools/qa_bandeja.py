@@ -153,6 +153,9 @@ class Panel:
                 self.watcher.owner_match.remove()
                 self.watcher.remove_from_connection()
                 self.bus.release_name(WATCHER)
+                # O dbus-python guarda o BusName pelo nome: sem tirar daqui, subir o
+                # painel de novo devolveria o antigo, já solto, e o nome ficaria sem dono.
+                self.bus._bus_names.pop(WATCHER, None)
                 self.watcher = None
 
         self.call(go)
@@ -340,10 +343,16 @@ def no_windows():
     wait_until(lambda: not windows(), 5)
 
 
-def fresh_home():
+def fresh_home(settings=None):
     d = Path(tempfile.mkdtemp(prefix="larper-qa-"))
     (d / "config" / "larpercord").mkdir(parents=True)
+    if settings:
+        (d / "config/larpercord/settings.kdl").write_text(f"settings {settings}\n")
     return d
+
+
+# O comportamento de antes do "Ícone sempre na bandeja": ícone só com a janela escondida.
+ONLY_HIDDEN = "tray_always=#false"
 
 
 def start(home, *args, **kw):
@@ -361,6 +370,18 @@ def cpu_percent(a, seconds):
     return (a.cpu_ticks() - t0) / os.sysconf("SC_CLK_TCK") / seconds * 100
 
 
+def ticks_of(pid):
+    f = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    return int(f[11]) + int(f[12])
+
+
+def rss_of(pid):
+    for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+        if line.startswith("VmRSS:"):
+            return int(line.split()[1])
+    return 0
+
+
 panel = Panel()
 
 
@@ -374,6 +395,8 @@ def no_panel():
     home = fresh_home()
     a = start(home)
     check("a janela abriu", bool(mapped()))
+    time.sleep(2.5)
+    check("com o ícone sempre na bandeja ligado: nenhum processo do ícone", not helpers(a), str(helpers(a)))
     t = time.time()
     close_window()
     code = a.wait(5)
@@ -384,12 +407,13 @@ def no_panel():
 
 
 def option_off():
-    section("com painel e a opção desligada")
+    section("com painel e as duas opções desligadas")
     panel.up()
     panel.clear()
-    home = fresh_home()
-    (home / "config/larpercord/settings.kdl").write_text("settings close_to_tray=#false\n")
+    home = fresh_home("close_to_tray=#false " + ONLY_HIDDEN)
     a = start(home)
+    time.sleep(2.5)
+    check("nenhum processo do ícone com a janela aberta", not helpers(a), str(helpers(a)))
     close_window()
     code = a.wait(5)
     check("fechar encerra o processo", code == 0, f"código {code}")
@@ -397,12 +421,24 @@ def option_off():
     a.kill()
     shutil.rmtree(home)
 
+    section("fechar para a bandeja desligado, ícone sempre na bandeja ligado")
+    panel.clear()
+    home = fresh_home("close_to_tray=#false")
+    a = start(home)
+    check("o ícone aparece com a janela aberta", bool(wait_until(panel.items, ICON_MAX_S)) and bool(mapped()))
+    close_window()
+    code = a.wait(5)
+    check("fechar encerra o processo", code == 0, f"código {code}")
+    check("e o ícone sai junto", wait_until(lambda: not panel.items(), 3) is True)
+    a.kill()
+    shutil.rmtree(home)
+
 
 def full_flow():
-    section("com painel: fechar, voltar e sair")
+    section("com painel e o ícone só com a janela escondida: fechar, voltar e sair")
     panel.up()
     panel.clear()
-    home = fresh_home()
+    home = fresh_home(ONLY_HIDDEN)
     a = start(home)
     check("janela aberta: sem ícone", not panel.items())
     # O "digitando" da demonstração anima nos primeiros 10 s.
@@ -523,10 +559,119 @@ def full_flow():
     shutil.rmtree(home)
 
 
+def always_flow():
+    section("ícone sempre na bandeja (o padrão): da abertura até sair")
+    panel.up()
+    panel.clear()
+    home = fresh_home()
+    t_start = time.time()
+    a = start(home)
+    items = wait_until(panel.items, ICON_MAX_S)
+    check("o ícone aparece com a janela aberta", bool(items) and bool(mapped()), f"{len(panel.items())} ícone(s)")
+    if not items:
+        a.kill()
+        return
+    item = items[-1]
+    labels = panel.menu(item)
+    check("o menu tem Abrir e Sair", len(labels) == 2, ", ".join(labels))
+    open_id = next(v for k, v in labels.items() if "larperCord" in k)
+    quit_id = next(v for k, v in labels.items() if "larperCord" not in k)
+    kids = helpers(a)
+    check("um processo só para o ícone", len(kids) == 1, str(kids))
+    check("o GTK fica fora do app", "libgtk-3" not in Path(f"/proc/{a.p.pid}/maps").read_text())
+
+    # O custo de deixar o ícone o tempo todo: o processo dele parado, 20 s (o
+    # "digitando" da demonstração anima nos primeiros 10 s).
+    time.sleep(max(0.0, 12 - (time.time() - t_start)))
+    if kids:
+        hz = os.sysconf("SC_CLK_TCK")
+        h0, a0 = ticks_of(kids[0]), a.cpu_ticks()
+        time.sleep(20)
+        cpu_h = (ticks_of(kids[0]) - h0) / hz / 20 * 100
+        cpu_a = (a.cpu_ticks() - a0) / hz / 20 * 100
+        print(f"       custo do ícone: processo do ícone RSS {rss_of(kids[0])} KB, PSS {pss_of(kids[0])} KB, CPU {cpu_h:.2f}% em 20 s parado; app no mesmo tempo {cpu_a:.2f}% de CPU, PSS {a.pss_kb()} KB")
+        check("parado, o processo do ícone quase não usa CPU", cpu_h < 1.0, f"{cpu_h:.2f}%")
+
+    section("ícone sempre na bandeja: fechar, Abrir e um segundo larperCord")
+    close_window()
+    check("fechar esconde a janela", wait_until(lambda: not mapped(), 3) is True)
+    time.sleep(0.3)
+    check("e o mesmo ícone fica, no mesmo processo", panel.items() == [item] and helpers(a) == kids, f"{panel.items()} {helpers(a)}")
+    panel.click(item, open_id)
+    check("Abrir volta a janela", bool(wait_until(mapped, 5)))
+    time.sleep(0.5)
+    check("e o ícone fica", panel.items() == [item] and helpers(a) == kids)
+    panel.click(item, open_id)
+    time.sleep(0.5)
+    check("Abrir com a janela aberta: continua uma janela só, aberta", len(mapped()) == 1 and len(windows()) == 1)
+    b = App(home)
+    code = b.wait(8)
+    check("um segundo larperCord com a janela aberta sai sem abrir outra", code == 0 and len(mapped()) == 1, f"código {code}")
+    ok = True
+    icons = []
+    for _ in range(5):
+        ok = ok and close_window()
+        ok = ok and wait_until(lambda: not mapped(), 3) is True
+        icons.append(len(panel.items()))
+        b = App(home)
+        ok = ok and b.wait(8) == 0
+        ok = ok and bool(wait_until(mapped, 5))
+        time.sleep(0.3)
+        icons.append(len(panel.items()))
+    check("5 vezes para a bandeja e de volta pelo segundo larperCord", ok and a.alive())
+    check("sempre o mesmo ícone, nos dois estados", icons == [1, 1] * 5 and panel.items() == [item] and helpers(a) == kids, str(icons))
+
+    section("ícone sempre na bandeja: o painel reinicia com a janela aberta")
+    panel.down()
+    time.sleep(1.0)
+    panel.up()
+    back = wait_until(panel.items, 10)
+    check("o ícone volta ao painel, sem outro processo", bool(back) and helpers(a) == kids, f"{back} {helpers(a)}")
+    check("a janela continua aberta", bool(mapped()) and a.alive())
+    if back:
+        item = back[-1]
+
+    section("ícone sempre na bandeja: o processo do ícone morre")
+    if kids:
+        os.kill(kids[0], signal.SIGKILL)
+    check("com a janela aberta: ela continua e o app segue", wait_until(lambda: not panel.items(), 3) is True and bool(mapped()) and a.alive())
+    back = wait_until(panel.items, 8)
+    kids = helpers(a)
+    check("e o ícone volta sozinho, num processo novo", bool(back) and len(kids) == 1, f"{back} {kids}")
+    if back:
+        item = back[-1]
+    close_window()
+    wait_until(lambda: not mapped(), 3)
+    if kids:
+        os.kill(kids[0], signal.SIGKILL)
+    check("com a janela escondida: ela volta", bool(wait_until(mapped, 5)) and a.alive())
+    # Duas quedas seguidas: a segunda espera a próxima tentativa (até 10 s).
+    back = wait_until(panel.items, 15)
+    check("e o ícone também", bool(back) and len(helpers(a)) == 1, f"{back} {helpers(a)}")
+    if back:
+        item = back[-1]
+    time.sleep(0.5)
+
+    section("ícone sempre na bandeja: Sair com a janela aberta")
+    labels = panel.menu(item)
+    quit_id = next(v for k, v in labels.items() if "larperCord" not in k)
+    check("janela aberta antes de sair", bool(mapped()))
+    t = time.time()
+    panel.click(item, quit_id)
+    code = a.wait(5)
+    check("Sair no menu encerra tudo sem fechar a janela antes", code == 0, f"código {code}, {time.time() - t:.2f} s")
+    check("sem passar pelo vigia", "encerramento demorou" not in a.output())
+    check("e o ícone sai do painel", wait_until(lambda: not panel.items(), 3) is True)
+    a.kill()
+    kdl = (home / "config/larpercord/settings.kdl").read_text()
+    check("a opção fica salva", "tray_always=#true" in kdl)
+    shutil.rmtree(home)
+
+
 def restarted():
     section("primeiro travado")
     panel.up()
-    home = fresh_home()
+    home = fresh_home(ONLY_HIDDEN)
     a = start(home)
     a.p.send_signal(signal.SIGSTOP)
     b = App(home)
@@ -542,7 +687,7 @@ def restarted():
     section("--restarted")
     panel.up()
     panel.clear()
-    home = fresh_home()
+    home = fresh_home(ONLY_HIDDEN)
     a = start(home)
     close_window()
     wait_until(panel.items, ICON_MAX_S)
@@ -596,7 +741,7 @@ def panel_dies():
     section("o painel morre com a janela escondida (--slow)")
     panel.up()
     panel.clear()
-    home = fresh_home()
+    home = fresh_home(ONLY_HIDDEN)
     a = start(home)
     close_window()
     wait_until(panel.items, ICON_MAX_S)
@@ -613,6 +758,7 @@ try:
     no_panel()
     option_off()
     full_flow()
+    always_flow()
     restarted()
     demo_not_gated()
     if SLOW:

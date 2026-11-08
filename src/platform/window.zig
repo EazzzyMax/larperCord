@@ -14,10 +14,14 @@ pub const Wake = enum(i32) {
     token = 5,
     /// Abrir a janela: menu da bandeja ou um segundo larperCord.
     show = 6,
-    /// Sair de verdade: menu da bandeja.
+    /// Sair de verdade: menu da bandeja (com a janela escondida ou aberta).
     quit = 7,
     /// A thread dos plugins tem pedidos para a interface.
     plugins = 8,
+    /// Clique no ícone da bandeja: alterna a janela (ver janela.trayClick).
+    toggle = 9,
+    /// O processo do ícone saiu sem ninguém pedir.
+    tray_gone = 10,
 };
 
 pub const Window = struct {

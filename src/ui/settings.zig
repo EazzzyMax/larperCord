@@ -144,6 +144,12 @@ const Page = struct {
 
     /// Linha com título, descrição e um interruptor à direita.
     pub fn toggle(p: *Page, label: []const u8, desc: []const u8, value: *bool) void {
+        p.toggleIf(label, desc, value, true);
+    }
+
+    /// `enabled` falso: a opção aparece apagada e o clique não muda nada (quem
+    /// chama explica o motivo logo abaixo, com `note`).
+    pub fn toggleIf(p: *Page, label: []const u8, desc: []const u8, value: *bool, enabled: bool) void {
         const ctx = p.ctx;
         // A descrição quebra a linha (numa janela estreita, cortar perderia o que
         // a opção faz), e a linha cresce junto.
@@ -153,17 +159,19 @@ const Page = struct {
         const r: d.Rect = .{ .x = p.x, .y = p.y, .w = p.w, .h = row_h };
         const k_id = p.id();
         const hb = d.hit(ctx, k_id, r);
-        qa.mark(r, "toggle:{s}", .{label});
-        if (hb.clicked) value.* = !value.*;
-        d.text(p.dl, p.font(.medium), 16, r.x, r.y + 4, ctx.col(.text), label);
-        if (desc.len > 0) _ = inbox.wrapText(p.dl, p.font(.regular), 13.5, r.x, r.y + 28, desc_w, desc, 6, ctx.col(.muted));
+        // Apagada não é um botão: a varredura do QA ("clicar em tudo") não a cobra.
+        if (enabled) qa.mark(r, "toggle:{s}", .{label}) else qa.mark(r, "toggle-off:{s}", .{label});
+        if (hb.clicked and enabled) value.* = !value.*;
+        const fade: f32 = if (enabled) 1 else 0.45;
+        d.text(p.dl, p.font(.medium), 16, r.x, r.y + 4, ctx.col(.text).alpha(fade), label);
+        if (desc.len > 0) _ = inbox.wrapText(p.dl, p.font(.regular), 13.5, r.x, r.y + 28, desc_w, desc, 6, ctx.col(.muted).alpha(fade));
         // Interruptor.
         const sw: d.Rect = .{ .x = r.right() - 44, .y = r.y + 4, .w = 40, .h = 24 };
         const on = anim.to(anim.id("sw", k_id + @as(usize, @intFromEnum(ctx.st.settings.page)) * 1000), if (value.*) 1 else 0, 22);
-        d.rect(p.dl, sw, ctx.col(.faint).mix(ctx.col(.accent), on), 12);
+        d.rect(p.dl, sw, ctx.col(.faint).mix(ctx.col(.accent), on).alpha(fade), 12);
         const kx = sw.x + 12 + on * 16;
-        d.circle(p.dl, kx, sw.y + 12, 9, d.Rgba.white);
-        const ink = ctx.col(.faint).mix(ctx.col(.accent), on);
+        d.circle(p.dl, kx, sw.y + 12, 9, d.Rgba.white.alpha(fade));
+        const ink = ctx.col(.faint).mix(ctx.col(.accent), on).alpha(fade);
         if (on > 0.5) {
             d.line(p.dl, kx - 4, sw.y + 12, kx - 1, sw.y + 15, ink, 2);
             d.line(p.dl, kx - 1, sw.y + 15, kx + 4, sw.y + 9, ink, 2);
@@ -900,7 +908,18 @@ fn page(p: *Page, previews: []const Preview) void {
             p.toggle(i18n.tr("Modo desenvolvedor", "Developer Mode"), i18n.tr("Mostra o ID das mensagens e põe \"Copiar ID\" nos menus.", "Shows message IDs and adds \"Copy ID\" to menus."), &s.developer_mode);
             p.toggle(i18n.tr("Recarregar temas ao salvar", "Reload themes on save"), i18n.tr("Salvar um .kdl em themes/ ou ~/.config/larpercord/themes aplica na hora.", "Saving a .kdl in themes/ or ~/.config/larpercord/themes applies it right away."), &s.hot_reload);
             p.toggle(i18n.tr("Fechar para a bandeja", "Close to tray"), i18n.tr("Fechar a janela deixa o app conectado, com um ícone na bandeja do sistema.", "Closing the window keeps the app connected, with an icon in the system tray."), &s.close_to_tray);
-            if (s.close_to_tray and !tray.hostSeen(ctx.now_ms)) p.note(i18n.tr("Este sistema não tem bandeja agora: fechar a janela encerra o app.", "This system has no tray right now: closing the window quits the app."));
+            const has_tray = tray.hostSeen(ctx.now_ms);
+            if (s.close_to_tray and !has_tray) p.note(i18n.tr("Este sistema não tem bandeja agora: fechar a janela encerra o app.", "This system has no tray right now: closing the window quits the app."));
+            // No Linux o painel abre o menu com qualquer clique (libappindicator).
+            p.toggleIf(i18n.tr("Ícone sempre na bandeja", "Always show tray icon"), if (@import("../platform/sys.zig").windows)
+                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto: clicar nele mostra ou esconde a janela, e o menu tem Abrir e Sair.", "Keeps the icon in the system tray while the app runs: clicking it shows or hides the window, and its menu has Open and Quit.")
+            else
+                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto, com Abrir e Sair no menu, até com a janela aberta.", "Keeps the icon in the system tray while the app runs, with Open and Quit in its menu, even with the window open."), &s.tray_always, has_tray);
+            if (!has_tray) {
+                const y0 = p.y;
+                p.note(i18n.tr("Indisponível: nenhum painel do sistema mostra ícones agora (StatusNotifier). Ligada, o ícone aparece quando houver um.", "Unavailable: no system panel shows icons right now (StatusNotifier). While on, the icon appears once there is one."));
+                qa.mark(.{ .x = p.x, .y = y0, .w = p.w, .h = p.y - y0 }, "tray-unavailable", .{});
+            }
             textSection(p);
             debugSection(p);
         },

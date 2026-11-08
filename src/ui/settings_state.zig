@@ -221,6 +221,9 @@ pub const Settings = struct {
     hot_reload: bool = true,
     /// Fechar a janela deixa o app na bandeja (sem bandeja, fechar sai igual).
     close_to_tray: bool = true,
+    /// O ícone fica na bandeja da abertura até sair, como no Discord (Sair no menu
+    /// sem fechar a janela antes). Desligado: só com a janela escondida.
+    tray_always: bool = true,
     /// 0 = seguir o sistema, 1 = português, 2 = inglês, 3 = japonês.
     language: u8 = 0,
     /// 0 = escuro, 1 = claro, 2 = seguir o sistema.
@@ -622,9 +625,11 @@ test "volume dos vídeos e fechar para a bandeja vão e voltam" {
     const kdl = @import("../theme/kdl.zig");
     var s: Settings = .{};
     try std.testing.expect(s.close_to_tray);
+    try std.testing.expect(s.tray_always);
     try std.testing.expectEqual(@as(u8, 100), s.video_volume);
     s.video_volume = 35;
     s.close_to_tray = false;
+    s.tray_always = false;
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(std.testing.allocator);
     try write(&s, "vidro", &out, std.testing.allocator);
@@ -635,11 +640,14 @@ test "volume dos vídeos e fechar para a bandeja vão e voltam" {
     apply(&back, &nodes[0]);
     try std.testing.expectEqual(@as(u8, 35), back.video_volume);
     try std.testing.expect(!back.close_to_tray);
-    // Arquivo antigo: os padrões. Volta para a bandeja ligada e som cheio.
-    const old = try kdl.parse(arena.allocator(), "settings compact=#true\n", null);
+    try std.testing.expect(!back.tray_always);
+    // Arquivo antigo: os padrões. Volta para a bandeja ligada e som cheio; o ícone
+    // sempre na bandeja (de depois da 0.6.1) também vem ligado.
+    const old = try kdl.parse(arena.allocator(), "settings compact=#true close_to_tray=#true\n", null);
     var fresh: Settings = .{};
     apply(&fresh, &old[0]);
     try std.testing.expect(fresh.close_to_tray);
+    try std.testing.expect(fresh.tray_always);
     try std.testing.expectEqual(@as(u8, 100), fresh.video_volume);
 }
 
