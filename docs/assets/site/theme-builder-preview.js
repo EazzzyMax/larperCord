@@ -1,6 +1,7 @@
 // A prévia do criador de temas: cada componente do layout vira um pedaço de HTML.
-// Sem DOM (só `paintBox`, que escreve no `style` do elemento que recebe), para a página
-// e o teste (tools/theme_builder_test.js) usarem o mesmo código.
+// Sem DOM (só `paintBox`, que escreve no `style` do elemento que recebe, e `mount`, que
+// cria os elementos no documento do quadro), para a página, a galeria da comunidade e o
+// teste (tools/theme_builder_test.js) usarem o mesmo código.
 //
 // Um link compartilhado traz o layout de outra pessoa, então nada do arquivo entra cru
 // no HTML: valor de lista (variant, shape, align…) só passa se o app conhece, senão vale
@@ -507,5 +508,87 @@
     return own(C, name) ? C[name](th, nd, toks) : null;
   }
 
-  return { W: W, H: H, esc: esc, fontOf: fontOf, flagOpt: flagOpt, visible: visible, paintBox: paintBox, component: component, names: Object.keys(C) };
+  // A árvore do layout em elementos de verdade. Este pedaço precisa de DOM (o documento
+  // do `frame`); o criador de temas e a galeria da comunidade desenham por aqui.
+  var CONTAINERS = { row: 1, column: 1, stack: 1 };
+  function build(doc, th, nd, parentAxis, toks) {
+    var n = doc.createElement("div");
+    n.className = "pv-n";
+    var main = parentAxis === "row" ? "width" : parentAxis === "column" ? "height" : null;
+    if (main) {
+      var fixed = TB.num(nd, main);
+      if (fixed !== null) n.style.flex = "0 0 " + Math.max(0, fixed) + "px";
+      else n.style.flex = (TB.num(nd, "flex") === null ? 1 : Math.max(0, TB.num(nd, "flex"))) + " 1 0";
+    }
+    // Cores sobrescritas neste pedaço (c-…, cl-… só no claro, cd-… só no escuro).
+    var local = toks, over = [];
+    nd.props.forEach(function (p) {
+      var m = /^(c|cl|cd)-(.+)$/.exec(p.k);
+      if (!m || (m[1] === "cl" && th.mode !== "light") || (m[1] === "cd" && th.mode !== "dark") || !TB.tokenName(m[2]) || typeof p.v !== "string") return;
+      try {
+        var c = TB.evalColor(p.v, th.palette, function (x) { return th.tokens[x]; }, false);
+        if (local === toks) local = Object.assign({}, toks);
+        local[TB.tokenName(m[2])] = c;
+        over.push([TB.tokenName(m[2]), TB.cssColor(c)]);
+      } catch (e) {}
+    });
+    var b = doc.createElement("div");
+    b.className = "pv-b";
+    // O nome do nó só vira classe se for um nome simples (um link pode trazer qualquer coisa).
+    if (/^[a-z][a-z0-9-]{0,40}$/.test(nd.name)) b.classList.add("pv-k-" + nd.name);
+    var mw = TB.num(nd, "max-width");
+    if (mw !== null) { b.style.maxWidth = mw + "px"; b.style.marginLeft = b.style.marginRight = "auto"; }
+    over.forEach(function (o) { b.style.setProperty("--t-" + o[0], o[1]); });
+    var f = fontOf(TB.str(nd, "font"));
+    if (f && nd.name !== "label") b.style.fontFamily = f;
+    paintBox(th, b, nd, local);
+    if (own(CONTAINERS, nd.name)) {
+      b.classList.add("pv-" + (nd.name === "stack" ? "stack" : "flex"));
+      if (nd.name !== "stack") b.style.flexDirection = nd.name === "row" ? "row" : "column";
+      var pad = TB.num(nd, "padding") || 0, px = TB.num(nd, "padding-x"), py = TB.num(nd, "padding-y");
+      px = px === null ? pad : px;
+      py = py === null ? pad : py;
+      b.style.padding = py + "px " + px + "px";
+      if (nd.name !== "stack" && TB.num(nd, "gap")) b.style.gap = TB.num(nd, "gap") + "px";
+      nd.kids.forEach(function (k) { if (visible(th, k)) b.appendChild(build(doc, th, k, nd.name, local)); });
+    } else {
+      var c = doc.createElement("div");
+      c.className = "pv-c";
+      var ix = TB.num(nd, "inset-x") || 0, iy = TB.num(nd, "inset-y") || 0;
+      c.style.inset = iy + "px " + ix + "px";
+      // Só o HTML de `component`, que já passou por esc() e pelas listas do app.
+      var inner = component(nd.name, th, nd, local);
+      if (inner !== null) c.innerHTML = inner;
+      else {
+        c.className += " pv-bad";
+        c.textContent = (lang === "pt" ? "componente desconhecido: " : "unknown component: ") + nd.name + " · " + (lang === "pt" ? "linha " : "line ") + nd.line;
+      }
+      b.appendChild(c);
+      if (flagOpt(th, nd, "autohide", false)) n.classList.add("pv-autohide");
+    }
+    n.appendChild(b);
+    return n;
+  }
+
+  // Desenha o tema `th` (de TB.loadTheme) dentro de `frame`, que tem 1280×800 e a classe tb-frame.
+  function mount(frame, th) {
+    var doc = frame.ownerDocument, f = frame;
+    f.textContent = "";
+    TB.TOKENS.forEach(function (k) { f.style.setProperty("--t-" + k, TB.cssColor(th.tokens[k])); });
+    th.roles.forEach(function (c, i) { f.style.setProperty("--r" + i, TB.cssColor(c)); });
+    f.style.setProperty("--f-ui", '"' + th.fontUi.replace(/["\\<>;{}]/g, "") + '",Inter,Archivo,system-ui,sans-serif');
+    f.style.setProperty("--f-mono", '"' + th.fontMono.replace(/["\\<>;{}]/g, "") + '","JetBrains Mono",ui-monospace,monospace');
+    f.style.setProperty("--pv-fs", th.fontSize * 0.9 + "px");
+    f.style.setProperty("--pv-r", th.radius + "px");
+    f.classList.toggle("pv-clear", th.transparent);
+    f.classList.toggle("pv-light", th.mode === "light");
+    f.style.setProperty("--pv-bg", TB.cssColor(th.tokens.bg));
+    var root = th.layout.kids.filter(function (k) { return visible(th, k); })[0];
+    if (!root) return;
+    var tree = build(doc, th, root, null, th.tokens);
+    tree.classList.add("pv-root");
+    f.appendChild(tree);
+  }
+
+  return { W: W, H: H, esc: esc, fontOf: fontOf, flagOpt: flagOpt, visible: visible, paintBox: paintBox, component: component, mount: mount, names: Object.keys(C) };
 });

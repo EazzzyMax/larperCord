@@ -353,7 +353,7 @@ tasks.push(test("damaged or hostile share links are refused with a reason", () =
   assert.strictEqual(TB.expand(bad({ r: "1e999" }), builtinStructure).radius, 6);
   const odd = TB.expand(bad({ b: "zen\nlayout { }", m: [{}, 7, null, ["x"], "nada"], f: [null, 3, "x"], r: 999 }), builtinStructure);
   assert.strictEqual(odd.base, null);
-  assert.deepStrictEqual(odd.meta, { name: "", author: "7", desc: "", descEn: "", preview: "classic" });
+  assert.deepStrictEqual(odd.meta, { name: "", author: "7", desc: "", descEn: "", preview: "classic", license: "" });
   assert.deepStrictEqual(odd.fonts, { ui: "Inter", mono: "3", size: 16 });
   assert.strictEqual(odd.radius, 64);
   assert.strictEqual(TB.toKdl(Object.assign(odd, { base: "x\nlayout {}" })).split("\n")[1], "// Made in the larperCord theme builder, starting from xlayout.");
@@ -393,6 +393,8 @@ tasks.push(test("every error has English and Portuguese text", () => {
     ["weight", () => L('layout { row { label tracking=1 weight="gorda" } }')], ["span-text", () => L("layout { row { label { span } } }")],
     ["span-color", () => L('layout { row { label { span "x" color="nope" } } }')],
     ["link-version", () => TB.expand({ v: 9 })], ["link-broken", () => TB.expand(null)], ["link-layout", () => TB.expand(Object.assign(TB.compact(TB.fromSource(sources.zen)), { l: "nada" }), builtinStructure)],
+    ["css-too-big", () => TB.importDiscordCss("a".repeat(TB.CSS_MAX + 1))], ["css-empty", () => TB.importDiscordCss(":root { --nothing-here: #fff }")],
+    ["css-slow", () => { let clock = 0; TB.importDiscordCss(":root{" + "--v: #fff;".repeat(5000) + "}", { now: () => (clock += 100), budget: 1000 }); }],
   ];
   const seen = new Set();
   for (const [code, fn, arg] of cases) {
@@ -538,8 +540,384 @@ tasks.push(test("one-click contrast fix always clears the warning", () => {
   assert.ok(row.stuck && row.fix === null && row.lift, JSON.stringify(row));
 }));
 
+// 10. A prévia montada (theme-builder-preview.js `mount`), com um DOM de mentira: o criador
+// e a galeria da comunidade desenham por ela.
+function fakeDocument() {
+  const made = [];
+  function el(tag) {
+    const e = {
+      tag, kids: [], className: "", _text: "", _html: "", ownerDocument: doc,
+      style: { setProperty(k, v) { this[k] = v; } },
+      classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, on) { if (on) this.set.add(c); else this.set.delete(c); } },
+      appendChild(k) { this.kids.push(k); return k; },
+      set textContent(v) { this._text = v; this.kids = []; }, get textContent() { return this._text; },
+      set innerHTML(v) { this._html = v; }, get innerHTML() { return this._html; },
+    };
+    made.push(e);
+    return e;
+  }
+  const doc = { createElement: el, made };
+  return doc;
+}
+tasks.push(test("mount draws every built-in layout with the shared renderer", () => {
+  const P = PREVIEW(TB, "en");
+  for (const t of THEMES) {
+    for (const mode of MODES) {
+      const doc = fakeDocument(), frame = doc.createElement("div"), th = TB.loadTheme(sources[t], { mode });
+      P.mount(frame, th);
+      assert.strictEqual(frame.kids.length, 1, t + " root");
+      assert.strictEqual(frame.style["--t-bg"], TB.cssColor(th.tokens.bg));
+      const comps = doc.made.filter((e) => e.className === "pv-c");
+      assert.ok(comps.length >= 3, t + " " + mode + " components " + comps.length);
+      for (const c of comps) if (c._html) scanHtml(c._html);
+      assert.ok(!doc.made.some((e) => e.className.includes("pv-bad")), t + " has no unknown component");
+    }
+  }
+}));
+
+// 11. Metadados da galeria: licença no arquivo e no link, e a lista do que falta.
+tasks.push(test("license goes in the file and in the share link", () => {
+  const state = TB.fromSource(sources.zen, { base: "zen", name: "Calma" });
+  state.meta.author = "Ana";
+  state.meta.license = "CC-BY-4.0";
+  const kdl = TB.toKdl(state);
+  assert.ok(/^theme "Calma" .*author="Ana" license="CC-BY-4.0" preview=/m.test(kdl), kdl.split("\n")[2]);
+  checkLoads(kdl, "license");
+  assert.strictEqual(TB.fromSource(kdl).meta.license, "CC-BY-4.0");
+  const c = TB.compact(state, builtinStructure);
+  assert.strictEqual(TB.expand(c, builtinStructure).meta.license, "CC-BY-4.0");
+  c.m = c.m.slice(0, 5);
+  assert.strictEqual(TB.expand(c, builtinStructure).meta.license, "");
+}));
+tasks.push(test("community checklist", () => {
+  const bad = (s) => TB.communityCheck(s, THEMES).filter((c) => !c.ok).map((c) => c.id);
+  const s = TB.fromSource(sources.orbital, { base: "orbital", name: "my-orbital" });
+  s.meta.author = "";
+  s.meta.license = "";
+  s.meta.desc = s.meta.descEn = "";
+  assert.deepStrictEqual(bad(s), ["author", "description", "license"]);
+  Object.assign(s.meta, { author: "Ana", descEn: "Mint on graphite.", license: "CC0-1.0" });
+  assert.deepStrictEqual(bad(s), []);
+  for (const lic of ["my license", "CC0-1.0 OR", "", "x".repeat(70), "MIT\nGPL"]) { s.meta.license = lic; assert.deepStrictEqual(bad(s), ["license"], lic); }
+  // Partiu do orbital e não mudou a descrição: a lista pede uma própria.
+  const descs = THEMES.flatMap((t) => { const m = TB.fromSource(sources[t]).meta; return [m.desc, m.descEn]; });
+  s.meta.license = "MIT";
+  s.meta.descEn = TB.fromSource(sources.orbital).meta.descEn;
+  const d = TB.communityCheck(s, THEMES, descs).find((c) => c.id === "description");
+  assert.ok(!d.ok && d.copied);
+  s.meta.descEn = "Mint on graphite.";
+  s.meta.license = "GPL-3.0-or-later OR MIT";
+  s.meta.name = "Orbital";
+  const name = TB.communityCheck(s, THEMES)[0];
+  assert.ok(!name.ok && name.builtin && name.file === "orbital");
+}));
+
+// 12. Cores de um tema do Discord. Três CSS escritos à mão para o teste (nenhum copiado de
+// um tema de verdade): um com os nomes antigos, um com os novos e um quebrado e hostil.
+const CSS_OLD = `/**
+ * @name Lilac Night
+ * @author test fixture
+ * @description Handwritten sample for the importer test.
+ */
+@import url("https://example.invalid/lilac/base.css");
+@import 'https://example.invalid/lilac/fonts.css';
+:root {
+  --lilac-hue: 265;
+  --lilac-bg: hsl(var(--lilac-hue) 18% 12%);
+  --accent-rgb: 167, 139, 250;
+}
+.theme-dark {
+  --background-primary: var(--lilac-bg);
+  --background-secondary: #17141f;
+  --background-secondary-alt: #1f1b2b;
+  --background-tertiary: rgb(14 12 20);
+  --background-floating: #0f0d16;
+  --channeltextarea-background: #241f33;
+  --background-modifier-hover: rgba(200, 180, 255, 0.06);
+  --background-modifier-selected: hsla(265, 60%, 70%, 0.16);
+  --background-modifier-accent: rgb(200 180 255 / 10%);
+  --text-normal: #ece8f6;
+  --channels-default: #b3aac8;
+  --text-muted: #8f86a6; /* timestamps */
+  --text-link: #7dd3fc;
+  --brand-experiment: rgb(var(--accent-rgb));
+  --status-positive: #4ade80;
+  --status-warning: #fbbf24;
+  --status-danger: #f87171;
+}
+.theme-light {
+  --background-primary: #fbf9ff;
+  --background-secondary: #f1edf9;
+  --background-tertiary: #e6e0f2;
+  --text-normal: #1d1730;
+  --text-muted: #6b6280;
+  --brand-experiment: #6d28d9;
+}`;
+const CSS_NEW = `/* Moss: handwritten sample with the newer variable names */
+.visual-refresh.theme-dark {
+  --background-base-lowest: #0d1210;
+  --background-base-lower: #121916;
+  --background-base-low: #17201c;
+  --background-surface-high: #1e2a25;
+  --background-surface-highest: #24332d;
+  --text-default: #e3efe8;
+  --text-secondary: #b5c9bf;
+  --text-muted: #8aa397;
+  --text-link: #6ee7b7;
+  --bg-brand: #34d399;
+  --bg-mod-faint: rgb(255 255 255 / 0.04);
+  --bg-mod-strong: rgb(255 255 255 / 0.12);
+  --border-subtle: #ffffff14;
+  --text-feedback-positive: #4ade80;
+  --text-feedback-warning: #facc15;
+  --text-feedback-critical: #fb7185;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-base-primary: #f6faf8;
+    --bg-base-secondary: #edf4f0;
+    --bg-base-tertiary: #e2ece7;
+    --text-default: #10201a;
+    --bg-brand: #047857;
+  }
+}`;
+const CSS_HOSTILE = `@import url(javascript:alert(1));
+@import "</style><script>alert(2)</script>";
+:root{--background-primary:#202225;--text-normal:</style><script>alert(3)</script>;--brand-experiment:expression(alert(4));--text-link:url("javascript:alert(5)")}
+.chat-3bRxxu .messages { --background-primary: #ff0000 !important; }
+.theme-dark { --background-secondary: transparent; --background-tertiary: color-mix(in srgb, red 50%, blue); --background-floating: #18191c }
+--x</style>: red;
+</style><script>alert(6)</script> { --background-secondary-alt: #000 }
+.weird { content: "}"; --text-muted: #72767d; }
+.a { --a: var(--b); --b: var(--a); --header-primary: var(--a, #dcddde) }
+}}}
+@media screen { .theme-dark { --background-modifier-hover: rgba(79,84,92,.16) } }
+.unclosed { --interactive-normal: #b9bbbe`;
+function mapOf(r) { const o = {}; for (const m of r.mapped.concat(r.derived)) o[m.tok] = m.value; return o; }
+function fromOf(r) { const o = {}; for (const m of r.mapped) o[m.tok] = m.from; return o; }
+function importAndApply(css, base, name) {
+  const res = TB.importDiscordCss(css);
+  const state = TB.applyCssImport(TB.fromSource(sources[base], { base, name }), res);
+  const kdl = TB.toKdl(state);
+  checkLoads(kdl, name);
+  for (const mode of MODES) {
+    assert.ok(Array.isArray(TB.contrastReport(state, mode)));
+    for (const t of TB.TOKENS) assert.ok(/^#[0-9a-f]{6}([0-9a-f]{2})?$/.test(state.colors[mode][t]), name + " " + mode + " " + t);
+  }
+  return { res, state, kdl };
+}
+tasks.push(test("Discord CSS, older variable names", () => {
+  const { res, state, kdl } = importAndApply(CSS_OLD, "orbital", "lilac-night");
+  const d = mapOf(res.modes.dark), l = mapOf(res.modes.light);
+  assert.deepStrictEqual(res.imports, ["https://example.invalid/lilac/base.css", "https://example.invalid/lilac/fonts.css"]);
+  assert.strictEqual(d.bg, "#1e1924");          // hsl(var(--lilac-hue) 18% 12%)
+  assert.strictEqual(d.sidebar, "#17141f");
+  assert.strictEqual(d.rail, "#0e0c14");        // rgb(14 12 20)
+  assert.strictEqual(d.overlay, "#0f0d16");
+  assert.strictEqual(d.elevated, "#241f33");
+  assert.strictEqual(d["bubble-other"], "#1f1b2b");
+  assert.strictEqual(d.text, "#ece8f6");
+  assert.strictEqual(d.muted, "#b3aac8");
+  assert.strictEqual(d.faint, "#8f86a6");
+  assert.strictEqual(d.link, "#7dd3fc");
+  assert.strictEqual(d.accent, "#a78bfa");      // rgb(var(--accent-rgb))
+  assert.strictEqual(d["bubble-self"], "#a78bfa");
+  assert.strictEqual(d["accent-text"], "#000000");
+  assert.strictEqual(d.hover, "#c8b4ff0f");
+  assert.strictEqual(d.selected, "#ab85e029");   // hsla(265, 60%, 70%, 0.16)
+  assert.strictEqual(d.border, "#c8b4ff1a");
+  assert.deepStrictEqual([d.online, d.idle, d.dnd, d.danger], ["#4ade80", "#fbbf24", "#f87171", "#f87171"]);
+  assert.strictEqual(fromOf(res.modes.dark).text, "--text-normal");
+  assert.deepStrictEqual(res.modes.dark.kept, ["shadow"]);
+  // O claro só tem o que o bloco .theme-light diz; o resto fica como estava no tema de partida.
+  assert.deepStrictEqual([l.bg, l.sidebar, l.rail, l.text, l.faint, l.accent, l["accent-text"]], ["#fbf9ff", "#f1edf9", "#e6e0f2", "#1d1730", "#6b6280", "#6d28d9", "#ffffff"]);
+  const orig = TB.fromSource(sources.orbital, { base: "orbital", name: "x" });
+  for (const t of res.modes.light.kept) assert.strictEqual(state.colors.light[t], orig.colors.light[t], "light kept " + t);
+  assert.ok(res.modes.light.kept.includes("muted") && res.modes.light.kept.includes("link"));
+  assert.deepStrictEqual(state.roles, orig.roles);
+  assert.strictEqual(state.structure, orig.structure);
+  save("tb-css-lilac-night", kdl);
+}));
+tasks.push(test("Discord CSS, newer variable names and a light media block", () => {
+  const { res, kdl } = importAndApply(CSS_NEW, "classico", "moss");
+  const d = mapOf(res.modes.dark), l = mapOf(res.modes.light), f = fromOf(res.modes.dark);
+  assert.deepStrictEqual([d.bg, d.sidebar, d.rail, d.elevated, d.overlay], ["#17201c", "#121916", "#0d1210", "#1e2a25", "#24332d"]);
+  assert.deepStrictEqual([f.bg, f.rail, f.text, f.accent, f.mention], ["--background-base-low", "--background-base-lowest", "--text-default", "--bg-brand", "--bg-brand"]);
+  assert.deepStrictEqual([d.text, d.muted, d.faint, d.link, d.accent], ["#e3efe8", "#b5c9bf", "#8aa397", "#6ee7b7", "#34d399"]);
+  assert.deepStrictEqual([d.hover, d.selected, d.border], ["#ffffff0a", "#ffffff1f", "#ffffff14"]);
+  assert.deepStrictEqual([d.online, d.idle, d.dnd, d.danger], ["#4ade80", "#facc15", "#fb7185", "#fb7185"]);
+  assert.deepStrictEqual([l.bg, l.sidebar, l.rail, l.text, l.accent], ["#f6faf8", "#edf4f0", "#e2ece7", "#10201a", "#047857"]);
+  assert.strictEqual(fromOf(res.modes.light).bg, "--bg-base-primary");
+  assert.ok(res.modes.light.kept.includes("faint"), "the light block has no --text-muted");
+  save("tb-css-moss", kdl);
+}));
+tasks.push(test("Discord CSS that is broken and hostile maps only real colors", () => {
+  const { res, state, kdl } = importAndApply(CSS_HOSTILE, "orbital", "hostil");
+  const d = mapOf(res.modes.dark), skipped = {};
+  for (const x of res.modes.dark.skipped) skipped[x.tok] = x.why;
+  assert.strictEqual(res.modes.light, null);
+  assert.strictEqual(d.bg, "#202225", "a component's !important doesn't beat :root");
+  assert.strictEqual(d.overlay, "#18191c");
+  assert.strictEqual(d.text, "#dcddde", "var() cycle falls back");
+  assert.strictEqual(d.faint, "#72767d", "a } inside a string doesn't end the rule");
+  assert.strictEqual(d.muted, "#b9bbbe", "unclosed rule at the end still counts");
+  assert.strictEqual(d.hover, "#4f545c29");
+  assert.deepStrictEqual([skipped.sidebar, skipped.rail, skipped.accent, skipped.link], ["transparent", "unreadable", "unreadable", "unreadable"]);
+  assert.ok(!("accent-text" in d), "no accent, no derived text");
+  // Como no CSS, url( sem aspas termina no primeiro ")". A lista é só para ler: nada é aberto.
+  assert.deepStrictEqual(res.imports, ["javascript:alert(1", "</style><script>alert(2)</script>"]);
+  assert.ok(res.notes.brace >= 3 && res.notes.unclosed >= 1 && res.notes.rule >= 1, JSON.stringify(res.notes));
+  // Nada do CSS chega ao arquivo nem ao estado: só cores em hex e nomes de variáveis da lista.
+  assert.ok(!/<script|<\/style|alert\(|javascript:/i.test(kdl));
+  assert.ok(!/<|alert/.test(JSON.stringify(state)));
+  for (const m of res.modes.dark.mapped.concat(res.modes.dark.skipped)) assert.ok(/^--[a-z0-9-]+$/.test(m.from), m.from);
+}));
+tasks.push(test("Discord CSS limits: size, time and pathological input", () => {
+  assert.throws(() => TB.importDiscordCss("a".repeat(TB.CSS_MAX + 1)), (e) => e.code === "css-too-big");
+  assert.throws(() => TB.importDiscordCss(""), (e) => e.code === "css-empty");
+  assert.throws(() => TB.importDiscordCss("body { color: red; background: #fff }"), (e) => e.code === "css-empty");
+  // Quase 500 KB de variáveis de verdade: lê rápido e acha a do fim.
+  let big = ":root {\n";
+  for (let i = 0; big.length < TB.CSS_MAX - 200; i++) big += "  --v" + i + ": #" + ((i * 2654435761) >>> 8).toString(16).padStart(6, "0").slice(-6) + ";\n";
+  big += "  --background-primary: #123456;\n}";
+  assert.ok(big.length <= TB.CSS_MAX && big.length > 480 * 1024);
+  let t0 = Date.now();
+  assert.strictEqual(mapOf(TB.importDiscordCss(big).modes.dark).bg, "#123456");
+  assert.ok(Date.now() - t0 < 3000, "big CSS took " + (Date.now() - t0) + " ms");
+  const evil = {
+    parens: ":root{--background-primary:#111;}" + "(".repeat(490000),
+    comment: ":root{--background-primary:#111;}/*" + "x".repeat(490000),
+    braces: ":root{--background-primary:#111;}" + "{".repeat(240000) + "}".repeat(240000),
+    strings: ":root{--background-primary:#111;}" + "'\\".repeat(240000),
+    nesting: ":root{--background-primary:#111;}" + ".a{".repeat(100000),
+    fanout: ":root{--background-primary:#111;--z0:#fff;" + Array.from({ length: 12 }, (_, k) => "--z" + (k + 1) + ":" + ("var(--z" + k + ") ").repeat(300) + ";").join("") + "--text-normal:var(--z12)}",
+    cycle: ":root{--background-primary:#111;" + Array.from({ length: 2000 }, (_, k) => "--c" + k + ":var(--c" + ((k + 1) % 2000) + ");").join("") + "--text-normal:var(--c0)}",
+  };
+  for (const [k, css] of Object.entries(evil)) {
+    t0 = Date.now();
+    const r = TB.importDiscordCss(css);
+    assert.strictEqual(mapOf(r.modes.dark).bg, "#111111", k);
+    assert.ok(!("text" in mapOf(r.modes.dark)), k + " text");
+    assert.ok(Date.now() - t0 < 3000, k + " took " + (Date.now() - t0) + " ms");
+  }
+  // O relógio passa do limite: para com o erro de tempo em vez de travar a página.
+  let clock = 0;
+  assert.throws(() => TB.importDiscordCss(big, { now: () => (clock += 5), budget: 200 }), (e) => e.code === "css-slow");
+  // Cores do CSS que o leitor entende, e as que ele recusa.
+  const C = (s) => { const c = TB.parseCssColor(s); return c && TB.toHex(c); };
+  assert.deepStrictEqual(["#abc", "#AABBCC80", "rgb(255 0 0 / 50%)", "rgba(0,0,255,.25)", "hsl(120deg 100% 25%)", "hsl(0.5turn, 100%, 50%)", "white", "transparent", "rgb(100%, 50%, 0%)"].map(C),
+    ["#aabbcc", "#aabbcc80", "#ff000080", "#0000ff40", "#008000", "#00ffff", "#ffffff", "#00000000", "#ff8000"]);
+  for (const s of ["", "#ggg", "rgb(1,2)", "rgb(1,2,3,4,5)", "hsl(x 1% 1%)", "color-mix(in srgb, red, blue)", "oklch(0.7 0.1 200)", "url(x)", "var(--x)", "rgb(1 2 3) x", "linear-gradient(red, blue)"]) assert.strictEqual(C(s), null, s);
+}));
+
+// 13. A galeria da comunidade: tools/gen_site.py confere themes/community/ e recusa o que
+// não carrega ou não tem os metadados. Cada caso numa pasta própria, rodando o gerador de verdade.
+const { spawnSync } = require("child_process");
+const os = require("os");
+function communityCheck(files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lc-community-"));
+  try {
+    for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), text);
+    const r = spawnSync("python3", [path.join(ROOT, "tools/gen_site.py"), "--check-community", dir], { encoding: "utf8" });
+    if (r.error) throw r.error;
+    return { code: r.status, out: r.stdout + r.stderr };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+function submission(edit) {
+  const state = withColors(TB.fromSource(sources.orbital, { base: "orbital", name: "Neon Dusk" }), TB.generate(TB.randomSeed(4242)));
+  Object.assign(state.meta, { author: "Ana Test", descEn: "Purple dusk over a dark city.", desc: "Crepúsculo roxo sobre uma cidade escura.", license: "CC0-1.0" });
+  if (edit) edit(state);
+  return state;
+}
+tasks.push(test("community gallery accepts a theme exported by the builder", () => {
+  const state = submission();
+  assert.deepStrictEqual(TB.communityCheck(state, THEMES).filter((c) => !c.ok), []);
+  const kdl = TB.toKdl(state);
+  checkLoads(kdl, "neon dusk");
+  const r = communityCheck({ "neon-dusk.kdl": kdl, "README.md": "# notes\n" });
+  assert.strictEqual(r.code, 0, r.out);
+  assert.ok(r.out.includes("ok: 1 community theme"), r.out);
+  save("tb-community-neon-dusk", kdl);
+}));
+tasks.push(test("community gallery refuses broken themes and missing metadata", () => {
+  const good = TB.toKdl(submission());
+  const meta = (fn) => TB.toKdl(submission(fn));
+  const copy = TB.fromSource(sources.orbital, { base: "orbital", name: "Orbital Copy" });
+  Object.assign(copy.meta, { author: "Ana", desc: "", descEn: "Just a copy.", license: "MIT" });
+  const cases = [
+    ["syntax error", { "neon-dusk.kdl": good.replace(/\n}\s*$/, "\n") }, /neon-dusk\.kdl:\d+:\d+: missing '\}'/],
+    ["unterminated string", { "neon-dusk.kdl": good + 'label "never closed\n' }, /neon-dusk\.kdl:\d+:\d+: unterminated string/],
+    ["no license", { "neon-dusk.kdl": meta((s) => { s.meta.license = ""; }) }, /missing license=/],
+    ["license that isn't SPDX", { "neon-dusk.kdl": meta((s) => { s.meta.license = "do what you want"; }) }, /not an SPDX identifier/],
+    ["no author", { "neon-dusk.kdl": meta((s) => { s.meta.author = ""; }) }, /missing author=/],
+    ["no description", { "neon-dusk.kdl": meta((s) => { s.meta.desc = s.meta.descEn = ""; }) }, /missing a description/],
+    ["description of a built-in", { "neon-dusk.kdl": meta((s) => { s.meta.descEn = ""; s.meta.desc = TB.fromSource(sources.zen).meta.desc; }) }, /still the one from the built-in theme zen/],
+    ["no theme node", { "neon-dusk.kdl": good.replace(/^theme .*$/m, "") }, /missing the `theme` node/],
+    ["file named differently", { "dusk.kdl": good }, /must be named neon-dusk\.kdl/],
+    ["built-in name", { "orbital.kdl": meta((s) => { s.meta.name = "Orbital"; }) }, /orbital is a built-in theme/],
+    ["built-in with another name", { "orbital-copy.kdl": TB.toKdl(copy) }, /built-in theme orbital with another name/],
+    ["same theme twice", { "neon-dusk.kdl": good, "neon-dusk-2.kdl": good.replace('theme "Neon Dusk"', 'theme "Neon Dusk 2"') }, /neon-dusk(-2)?\.kdl: same colors and layout as neon-dusk(-2)?\.kdl/],
+    ["unknown color token", { "neon-dusk.kdl": good.replace(/^colors mode=dark \{$/m, "colors mode=dark {\n    glitter \"#fff\"") }, /unknown color token: glitter/],
+    ["invalid color", { "neon-dusk.kdl": good.replace(/^(\s+accent\s+)"#[0-9a-f]+"/m, '$1"mix(#fff, nope, 0.5)"') }, /invalid color expression/],
+    ["unknown component", { "neon-dusk.kdl": good.replace(/(\n\s*)messages\b/, "$1marquee flex=1$1messages") }, /unknown component: marquee/],
+    ["no layout", { "neon-dusk.kdl": good.slice(0, good.indexOf("\nlayout")) }, /needs a `layout` node/],
+    ["an image in the folder", { "neon-dusk.kdl": good, "logo.png": "\x89PNG" }, /logo\.png: only \.kdl theme files/],
+    ["not UTF-8", { "neon-dusk.kdl": Buffer.from([0x74, 0x68, 0xff, 0xfe]) }, /not UTF-8/],
+    ["too big", { "neon-dusk.kdl": good + "// " + "x".repeat(70000) + "\n" }, /the limit is 65536/],
+  ];
+  for (const [label, files, want] of cases) {
+    const r = communityCheck(files);
+    assert.strictEqual(r.code, 1, label + ": expected a failure\n" + r.out);
+    assert.ok(want.test(r.out), label + ": " + r.out);
+  }
+  // O leitor do criador concorda com os erros de sintaxe e de cor do gerador.
+  const file = (label) => cases.find((c) => c[0] === label)[1]["neon-dusk.kdl"];
+  assert.throws(() => TB.parseKdl(file("syntax error")), (e) => e.code === "close");
+  assert.throws(() => TB.loadTheme(file("unknown color token")), (e) => e.code === "token");
+  assert.throws(() => TB.loadTheme(file("invalid color")), (e) => e.code === "color-expr");
+}));
+// Os temas que já estão na pasta: o gerador aceita, e cada um carrega como no app, com qualquer opção.
+const COMMUNITY = path.join(ROOT, "themes/community");
+const communityFiles = fs.existsSync(COMMUNITY) ? fs.readdirSync(COMMUNITY).filter((f) => f.endsWith(".kdl")).sort() : [];
+tasks.push(test("themes/community passes the site build check (" + communityFiles.length + " themes)", () => {
+  const r = spawnSync("python3", [path.join(ROOT, "tools/gen_site.py"), "--check-community"], { encoding: "utf8" });
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.ok(r.stdout.includes("ok: " + communityFiles.length + " community theme"), r.stdout);
+}));
+for (const f of communityFiles) {
+  tasks.push(test("community theme " + f + " loads like in the app", () => {
+    const src = fs.readFileSync(path.join(COMMUNITY, f), "utf8");
+    checkLoads(src, f);
+    for (const ov of allOptionSets(src)) for (const mode of MODES) TB.loadTheme(src, { mode, overrides: ov });
+    const state = TB.fromSource(src, { name: "" });
+    assert.deepStrictEqual(TB.communityCheck(state, THEMES).filter((c) => !c.ok), [], f);
+    assert.strictEqual(TB.slug(state.meta.name) + ".kdl", f);
+  }));
+}
+// A página gerada: o convite quando a pasta está vazia, a grade quando não, e a mesma CSP do criador.
+tasks.push(test("community gallery page matches the folder", () => {
+  const blobOf = (page, id) => { const at = page.indexOf('id="' + id + '">') + id.length + 6; return JSON.parse(page.slice(at, page.indexOf("</script>", at))); };
+  for (const [file, lang] of [["docs/community-themes.html", "en"], ["docs/pt/community-themes.html", "pt"]]) {
+    const page = fs.readFileSync(path.join(ROOT, file), "utf8");
+    assert.ok(page.includes("Content-Security-Policy\" content=\"default-src 'self'; script-src 'self';"), file + " CSP");
+    assert.ok(!/<script[^>]+src="https?:/.test(page), file + " external script");
+    const empty = page.includes('class="cg-empty"'), grid = page.includes('class="cg-grid"');
+    assert.strictEqual(empty, communityFiles.length === 0, file + " empty state");
+    assert.strictEqual(grid, communityFiles.length > 0, file + " grid");
+    assert.strictEqual((page.match(/data-cg-card="/g) || []).length, communityFiles.length);
+    if (!communityFiles.length) assert.ok(page.includes(lang === "en" ? "Be the first" : "Seja a primeira"), file);
+    assert.deepStrictEqual(blobOf(page, "cg-data").order, communityFiles.map((f) => f.slice(0, -4)));
+  }
+  const builder = blobOf(fs.readFileSync(path.join(ROOT, "docs/theme-builder.html"), "utf8"), "tb-data");
+  assert.deepStrictEqual(Object.keys(builder.community).sort(), communityFiles.map((f) => f.slice(0, -4)));
+  for (const t of THEMES) assert.ok(!(t in builder.community), "built-in " + t + " is not in the community list");
+  assert.ok(fs.readFileSync(path.join(ROOT, "docs/index.html"), "utf8").includes('href="community-themes.html"'), "nav link");
+}));
+
 Promise.all(tasks).then(() => {
-  for (const [name, e] of failures) console.error("FAIL " + name + "\n  " + (e && e.stack ? e.stack.split("\n").slice(0, 3).join("\n  ") : e));
+  for (const [name, e] of failures) console.error("FAIL " + name + "\n  " + (e && e.stack ? e.stack.split("\n").slice(0, 12).join("\n  ") : e));
   console.log(passed + " passed, " + failures.length + " failed" + (OUT ? " · files in " + OUT : ""));
   process.exit(failures.length ? 1 : 0);
 });

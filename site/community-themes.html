@@ -1,0 +1,53 @@
+<main id="main" class="tb cg" data-community>
+
+<section class="tb-head">
+  <span class="tag"><b>themes</b> <i>"community" {</i> &nbsp;// {{made by people who use it||feitos por quem usa}}</span>
+  <h1 class="h">{{Community themes. <em>Sent in, checked, ready to use.</em>||Temas da comunidade. <em>Enviados, conferidos, prontos para usar.</em>}}</h1>
+  <p class="lede">{{Themes people made and sent to the repository in a pull request. Each card draws a sketch of the app from the theme file itself. Open one in the <a href="%BUILDER%">theme builder</a> to change it, or download the <code>.kdl</code> and put it in your themes folder. The 11 themes that come with the app are in the <a href="%GUIDE%theme-gallery.html">built-in gallery</a>.||Temas que as pessoas fizeram e mandaram para o repositório num pull request. Cada cartão desenha um esboço do app a partir do próprio arquivo do tema. Abra um no <a href="%BUILDER%">criador de temas</a> para mudar, ou baixe o <code>.kdl</code> e coloque na sua pasta de temas. Os 11 temas que vêm com o app estão na <a href="%GUIDE%theme-gallery.html">galeria dos embutidos</a>.}}</p>
+</section>
+
+<!--THEMES-->
+<div class="cg-bar">
+  <div class="tb-seg" role="radiogroup" aria-label="{{Preview mode||Modo da prévia}}">
+    <button type="button" role="radio" data-cg-mode="dark" aria-checked="true">{{Dark||Escuro}}</button><button type="button" role="radio" data-cg-mode="light" aria-checked="false" tabindex="-1">{{Light||Claro}}</button>
+  </div>
+  <span class="cg-count">%COUNT%</span>
+</div>
+<div class="cg-grid">
+%CARDS%
+</div>
+<p class="tb-note">{{Each preview is an HTML sketch of the app at 1280×800 with placeholder content, drawn by the same code as the theme builder. The app draws with Dear ImGui, so details differ.||Cada prévia é um esboço em HTML do app a 1280×800 com conteúdo de mentira, desenhado pelo mesmo código do criador de temas. O app desenha com Dear ImGui, então os detalhes mudam.}}</p>
+<!--/THEMES-->
+<!--EMPTY-->
+<section class="cg-empty" aria-labelledby="cg-empty-h">
+  <h2 id="cg-empty-h" class="h">{{No community themes yet. <em>Be the first.</em>||Ainda não há temas da comunidade. <em>Seja a primeira pessoa.</em>}}</h2>
+  <p class="lede">{{This gallery is built from <code>themes/community/</code> in the repository, and that folder is still empty. Make a theme, send it in a pull request, and it shows up here with a live preview, a button that opens it in the theme builder and the file to download.||Esta galeria sai de <code>themes/community/</code> no repositório, e essa pasta ainda está vazia. Faça um tema, mande num pull request, e ele aparece aqui com prévia ao vivo, um botão que abre no criador de temas e o arquivo para baixar.}}</p>
+  <p class="cg-empty-actions"><a class="tb-b primary" href="%BUILDER%">{{Open the theme builder||Abrir o criador de temas}}</a> <a class="tb-b" href="#send">{{How to send a theme||Como mandar um tema}}</a></p>
+</section>
+<!--/EMPTY-->
+
+<section class="tb-out cg-send" id="send" aria-labelledby="cg-send-h">
+  <span class="tag"><b>pull request</b> <i>{</i> // {{how to send yours||como mandar o seu}}</span>
+  <h2 class="h" id="cg-send-h">{{Send yours. <em>One file, one pull request.</em>||Mande o seu. <em>Um arquivo, um pull request.</em>}}</h2>
+  <div class="tb-out-grid">
+    <ol class="tb-steps">
+      <li>{{Make the theme in the <a href="%BUILDER%">theme builder</a>, or by hand with <a href="%GUIDE%themes.html">Writing themes</a>. In the builder's <strong>File info</strong> tab, fill in the name, the author, a description and the license: the panel under the preview lists anything still missing.||Faça o tema no <a href="%BUILDER%">criador de temas</a>, ou à mão com <a href="%GUIDE%themes.html">Escrevendo temas</a>. Na aba <strong>Arquivo</strong> do criador, preencha o nome, o autor, uma descrição e a licença: o painel embaixo da prévia mostra o que ainda falta.}}</li>
+      <li>{{Download the <code>.kdl</code>. Its name comes from the theme's name: "Neon Dusk" becomes <code>neon-dusk.kdl</code>.||Baixe o <code>.kdl</code>. O nome dele vem do nome do tema: "Neon Dusk" vira <code>neon-dusk.kdl</code>.}}</li>
+      <li>{{Fork <a href="%REPO%">the repository</a>, add the file to <code>themes/community/</code> and open a pull request. One theme per pull request.||Faça um fork do <a href="%REPO%">repositório</a>, coloque o arquivo em <code>themes/community/</code> e abra um pull request. Um tema por pull request.}}</li>
+      <li>{{Optional, before sending: <code>python3 tools/gen_site.py --check-community</code> runs the same checks as CI, and <code>larpercord --theme neon-dusk</code> (with the file in your themes folder) shows it in the app.||Opcional, antes de mandar: <code>python3 tools/gen_site.py --check-community</code> roda as mesmas checagens do CI, e <code>larpercord --theme neon-dusk</code> (com o arquivo na sua pasta de temas) mostra ele no app.}}</li>
+    </ol>
+    <ul class="tb-facts">
+      <li>{{<strong>It has to load in the app.</strong> The site build reads every file in the folder with the app's rules (syntax, color tokens, color expressions, component names) and stops with <code>file:line:column</code> at the first problem. The tests then load each theme the way the app does, in both modes and with every option. CI runs both on every pull request.||<strong>Ele tem de carregar no app.</strong> O build do site lê cada arquivo da pasta com as regras do app (sintaxe, tokens de cor, expressões de cor, nomes de componentes) e para com <code>arquivo:linha:coluna</code> no primeiro problema. Depois, os testes carregam cada tema como o app faz, nos dois modos e com todas as opções. O CI roda os dois em todo pull request.}}</li>
+      <li>{{<strong>A name of its own.</strong> Not the name of a built-in theme (a file called <code>orbital.kdl</code> would take its place in the app) and not one already in the gallery. A built-in theme with only the name changed is turned away too.||<strong>Um nome só dele.</strong> Nem o nome de um tema embutido (um arquivo chamado <code>orbital.kdl</code> tomaria o lugar dele no app) nem um que já esteja na galeria. Um tema embutido só com o nome trocado também volta.}}</li>
+      <li>{{<strong>No copyrighted logos or fonts.</strong> The folder only takes <code>.kdl</code> files, so no images or font files. Don't redraw someone else's logo with <code>label</code>, <code>shape</code> or ASCII art, and only name fonts that people can get freely: the app looks the family up on their system.||<strong>Sem logos nem fontes protegidos.</strong> A pasta só aceita arquivos <code>.kdl</code>, então nada de imagens ou arquivos de fonte. Não redesenhe o logo de outra pessoa com <code>label</code>, <code>shape</code> ou arte em ASCII, e só cite fontes que dá para conseguir de graça: o app procura a família no sistema de quem usa.}}</li>
+      <li>{{<strong>A license.</strong> <code>license=</code> on the <code>theme</code> node, as an SPDX identifier (<code>CC0-1.0</code>, <code>CC-BY-4.0</code>, <code>MIT</code>…), so people know they may use and change it. If the colors came from someone else's theme, its license has to allow that, and the description should credit the author.||<strong>Uma licença.</strong> <code>license=</code> no nó <code>theme</code>, como um identificador SPDX (<code>CC0-1.0</code>, <code>CC-BY-4.0</code>, <code>MIT</code>…), para todo mundo saber que pode usar e mudar. Se as cores vieram do tema de outra pessoa, a licença dele tem de deixar, e a descrição deve dar o crédito.}}</li>
+    </ul>
+  </div>
+  <p class="tb-hint cg-more"><a href="%GUIDE%themes.html#{{sharing-your-theme||compartilhar-seu-tema}}">{{All the rules, with an example, in the themes guide||Todas as regras, com um exemplo, no guia de temas}}</a></p>
+</section>
+
+<script type="application/json" id="cg-data">%DATA%</script>
+</main>
+<script src="%ROOT%assets/site/theme-builder-core.js" defer></script>
+<script src="%ROOT%assets/site/theme-builder-preview.js" defer></script>
+<script src="%ROOT%assets/site/community.js" defer></script>

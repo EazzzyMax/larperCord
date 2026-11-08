@@ -42,6 +42,28 @@
     imageDone: "Cores tiradas da imagem.", imageFail: "Não deu para ler essa imagem.", loaded: "Carregado: ", undoNothing: "Nada para desfazer.",
     importOk: "Tema importado.", started: "Começando de ", badHex: "Use #RGB, #RRGGBB ou #RRGGBBAA", linkFail: "Esse link não abriu: ",
     fileName: "Arquivo: ", preview: "Prévia do tema no modo ", dark: "escuro", light: "claro", defaultName: "meu-", importFallback: "tema",
+    ready: { name: "Nome", author: "Autor", description: "Descrição", license: "Licença" },
+    readyBad: {
+      name: function (c) { return c.builtin ? c.file + " é o nome de um tema embutido: escolha outro nome" : "falta o nome, de até 48 caracteres (aba Arquivo)"; },
+      author: "falta o autor (aba Arquivo)",
+      description: function (c) { return c.copied ? "ainda é a descrição do tema embutido de onde ele partiu: descreva o seu (aba Arquivo)" : "falta uma descrição, em inglês ou português, de até 240 caracteres"; },
+      license: "falta a licença, um identificador SPDX como CC0-1.0, CC-BY-4.0 ou MIT",
+    },
+    readyOk: function (f) { return "Pronto para a galeria: coloque " + f + " em themes/community/ num pull request."; },
+    readyMissing: function (n) { return n === 1 ? "Falta 1 item para a galeria." : "Faltam " + n + " itens para a galeria."; },
+    community: "Tema da comunidade: ",
+    css: {
+      summary: function (d, l, v) { return "Cores lidas de " + v + (v === 1 ? " variável" : " variáveis") + " do CSS: " + d + " no modo escuro" + (l === null ? "." : " e " + l + " no claro."); },
+      noLight: "O CSS não tem bloco do modo claro: o claro ficou como estava.",
+      mode: { dark: "Modo escuro", light: "Modo claro" }, from: " ← ", derived: function (t, from) { return t + ": preto ou branco, o que contrasta mais com " + from; },
+      skipped: { transparent: function (t, v) { return t + ": " + v + " é transparente no CSS (o tema deve desenhar uma imagem atrás), então não entrou"; },
+        unreadable: function (t, v) { return t + ": " + v + " não é uma cor que esta página lê (color-mix, gradiente…), então não entrou"; } },
+      kept: "Ficaram como estavam: ", noneKept: "Nenhum token ficou como estava.", rest: "As cores de cargo e a paleta base não mudam.",
+      imports: function (n) { return n === 1 ? "1 link de @import não foi aberto (as cores dele não entram):" : n + " links de @import não foram abertos (as cores deles não entram):"; },
+      notes: function (n) { return "O CSS tinha " + n + (n === 1 ? " trecho quebrado, pulado." : " trechos quebrados, pulados."); },
+      contrast: function (d, l) { return "Contraste agora: modo escuro, " + (d ? d + (d === 1 ? " ponto" : " pontos") + " para olhar" : "tudo legível") + "; modo claro, " + (l ? l + (l === 1 ? " ponto" : " pontos") + " para olhar" : "tudo legível") + ". O painel Contraste tem os consertos."; },
+      done: "Cores importadas do CSS.", fail: "Não deu para ler: ", readFail: "Não deu para abrir esse arquivo.",
+    },
   } : {
     groups: { surfaces: "Surfaces", text: "Text", accent: "Accent", status: "Status", bubbles: "Bubbles", shadow: "Shadow" },
     tok: { bg: "Window and conversation background", rail: "The darkest strip: servers, title and status bars", sidebar: "Channel and member lists", surface: "Cards and panels", elevated: "Inputs, popups, the item under the mouse", overlay: "Menus and dialogs", "code-bg": "Code blocks", text: "Main text", muted: "Secondary text: channels, timestamps", faint: "Hints, placeholder text, offline members", link: "Links", accent: "Buttons, selection, highlights", "accent-text": "Text on top of the accent", mention: "Mentions of you", selected: "Selected channel or row", hover: "Row under the mouse", border: "Borders and dividers", online: "Status: online", idle: "Status: idle", dnd: "Status: do not disturb", danger: "Errors, delete, unread counters", "bubble-self": "Your chat bubbles", "bubble-self-text": "Text in your bubbles", "bubble-other": "Other people's bubbles", shadow: "Shadows" },
@@ -72,6 +94,28 @@
     imageDone: "Colors taken from the image.", imageFail: "Couldn't read that image.", loaded: "Loaded: ", undoNothing: "Nothing to undo.",
     importOk: "Theme imported.", started: "Starting from ", badHex: "Use #RGB, #RRGGBB or #RRGGBBAA", linkFail: "That link didn't open: ",
     fileName: "File: ", preview: "Theme preview in ", dark: "dark", light: "light", defaultName: "my-", importFallback: "theme",
+    ready: { name: "Name", author: "Author", description: "Description", license: "License" },
+    readyBad: {
+      name: function (c) { return c.builtin ? c.file + " is the name of a built-in theme: pick another name" : "missing, up to 48 characters (File info tab)"; },
+      author: "missing (File info tab)",
+      description: function (c) { return c.copied ? "still the description of the built-in theme it started from: describe yours (File info tab)" : "missing: one in English or Portuguese, up to 240 characters"; },
+      license: "missing: an SPDX identifier such as CC0-1.0, CC-BY-4.0 or MIT",
+    },
+    readyOk: function (f) { return "Ready for the gallery: put " + f + " in themes/community/ in a pull request."; },
+    readyMissing: function (n) { return n === 1 ? "1 thing missing for the gallery." : n + " things missing for the gallery."; },
+    community: "Community theme: ",
+    css: {
+      summary: function (d, l, v) { return "Colors read from " + v + (v === 1 ? " CSS variable" : " CSS variables") + ": " + d + " in dark mode" + (l === null ? "." : " and " + l + " in light mode."); },
+      noLight: "The CSS has no light mode block: light mode stayed as it was.",
+      mode: { dark: "Dark mode", light: "Light mode" }, from: " ← ", derived: function (t, from) { return t + ": black or white, whichever stands out more on " + from; },
+      skipped: { transparent: function (t, v) { return t + ": " + v + " is transparent in the CSS (the theme probably draws an image behind it), so it was left out"; },
+        unreadable: function (t, v) { return t + ": " + v + " isn't a color this page reads (color-mix, a gradient…), so it was left out"; } },
+      kept: "Kept their previous value: ", noneKept: "No token kept its previous value.", rest: "Role colors and the base palette don't change.",
+      imports: function (n) { return n === 1 ? "1 @import link was not opened (its colors are not included):" : n + " @import links were not opened (their colors are not included):"; },
+      notes: function (n) { return "The CSS had " + n + (n === 1 ? " broken piece, skipped." : " broken pieces, skipped."); },
+      contrast: function (d, l) { return "Contrast now: dark mode, " + (d ? d + (d === 1 ? " thing" : " things") + " to look at" : "all readable") + "; light mode, " + (l ? l + (l === 1 ? " thing" : " things") + " to look at" : "all readable") + ". The Contrast panel has the fixes."; },
+      done: "Colors imported from the CSS.", fail: "Couldn't read it: ", readFail: "Couldn't open that file.",
+    },
   };
 
   var GROUPS = [["surfaces", ["bg", "rail", "sidebar", "surface", "elevated", "overlay", "code-bg"]], ["text", ["text", "muted", "faint", "link"]],
@@ -350,6 +394,7 @@
   bindField("[data-f-preview]", function (s, v) { s.meta.preview = v; });
   bindField("[data-m-name]", function (s, v) { s.meta.name = v; }, "name");
   bindField("[data-m-author]", function (s, v) { s.meta.author = v; }, "author");
+  bindField("[data-m-license]", function (s, v) { s.meta.license = v.trim(); }, "license");
   bindField("[data-m-desc]", function (s, v) { s.meta.desc = v; }, "desc");
   bindField("[data-m-desc-en]", function (s, v) { s.meta.descEn = v; }, "desc-en");
 
@@ -370,6 +415,7 @@
     put("[data-f-preview]", state.meta.preview);
     put("[data-m-name]", state.meta.name);
     put("[data-m-author]", state.meta.author);
+    put("[data-m-license]", state.meta.license || "");
     put("[data-m-desc]", state.meta.desc);
     put("[data-m-desc-en]", state.meta.descEn);
   }
@@ -564,84 +610,28 @@
   if (window.ResizeObserver) new ResizeObserver(fit).observe(screen);
   else addEventListener("resize", fit);
 
-  var CONTAINERS = { row: 1, column: 1, stack: 1 };
-  function build(th, nd, parentAxis, toks) {
-    var n = document.createElement("div");
-    n.className = "pv-n";
-    var main = parentAxis === "row" ? "width" : parentAxis === "column" ? "height" : null;
-    if (main) {
-      var fixed = TB.num(nd, main);
-      if (fixed !== null) n.style.flex = "0 0 " + Math.max(0, fixed) + "px";
-      else n.style.flex = (TB.num(nd, "flex") === null ? 1 : Math.max(0, TB.num(nd, "flex"))) + " 1 0";
-    }
-    // Cores sobrescritas neste pedaço (c-…, cl-… só no claro, cd-… só no escuro).
-    var local = toks, over = [];
-    nd.props.forEach(function (p) {
-      var m = /^(c|cl|cd)-(.+)$/.exec(p.k);
-      if (!m || (m[1] === "cl" && th.mode !== "light") || (m[1] === "cd" && th.mode !== "dark") || !TB.tokenName(m[2]) || typeof p.v !== "string") return;
-      try {
-        var c = TB.evalColor(p.v, th.palette, function (x) { return th.tokens[x]; }, false);
-        if (local === toks) local = Object.assign({}, toks);
-        local[TB.tokenName(m[2])] = c;
-        over.push([TB.tokenName(m[2]), TB.cssColor(c)]);
-      } catch (e) {}
-    });
-    var b = document.createElement("div");
-    b.className = "pv-b";
-    // O nome do nó só vira classe se for um nome simples (um link pode trazer qualquer coisa).
-    if (/^[a-z][a-z0-9-]{0,40}$/.test(nd.name)) b.classList.add("pv-k-" + nd.name);
-    var mw = TB.num(nd, "max-width");
-    if (mw !== null) { b.style.maxWidth = mw + "px"; b.style.marginLeft = b.style.marginRight = "auto"; }
-    over.forEach(function (o) { b.style.setProperty("--t-" + o[0], o[1]); });
-    var f = P.fontOf(TB.str(nd, "font"));
-    if (f && nd.name !== "label") b.style.fontFamily = f;
-    var box2 = TB.own(CONTAINERS, nd.name);
-    P.paintBox(th, b, nd, local);
-    if (box2) {
-      b.classList.add("pv-" + (nd.name === "stack" ? "stack" : "flex"));
-      if (nd.name !== "stack") b.style.flexDirection = nd.name === "row" ? "row" : "column";
-      var pad = TB.num(nd, "padding") || 0, px = TB.num(nd, "padding-x"), py = TB.num(nd, "padding-y");
-      px = px === null ? pad : px;
-      py = py === null ? pad : py;
-      b.style.padding = py + "px " + px + "px";
-      if (nd.name !== "stack" && TB.num(nd, "gap")) b.style.gap = TB.num(nd, "gap") + "px";
-      nd.kids.forEach(function (k) { if (P.visible(th, k)) b.appendChild(build(th, k, nd.name, local)); });
-    } else {
-      var c = document.createElement("div");
-      c.className = "pv-c";
-      var ix = TB.num(nd, "inset-x") || 0, iy = TB.num(nd, "inset-y") || 0;
-      c.style.inset = iy + "px " + ix + "px";
-      var inner = P.component(nd.name, th, nd, local);
-      if (inner !== null) c.innerHTML = inner;
-      else {
-        c.className += " pv-bad";
-        c.textContent = (lang === "pt" ? "componente desconhecido: " : "unknown component: ") + nd.name + " · " + S.line + " " + nd.line;
-      }
-      b.appendChild(c);
-      if (P.flagOpt(th, nd, "autohide", false)) n.classList.add("pv-autohide");
-    }
-    n.appendChild(b);
-    return n;
+  // A árvore do layout vira elementos em theme-builder-preview.js (a galeria usa o mesmo).
+  function renderPreview(th) {
+    P.mount(frame, th);
+    screen.setAttribute("aria-label", S.preview + S[th.mode] + " · " + TB.slug(state.meta.name) + ".kdl");
   }
 
-  function renderPreview(th) {
-    var f = frame;
-    f.innerHTML = "";
-    TB.TOKENS.forEach(function (k) { f.style.setProperty("--t-" + k, TB.cssColor(th.tokens[k])); });
-    th.roles.forEach(function (c, i) { f.style.setProperty("--r" + i, TB.cssColor(c)); });
-    f.style.setProperty("--f-ui", '"' + th.fontUi.replace(/["\\<>;{}]/g, "") + '",Inter,Archivo,system-ui,sans-serif');
-    f.style.setProperty("--f-mono", '"' + th.fontMono.replace(/["\\<>;{}]/g, "") + '","JetBrains Mono",ui-monospace,monospace');
-    f.style.setProperty("--pv-fs", th.fontSize * 0.9 + "px");
-    f.style.setProperty("--pv-r", th.radius + "px");
-    f.classList.toggle("pv-clear", th.transparent);
-    f.classList.toggle("pv-light", th.mode === "light");
-    f.style.setProperty("--pv-bg", TB.cssColor(th.tokens.bg));
-    var root = th.layout.kids.filter(function (k) { return P.visible(th, k); })[0];
-    if (!root) return;
-    var tree = build(th, root, null, th.tokens);
-    tree.classList.add("pv-root");
-    f.appendChild(tree);
-    screen.setAttribute("aria-label", S.preview + S[th.mode] + " · " + TB.slug(state.meta.name) + ".kdl");
+  // --------------------------------------------- Pronto para a galeria? ----
+  var readyList = $("[data-ready]"), readySum = $("[data-ready-sum]");
+  var builtinDescs = [];
+  DATA.order.forEach(function (n) { builtinDescs.push(DATA.themes[n].desc, DATA.themes[n].descEn); });
+  function renderReady() {
+    var checks = TB.communityCheck(state, DATA.order, builtinDescs), bad = checks.filter(function (c) { return !c.ok; }).length;
+    readyList.textContent = "";
+    checks.forEach(function (c) {
+      var val = c.id === "name" ? c.file + ".kdl" : c.id === "author" ? state.meta.author : c.id === "license" ? state.meta.license : "";
+      var why = c.ok ? val : typeof S.readyBad[c.id] === "function" ? S.readyBad[c.id](c) : S.readyBad[c.id];
+      readyList.appendChild(h("li", { "class": c.ok ? "ok" : "bad" }, [
+        h("span", { "class": "tb-mark" }, [h("span", { "aria-hidden": "true", text: c.ok ? "✓" : "!" }), h("span", { "class": "tb-sr", text: c.ok ? S.passes : S.fails })]),
+        h("span", {}, [h("strong", { text: S.ready[c.id] }), why ? " · " + why : null]),
+      ]));
+    });
+    readySum.textContent = bad ? S.readyMissing(bad) : S.readyOk(TB.slug(state.meta.name) + ".kdl");
   }
 
   // ---------------------------------------------------------- Tudo ----
@@ -676,6 +666,7 @@
     fillType();
     fillLayout();
     renderContrast();
+    renderReady();
     $("[data-undo]").disabled = !undoStack.length;
     $("[data-redo]").disabled = !redoStack.length;
     scheduleHash();
@@ -862,6 +853,72 @@
     }
   });
 
+  // Importar cores de um tema do Discord (BetterDiscord/Vencord). O CSS só passa pelo
+  // leitor de theme-builder-core.js: nunca vira HTML, estilo ou pedido de rede aqui.
+  var cssDlg = $("[data-css-dialog]"), cssText = $("[data-css-text]", cssDlg), cssErr = $("[data-css-error]", cssDlg);
+  var cssReportBox = $("[data-css-report]", cssDlg), cssFile = $("[data-css-file]", cssDlg);
+  function cssReset() { cssErr.textContent = ""; cssReportBox.hidden = true; cssReportBox.textContent = ""; }
+  $("[data-css]").addEventListener("click", function () {
+    cssReset();
+    if (cssDlg.showModal) cssDlg.showModal(); else cssDlg.setAttribute("open", "");
+    cssText.focus();
+  });
+  $("[data-css-cancel]", cssDlg).addEventListener("click", function () { cssDlg.close ? cssDlg.close() : cssDlg.removeAttribute("open"); });
+  cssFile.addEventListener("change", function () {
+    var f = cssFile.files && cssFile.files[0];
+    cssFile.value = "";
+    if (!f) return;
+    cssReset();
+    if (f.size > TB.CSS_MAX) { cssErr.textContent = S.css.fail + TB.errorText({ code: "css-too-big" }, lang); return; }
+    f.text().then(function (t) { cssText.value = t; }, function () { cssErr.textContent = S.css.readFail; });
+  });
+  function cssRow(tok, mode, extra) {
+    return h("li", {}, [h("i", { "class": "tb-dot", style: "background:" + TB.cssColor(TB.hexRgba(state.colors[mode][tok])) }), h("code", { text: tok }), extra]);
+  }
+  function cssReport(res) {
+    var box = cssReportBox, cs = S.css;
+    box.textContent = "";
+    var d = res.modes.dark.mapped.length, l = res.modes.light ? res.modes.light.mapped.length : null;
+    box.appendChild(h("p", { "class": "tb-css-sum", text: cs.summary(d, l, res.vars) }));
+    ["dark", "light"].forEach(function (mode) {
+      var r = res.modes[mode];
+      if (!r) return;
+      var list = h("ul", { "class": "tb-css-map" });
+      r.mapped.forEach(function (m) { list.appendChild(cssRow(m.tok, mode, h("span", {}, [cs.from, h("code", { text: m.from })]))); });
+      r.derived.forEach(function (m) { list.appendChild(cssRow(m.tok, mode, h("span", { text: " · " + cs.derived(m.value, m.from) }))); });
+      var sec = h("details", { "class": "tb-css-mode", open: mode === viewMode }, [h("summary", { text: cs.mode[mode] + " · " + (r.mapped.length + r.derived.length) }), list]);
+      r.skipped.forEach(function (x) { sec.appendChild(h("p", { "class": "tb-lift", text: cs.skipped[x.why](x.tok, x.from) })); });
+      sec.appendChild(h("p", { "class": "tb-lift", text: r.kept.length ? cs.kept + r.kept.join(", ") : cs.noneKept }));
+      box.appendChild(sec);
+    });
+    if (!res.modes.light) box.appendChild(h("p", { "class": "tb-lift", text: cs.noLight }));
+    box.appendChild(h("p", { "class": "tb-lift", text: cs.rest }));
+    if (res.imports.length) {
+      box.appendChild(h("p", { "class": "tb-lift", text: cs.imports(res.imports.length) }));
+      var ul = h("ul", { "class": "tb-css-imports" });
+      res.imports.slice(0, 20).forEach(function (u) { ul.appendChild(h("li", {}, [h("code", { text: u })])); });
+      box.appendChild(ul);
+    }
+    var broken = Object.keys(res.notes).reduce(function (a, k) { return a + res.notes[k]; }, 0);
+    if (broken) box.appendChild(h("p", { "class": "tb-lift", text: cs.notes(broken) }));
+    var bad = function (m) { return TB.contrastReport(state, m).filter(function (r) { return r.fails.length; }).length; };
+    box.appendChild(h("p", { "class": "tb-css-sum", text: cs.contrast(bad("dark"), bad("light")) }));
+    box.hidden = false;
+  }
+  $("[data-css-load]", cssDlg).addEventListener("click", function () {
+    cssReset();
+    var res;
+    try {
+      res = TB.importDiscordCss(cssText.value);
+    } catch (e) {
+      cssErr.textContent = S.css.fail + TB.errorText(e, lang);
+      return;
+    }
+    set(function (s) { s.colors = TB.applyCssImport(s, res).colors; });
+    cssReport(res);
+    say(S.css.done);
+  });
+
   // O endereço guarda o tema: recarregar a página não perde nada.
   var hashTimer = 0;
   function scheduleHash() {
@@ -893,6 +950,23 @@
         say(S.linkFail + TB.errorText(e, lang));
       });
       return;
+    }
+    // Da galeria da comunidade: o .kdl vem junto na página (gen_site.py já conferiu cada um).
+    if ((m = /^community=([a-z0-9-]{1,48})$/.exec(hash)) && DATA.community && TB.own(DATA.community, m[1])) {
+      try {
+        var cs = TB.fromSource(DATA.community[m[1]].src, { name: "" });
+        TB.loadTheme(TB.toKdl(cs), { mode: "dark" });
+        cs.base = null;
+        cs.layoutFrom = null;
+        DATA.order.forEach(function (n) { if (structures[n] === cs.structure) cs.layoutFrom = n; });
+        state = cs;
+        $("[data-start]").value = first;
+        changed();
+        say(S.community + m[1]);
+        return;
+      } catch (e) {
+        say(S.linkFail + TB.errorText(e, lang));
+      }
     }
     if ((m = /^base=([a-z]+)$/.exec(hash)) && DATA.order.indexOf(m[1]) >= 0) first = m[1];
     state = startFrom(first);

@@ -14,6 +14,9 @@ Troque de tema com `F2`, pela paleta (`Ctrl+K` → "tema: …") ou em Configura�
 
 Prefere clicar a digitar? O [criador de temas](https://rshacudevidro.github.io/larperCord/pt/theme-builder.html) do site
 parte de qualquer tema embutido, edita cores, fontes e layout com prévia ao vivo, confere o contraste e entrega o `.kdl`.
+Ele também pega as cores de um tema do BetterDiscord ou do Vencord. Os temas que outras pessoas fizeram estão na
+[galeria da comunidade](https://rshacudevidro.github.io/larperCord/pt/community-themes.html), e
+[Compartilhar seu tema](#compartilhar-seu-tema) explica como mandar o seu.
 
 ## Exemplo mínimo
 
@@ -397,7 +400,50 @@ options {
 - [`cupertino.kdl`](cupertino.kdl): mesa de trabalho estilo Mac, com papel de parede, janela flutuante, semáforo e Dock
 
 Os testes (`zig build test`) carregam todos os temas embutidos e montam o layout de cada um.
-Se você mandar um tema novo num pull request, ele é verificado automaticamente.
+Para compartilhar um tema seu, mande para a galeria da comunidade (próxima seção).
+
+## Compartilhar seu tema
+
+Temas prontos podem entrar na [galeria da comunidade](https://rshacudevidro.github.io/larperCord/pt/community-themes.html),
+onde qualquer pessoa vê a prévia ao vivo, abre no criador de temas ou baixa o `.kdl`. A galeria sai de
+`themes/community/` neste repositório.
+
+1. Faça o tema no [criador de temas](https://rshacudevidro.github.io/larperCord/pt/theme-builder.html), ou à mão. Na aba
+   **Arquivo** do criador, preencha o nome, o autor, uma descrição e a licença. O painel embaixo da prévia,
+   "Mande para a galeria da comunidade", mostra o que ainda falta.
+2. Baixe o `.kdl`. O arquivo leva o nome do tema: "Neon Dusk" vira `neon-dusk.kdl`.
+3. Faça um fork do repositório, coloque o arquivo em `themes/community/` e abra um pull request. Um tema por pull request.
+
+O nó `theme` leva os metadados:
+
+```kdl
+theme "Neon Dusk" author="seu nome" description-en="Purple dusk over a dark city." description="Crepúsculo roxo sobre uma cidade escura." license="CC0-1.0" preview=classic
+```
+
+| Campo | Regra |
+|---|---|
+| nome (o primeiro argumento) | até 48 caracteres. O nome do arquivo é o nome em minúsculas com hífens (`neon-dusk.kdl`) |
+| `author=` | seu nome ou apelido, até 80 caracteres |
+| `description-en=` / `description=` | pelo menos uma (inglês ou português), até 240 caracteres cada. As duas é melhor |
+| `license=` | um [identificador SPDX](https://spdx.org/licenses/): `CC0-1.0`, `CC-BY-4.0`, `MIT`, `GPL-3.0-or-later`… O app ignora |
+| `preview=` | opcional, uma das miniaturas de [Nós de topo](#nós-de-topo) |
+
+O que é conferido:
+
+- **Ele tem de carregar no app.** O `python3 tools/gen_site.py` lê cada arquivo de `themes/community/` com as regras do
+  app (sintaxe, tokens de cor, expressões de cor, nomes de componentes, os metadados acima) e para com
+  `arquivo:linha:coluna` no primeiro problema, então um arquivo quebrado derruba o build do site. Depois, o
+  `node tools/theme_builder_test.js` carrega cada tema como o app faz, nos dois modos e com todas as opções. O CI roda os
+  dois em todo pull request. Dá para rodar a mesma checagem antes de mandar: `python3 tools/gen_site.py --check-community`.
+  Para ver no app, coloque o arquivo na sua pasta de temas e rode `larpercord --theme neon-dusk`.
+- **Um nome só dele.** Nem o nome de um tema embutido (um arquivo chamado `orbital.kdl` tomaria o lugar dele no app) nem
+  um que já esteja na galeria. Um tema embutido só com o nome trocado volta: mude as cores ou o layout.
+- **Sem logos nem fontes protegidos.** Só arquivos `.kdl` entram na pasta, então nada de imagens ou arquivos de fonte.
+  Não redesenhe o logo ou a marca de outra pessoa com `label`, `shape` ou arte em ASCII, e só cite fontes que dá para
+  conseguir de graça: as fontes são procuradas pela família no sistema de quem usa e nunca vão junto com o tema.
+- **Uma licença.** Ela diz que as pessoas podem usar e mudar o tema. Se as cores vieram do tema de outra pessoa (pelo
+  "Importar de um CSS de tema do Discord" do criador, por exemplo), a licença daquele tema tem de deixar, e a descrição
+  deve dar o crédito a quem fez.
 
 ## Dicas de design
 

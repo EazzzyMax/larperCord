@@ -26,6 +26,8 @@
       "span-text": "span without text", "span-color": "invalid color in the span",
       "link-version": "it comes from another version of this page", "link-broken": "it is incomplete or damaged",
       "link-layout": "it names a layout this page doesn't have", "link-unsupported": "this browser can't open compressed links",
+      "css-too-big": "the CSS is bigger than 500 KB", "css-slow": "the CSS took too long to read",
+      "css-empty": "no Discord color variables this page knows were found in the CSS",
     },
     pt: {
       comment: "comentário /* sem fechar", depth: "blocos aninhados demais", close: "faltou fechar '}'", "extra-close": "'}' sobrando",
@@ -40,6 +42,8 @@
       "span-text": "span sem texto", "span-color": "cor inválida no span",
       "link-version": "ele é de outra versão desta página", "link-broken": "ele está incompleto ou danificado",
       "link-layout": "ele cita um layout que esta página não tem", "link-unsupported": "este navegador não abre links comprimidos",
+      "css-too-big": "o CSS passa de 500 KB", "css-slow": "o CSS demorou demais para ser lido",
+      "css-empty": "o CSS não tem nenhuma variável de cor do Discord que esta página conheça",
     },
   };
   // As propriedades femininas, como o app escreve ("border inválida", "grain inválido").
@@ -515,7 +519,7 @@
     });
 
     var th = {
-      mode: mode, name: "sem nome", description: "", descriptionEn: "", author: "", preview: "classic",
+      mode: mode, name: "sem nome", description: "", descriptionEn: "", author: "", license: "", preview: "classic",
       tokens: defaults(pal, mode), roles: defaultRoles(pal, mode), palette: pal, usesWal: usesWal,
       fontUi: "Inter", fontMono: "JetBrains Mono", fontSize: 16, radius: 6, transparent: false,
       styles: Object.create(null), layout: null, options: options, values: values, nodes: nodes,
@@ -532,6 +536,8 @@
           th.description = str(nd, "description") || th.description;
           th.descriptionEn = str(nd, "description-en") || th.descriptionEn;
           th.author = str(nd, "author") || th.author;
+          // O app não lê `license` (nem reclama dela): é para a galeria da comunidade.
+          th.license = str(nd, "license") || th.license;
           th.preview = str(nd, "preview") || th.preview;
           break;
         case "colors":
@@ -686,7 +692,7 @@
     var nodes = parseKdl(src);
     var state = {
       v: 1, base: info.base || null, layoutFrom: info.base || null,
-      meta: { name: info.name || "", author: "", desc: "", descEn: "", preview: "classic" },
+      meta: { name: info.name || "", author: "", desc: "", descEn: "", preview: "classic", license: "" },
       palette: {}, colors: {}, roles: {},
       fonts: { ui: "Inter", mono: "JetBrains Mono", size: 16 }, radius: 6, transparent: false, usesWal: false,
       structure: "",
@@ -702,6 +708,7 @@
       if (mode === "dark") {
         state.meta.name = state.meta.name || (th.name !== "sem nome" ? th.name : "");
         state.meta.author = th.author;
+        state.meta.license = th.license;
         state.meta.desc = th.description;
         state.meta.descEn = th.descriptionEn;
         state.meta.preview = th.preview;
@@ -744,6 +751,7 @@
     if (desc) head += " description=" + q(desc);
     if (descEn) head += " description-en=" + q(descEn);
     if (m.author) head += " author=" + q(m.author);
+    if (m.license) head += " license=" + q(m.license);
     head += " preview=" + (PREVIEWS.indexOf(m.preview) >= 0 ? m.preview : "classic");
     out.push(head);
     var pd = state.palette.dark.map(normHex), pl = state.palette.light.map(normHex);
@@ -1141,6 +1149,376 @@
     return { colors: o, roles: defaultRoles(p, mode).map(toHex) };
   }
 
+  // ------------------------------------------------ Galeria da comunidade ----
+  // O que um tema precisa para entrar em themes/community/. São as mesmas regras de
+  // `check_community` em tools/gen_site.py (o build do site recusa o que falhar).
+  var COMMUNITY = { name: 48, author: 80, desc: 240, license: 64 };
+  // Um identificador SPDX ("CC0-1.0", "MIT", "CC-BY-4.0 OR MIT"): cada pedaço começa depois de um espaço.
+  var SPDX = /^[A-Za-z0-9][A-Za-z0-9.+-]{0,39}(?: (?:AND|OR|WITH) [A-Za-z0-9][A-Za-z0-9.+-]{0,39}){0,4}$/;
+  function plainText(s, max) { s = String(s || ""); return s.trim().length > 0 && s.length <= max && !/[\u0000-\u001f\u007f]/.test(s); }
+  // `descs`: as descrições dos temas embutidos (um tema que parte de um deles começa com a dele).
+  function communityCheck(state, builtins, descs) {
+    var m = state.meta, file = slug(m.name), desc = m.descEn || m.desc;
+    var copied = (descs || []).some(function (d) { return !!d && (d === m.desc || d === m.descEn); });
+    return [
+      { id: "name", ok: plainText(m.name, COMMUNITY.name) && (builtins || []).indexOf(file) < 0, file: file, builtin: (builtins || []).indexOf(file) >= 0 },
+      { id: "author", ok: plainText(m.author, COMMUNITY.author) },
+      { id: "description", ok: plainText(desc, COMMUNITY.desc) && (!m.desc || m.desc.length <= COMMUNITY.desc) && (!m.descEn || m.descEn.length <= COMMUNITY.desc) && !copied, copied: copied },
+      { id: "license", ok: String(m.license || "").length <= COMMUNITY.license && SPDX.test(String(m.license || "")) },
+    ];
+  }
+
+  // ------------------------------------------- Cores de um tema do Discord ----
+  // Lê um tema do BetterDiscord ou do Vencord (CSS) e tira só as variáveis com cor.
+  // Nada do CSS roda nem entra na página: é um leitor de texto, limitado em tamanho
+  // e em tempo, que devolve cores já convertidas em hex. @import vira só uma lista.
+  var CSS_MAX = 500 * 1024, CSS_BUDGET = 1500, CSS_DECLS = 60000, CSS_VALUE = 2000, CSS_DEPTH = 32;
+  var VAR_DEPTH = 8, VAR_OUT = 1200, VAR_STEPS = 20000;
+
+  function cssError(code) { var e = new Error(MSG.en[code]); e.code = code; return e; }
+
+  function stripComments(s) {
+    var out = "", i = 0;
+    for (;;) {
+      var k = s.indexOf("/*", i);
+      if (k < 0) return out + s.slice(i);
+      out += s.slice(i, k) + " ";
+      var e = s.indexOf("*/", k + 2);
+      if (e < 0) return out;
+      i = e + 2;
+    }
+  }
+
+  // Seletor de "raiz": :root, html, body, #app-mount e as classes de tema do Discord.
+  // Um pedaço por vez, sem expressão regular que possa voltar atrás muitas vezes.
+  var ROOT_PART = /^(?:html|body|\*|:root|&|#app-mount)?(?:\.theme-[a-z0-9-]+|\.visual-refresh)*$/;
+  function selectorInfo(sel, env) {
+    var s = stripComments(sel).toLowerCase().trim();
+    if (s.length > 4000) return { mode: env.mode, root: false };
+    var light = s.indexOf("theme-light") >= 0;
+    var dark = s.indexOf("theme-dark") >= 0 || s.indexOf("theme-midnight") >= 0;
+    var mode = light && !dark ? "light" : dark && !light ? "dark" : env.mode;
+    var root = s.length > 0 && s.split(",").every(function (part) {
+      var bits = part.split(/[\s>+~]+/).filter(Boolean);
+      return bits.length > 0 && bits.every(function (b) { return ROOT_PART.test(b); });
+    });
+    return { mode: mode, root: env.root && root };
+  }
+
+  function mediaMode(prelude) {
+    var p = stripComments(prelude).toLowerCase().replace(/\s+/g, "");
+    if (p.indexOf("prefers-color-scheme:light") >= 0) return "light";
+    if (p.indexOf("prefers-color-scheme:dark") >= 0) return "dark";
+    return null;
+  }
+
+  function cleanUrl(prelude) {
+    var p = stripComments(prelude).trim(), m = /^url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/i.exec(p) || /^(?:"([^"]*)"|'([^']*)')/.exec(p);
+    var u = m ? (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3] || "") : p;
+    u = u.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+    return u.length > 200 ? u.slice(0, 199) + "…" : u;
+  }
+
+  // As declarações `--nome: valor` de cada bloco, com o modo (claro, escuro ou os dois)
+  // e se o seletor é de raiz. Tolerante: CSS quebrado vira avisos, não erro.
+  function parseCss(text, opt) {
+    opt = opt || {};
+    text = String(text);
+    if (text.length > CSS_MAX) throw cssError("css-too-big");
+    var now = opt.now || Date.now, budget = opt.budget || CSS_BUDGET, start = now(), ticks = 0;
+    var n = text.length, i = 0;
+    var out = { decls: [], imports: [], rules: 0, notes: Object.create(null) };
+    function note(k) { out.notes[k] = (out.notes[k] || 0) + 1; }
+    function tick() { if ((++ticks & 1023) === 0 && now() - start > budget) throw cssError("css-slow"); }
+    function skipComment() {
+      var e = text.indexOf("*/", i + 2);
+      if (e < 0) { note("comment"); i = n; } else i = e + 2;
+    }
+    function skipString() {
+      var qch = text[i++];
+      while (i < n) {
+        tick();
+        var ch = text[i];
+        if (ch === "\\") { i += 2; continue; }
+        if (ch === qch) { i++; return; }
+        if (ch === "\n") { note("string"); return; }
+        i++;
+      }
+      note("string");
+    }
+    // Anda até um dos `stops`. Chaves sempre param (CSS quebrado não engole o resto);
+    // `;` dentro de parênteses não para (url(data:…;base64,…)).
+    function scan(stops) {
+      var depth = 0;
+      while (i < n) {
+        tick();
+        var ch = text[i];
+        if (ch === "/" && text[i + 1] === "*") { skipComment(); continue; }
+        if (ch === '"' || ch === "'") { skipString(); continue; }
+        if (ch === "\\") { i += 2; continue; }
+        if (stops.indexOf(ch) >= 0 && (depth === 0 || ch === "{" || ch === "}")) return ch;
+        if (ch === "(" || ch === "[") depth++;
+        else if ((ch === ")" || ch === "]") && depth > 0) depth--;
+        i++;
+      }
+      return "";
+    }
+    function skipBlock() {
+      var depth = 1;
+      while (i < n && depth > 0) {
+        var st = scan("{}");
+        if (st === "") break;
+        i++;
+        depth += st === "{" ? 1 : -1;
+      }
+      if (depth > 0) note("unclosed");
+    }
+    function declaration(piece, env) {
+      var c = piece.indexOf(":");
+      if (c < 0) { if (piece.trim()) note("decl"); return; }
+      var name = stripComments(piece.slice(0, c)).trim();
+      if (name.slice(0, 2) !== "--") return;
+      if (!/^--[A-Za-z0-9_-]{1,120}$/.test(name)) { note("name"); return; }
+      if (piece.length - c > CSS_VALUE * 2) { note("long"); return; }
+      var value = stripComments(piece.slice(c + 1)).trim(), imp = false;
+      if (value.length > CSS_VALUE) { note("long"); return; }
+      var m = /!\s*important\s*$/i.exec(value);
+      if (m) { imp = true; value = value.slice(0, m.index).trim(); }
+      if (out.decls.length >= CSS_DECLS) { note("many"); return; }
+      out.decls.push({ name: name, value: value, mode: env.mode, root: env.root, imp: imp, at: out.decls.length });
+    }
+    function atRule(env, depth) {
+      i++;
+      var s = i;
+      while (i < n && /[A-Za-z0-9-]/.test(text[i])) i++;
+      var name = text.slice(s, i).toLowerCase(), ps = i, stop = scan(";{}"), prelude = text.slice(ps, i);
+      if (name === "import" && stop !== "{") out.imports.push(cleanUrl(prelude));
+      if (stop === ";") { i++; return; }
+      if (stop !== "{") return;
+      i++;
+      if (name === "media") block({ mode: mediaMode(prelude) || env.mode, root: env.root }, depth + 1, false);
+      else if (["supports", "layer", "container", "document", "scope", "-moz-document"].indexOf(name) >= 0) block(env, depth + 1, false);
+      else skipBlock();
+    }
+    // `decls`: dentro de uma regra (declarações e, com CSS aninhado, outras regras).
+    function block(env, depth, decls) {
+      if (depth > CSS_DEPTH) { note("depth"); skipBlock(); return; }
+      while (i < n) {
+        tick();
+        var ch = text[i];
+        if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r" || ch === "\f" || ch === ";") { i++; continue; }
+        if (ch === "/" && text[i + 1] === "*") { skipComment(); continue; }
+        if (ch === "}") {
+          i++;
+          if (depth > 0) return;
+          note("brace");
+          continue;
+        }
+        if (ch === "@") { atRule(env, depth); continue; }
+        var s = i, stop = scan(decls ? ";{}" : "{};"), piece = text.slice(s, i);
+        if (stop === "{") {
+          i++;
+          out.rules++;
+          block(selectorInfo(piece, env), depth + 1, true);
+        } else if (decls) {
+          if (stop === ";") i++;
+          declaration(piece, env);
+        } else {
+          note("rule");
+          if (stop === ";") i++;
+        }
+      }
+      if (depth > 0) note("unclosed");
+    }
+    block({ mode: null, root: true }, 0, false);
+    return out;
+  }
+
+  // A declaração que vale para cada variável neste modo: a do modo ganha da geral,
+  // a de raiz ganha da de um componente, depois !important, depois a última.
+  function cssTable(decls, mode) {
+    var best = Object.create(null);
+    decls.forEach(function (d) {
+      if (d.mode !== null && d.mode !== mode) return;
+      var score = (d.mode ? 4 : 0) + (d.root ? 2 : 0) + (d.imp ? 1 : 0), cur = best[d.name];
+      if (!cur || score > cur.score || (score === cur.score && d.at > cur.at)) best[d.name] = { value: d.value, score: score, at: d.at };
+    });
+    return best;
+  }
+
+  // Troca cada var(--x, reserva) pelo valor, com limite de profundidade, de tamanho e de passos.
+  function varResolver(table) {
+    var memo = Object.create(null), busy = Object.create(null), steps = 0;
+    function expand(value, depth) {
+      if (depth > VAR_DEPTH || ++steps > VAR_STEPS) return null;
+      var low = value.toLowerCase(), out = "", i = 0;
+      for (;;) {
+        var k = low.indexOf("var(", i);
+        if (k < 0) { out += value.slice(i); break; }
+        out += value.slice(i, k);
+        var j = k + 4, d = 1, comma = -1;
+        while (j < value.length && d > 0) {
+          var ch = value[j];
+          if (ch === "(") d++;
+          else if (ch === ")") d--;
+          else if (ch === "," && d === 1 && comma < 0) comma = j;
+          j++;
+        }
+        if (d !== 0) return null;
+        var name = value.slice(k + 4, comma >= 0 ? comma : j - 1).trim(), rep = get(name, depth + 1);
+        if (rep === null && comma >= 0) rep = expand(value.slice(comma + 1, j - 1), depth + 1);
+        if (rep === null) return null;
+        out += rep;
+        if (out.length > VAR_OUT) return null;
+        i = j;
+      }
+      return out.length > VAR_OUT ? null : out;
+    }
+    function get(name, depth) {
+      if (!own(table, name)) return null;
+      if (own(memo, name)) return memo[name];
+      if (busy[name]) return null;
+      busy[name] = true;
+      var v = expand(table[name].value, depth || 0);
+      busy[name] = false;
+      return (memo[name] = v === null ? null : v.trim());
+    }
+    return get;
+  }
+
+  // Cores do CSS: #hex, rgb()/rgba(), hsl()/hsla() (com vírgula ou espaço, alfa com /) e alguns nomes.
+  var NAMED = { black: "#000000", white: "#ffffff", red: "#ff0000", green: "#008000", lime: "#00ff00", blue: "#0000ff", yellow: "#ffff00",
+    orange: "#ffa500", purple: "#800080", magenta: "#ff00ff", fuchsia: "#ff00ff", cyan: "#00ffff", aqua: "#00ffff", pink: "#ffc0cb",
+    gray: "#808080", grey: "#808080", silver: "#c0c0c0", navy: "#000080", teal: "#008080", maroon: "#800000", olive: "#808000",
+    gold: "#ffd700", indigo: "#4b0082", violet: "#ee82ee", crimson: "#dc143c", coral: "#ff7f50", salmon: "#fa8072", tomato: "#ff6347" };
+  var CSS_NUM = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/;
+  function cssNumber(s, pct) {
+    s = s.trim();
+    if (s === "none") return 0;
+    var isPct = s.slice(-1) === "%";
+    if (isPct) s = s.slice(0, -1);
+    if (!CSS_NUM.test(s)) return null;
+    var v = +s;
+    return isFinite(v) ? (isPct ? v * pct / 100 : v) : null;
+  }
+  function cssHue(s) {
+    var m = /^(.*?)(deg|grad|rad|turn)?$/.exec(s.trim()), v = m && CSS_NUM.test(m[1]) ? +m[1] : null;
+    if (v === null || !isFinite(v)) return null;
+    return m[2] === "turn" ? v * 360 : m[2] === "rad" ? v * 180 / Math.PI : m[2] === "grad" ? v * 0.9 : v;
+  }
+  function hslRgb(h, s, l) {
+    h = ((h % 360) + 360) % 360 / 360;
+    function f(t) {
+      t = t < 0 ? t + 1 : t > 1 ? t - 1 : t;
+      return t < 1 / 6 ? p + (q2 - p) * 6 * t : t < 1 / 2 ? q2 : t < 2 / 3 ? p + (q2 - p) * (2 / 3 - t) * 6 : p;
+    }
+    var q2 = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q2;
+    return s === 0 ? [l, l, l] : [f(h + 1 / 3), f(h), f(h - 1 / 3)];
+  }
+  function parseCssColor(v) {
+    var s = String(v).trim().toLowerCase();
+    if (!s || s.length > 200) return null;
+    if (s[0] === "#") return parseHex(s.slice(1));
+    if (s === "transparent") return [0, 0, 0, 0];
+    if (own(NAMED, s)) return hexRgba(NAMED[s]);
+    var m = /^(rgba?|hsla?)\(([^()]*)\)$/.exec(s);
+    if (!m) return null;
+    var body = m[2], a = 1, slash = body.split("/");
+    if (slash.length > 2) return null;
+    if (slash.length === 2) { a = cssNumber(slash[1], 1); body = slash[0]; }
+    var parts = (body.indexOf(",") >= 0 ? body.split(",") : body.trim().split(/\s+/)).map(function (x) { return x.trim(); });
+    if (slash.length === 1 && parts.length === 4) a = cssNumber(parts.pop(), 1);
+    if (parts.length !== 3 || a === null) return null;
+    var c;
+    if (m[1][0] === "r") {
+      c = parts.map(function (x) { var k = cssNumber(x, 255); return k === null ? null : clamp01(k / 255); });
+    } else {
+      var h = cssHue(parts[0]), sat = cssNumber(parts[1].replace(/%$/, ""), 1), lig = cssNumber(parts[2].replace(/%$/, ""), 1);
+      c = h === null || sat === null || lig === null ? [null] : hslRgb(h, clamp01(sat / 100), clamp01(lig / 100));
+    }
+    if (c.some(function (x) { return x === null || !isFinite(x); })) return null;
+    return [c[0], c[1], c[2], clamp01(a)];
+  }
+
+  // De onde vem cada token: a primeira variável da lista que existe e é uma cor que dá para ler.
+  // Os nomes antigos (--background-primary…) e os novos (--bg-base-*, --text-*, --background-base-*).
+  var CSS_MAP = [
+    ["bg", ["--background-primary", "--bg-base-primary", "--background-base-low"]],
+    ["surface", ["--background-primary", "--bg-base-primary", "--background-base-low"]],
+    ["sidebar", ["--background-secondary", "--bg-base-secondary", "--background-base-lower"]],
+    ["rail", ["--background-tertiary", "--bg-base-tertiary", "--background-base-lowest"]],
+    ["elevated", ["--channeltextarea-background", "--bg-surface-raised", "--background-surface-high", "--background-floating"]],
+    ["overlay", ["--background-floating", "--bg-surface-overlay", "--background-surface-highest"]],
+    ["code-bg", ["--background-secondary", "--bg-base-secondary", "--background-base-lower"]],
+    ["text", ["--text-normal", "--text-default", "--text-primary", "--header-primary", "--interactive-hover"]],
+    ["muted", ["--channels-default", "--text-secondary", "--header-secondary", "--interactive-normal"]],
+    ["faint", ["--text-muted", "--text-tertiary", "--interactive-muted"]],
+    ["link", ["--text-link"]],
+    ["accent", ["--brand-experiment", "--brand-500", "--bg-brand", "--text-brand"]],
+    ["mention", ["--mention-foreground", "--text-brand", "--brand-experiment", "--brand-500", "--bg-brand"]],
+    ["selected", ["--background-modifier-selected", "--bg-mod-strong"]],
+    ["hover", ["--background-modifier-hover", "--bg-mod-faint"]],
+    ["border", ["--background-modifier-accent", "--border-subtle", "--border-faint"]],
+    ["online", ["--status-online", "--status-positive", "--text-positive", "--text-feedback-positive", "--green-360"]],
+    ["idle", ["--status-idle", "--status-warning", "--text-warning", "--text-feedback-warning", "--yellow-300"]],
+    ["dnd", ["--status-dnd", "--status-danger", "--text-danger", "--text-feedback-critical", "--red-400"]],
+    ["danger", ["--status-danger", "--button-danger-background", "--text-danger", "--text-feedback-critical", "--red-400"]],
+    ["bubble-self", ["--brand-experiment", "--brand-500", "--bg-brand"]],
+    ["bubble-other", ["--background-secondary-alt", "--bg-surface-raised", "--background-surface-high", "--background-floating"]],
+  ];
+  // Estes podem ser translúcidos de verdade; os outros, quase invisíveis, viram "transparente no CSS".
+  var SHEER = ["hover", "selected", "border", "shadow"];
+  // O texto em cima do destaque: preto ou branco, o que contrastar mais.
+  var DERIVED = [["accent-text", "accent"], ["bubble-self-text", "bubble-self"]];
+
+  function mapCss(decls, mode) {
+    var get = varResolver(cssTable(decls, mode)), got = Object.create(null);
+    var res = { mapped: [], derived: [], skipped: [], kept: [] };
+    CSS_MAP.forEach(function (row) {
+      var tok = row[0], why = null;
+      for (var k = 0; k < row[1].length; k++) {
+        var name = row[1][k], raw = get(name);
+        if (raw === null) continue;
+        var c = parseCssColor(raw);
+        if (!c) { why = why || { tok: tok, from: name, why: "unreadable" }; continue; }
+        if (c[3] < 0.05 && SHEER.indexOf(tok) < 0) { why = why || { tok: tok, from: name, why: "transparent" }; continue; }
+        got[tok] = c;
+        res.mapped.push({ tok: tok, from: name, value: toHex(c) });
+        return;
+      }
+      if (why) res.skipped.push(why);
+    });
+    DERIVED.forEach(function (d) {
+      if (!got[d[1]]) return;
+      var back = over(got[d[1]], got.bg ? over(got.bg, BLACK) : BLACK);
+      res.derived.push({ tok: d[0], from: d[1], value: contrast(BLACK, back) >= contrast(WHITE, back) ? "#000000" : "#ffffff" });
+    });
+    var done = res.mapped.concat(res.derived).map(function (x) { return x.tok; });
+    res.kept = TOKENS.filter(function (t) { return done.indexOf(t) < 0; });
+    return res;
+  }
+
+  function importDiscordCss(text, opt) {
+    var p = parseCss(text, opt), names = Object.create(null);
+    p.decls.forEach(function (d) { names[d.name] = true; });
+    var hasLight = p.decls.some(function (d) { return d.mode === "light"; });
+    var modes = { dark: mapCss(p.decls, "dark"), light: hasLight ? mapCss(p.decls, "light") : null };
+    var count = modes.dark.mapped.length + (modes.light ? modes.light.mapped.length : 0);
+    if (!count) throw cssError("css-empty");
+    return { modes: modes, imports: p.imports, vars: Object.keys(names).length, rules: p.rules, notes: p.notes };
+  }
+
+  // Põe as cores lidas no estado do criador; o que não veio do CSS fica como estava.
+  function applyCssImport(state, res) {
+    var s = clone(state);
+    ["dark", "light"].forEach(function (mode) {
+      var r = res.modes[mode];
+      if (!r) return;
+      r.mapped.concat(r.derived).forEach(function (m) { s.colors[mode][m.tok] = m.value; });
+    });
+    return s;
+  }
+
   // ------------------------------------------------------ Link de compartilhar ----
   function b64url(bytes) {
     var s = "";
@@ -1162,7 +1540,7 @@
   // Todas as cores separadas por ponto: uma cor translúcida tem 8 dígitos, não 6.
   function compact(state, builtinStructure) {
     var hx = function (h) { return normHex(h).slice(1); };
-    var c = { v: 1, b: state.base || "", m: [state.meta.name, state.meta.author, state.meta.desc, state.meta.descEn, state.meta.preview],
+    var c = { v: 1, b: state.base || "", m: [state.meta.name, state.meta.author, state.meta.desc, state.meta.descEn, state.meta.preview, state.meta.license || ""],
       f: [state.fonts.ui, state.fonts.mono, state.fonts.size], r: state.radius, w: state.transparent ? 1 : 0 };
     ["dark", "light"].forEach(function (mode) {
       var k = mode[0];
@@ -1199,7 +1577,7 @@
       if (typeof structure !== "string") throw linkError("link-layout");
     } else structure = text(c.s);
     var state = { v: 1, base: base, layoutFrom: typeof c.l === "string" && c.l ? c.l : null,
-      meta: { name: text(m[0]), author: text(m[1]), desc: text(m[2]), descEn: text(m[3]), preview: PREVIEWS.indexOf(m[4]) >= 0 ? m[4] : "classic" },
+      meta: { name: text(m[0]), author: text(m[1]), desc: text(m[2]), descEn: text(m[3]), preview: PREVIEWS.indexOf(m[4]) >= 0 ? m[4] : "classic", license: text(m[5]) },
       fonts: { ui: text(f[0]) || "Inter", mono: text(f[1]) || "JetBrains Mono", size: clampNum(f[2], 6, 72, 16) },
       radius: clampNum(c.r, 0, 64, 6), transparent: !!c.w, usesWal: false,
       palette: {}, colors: {}, roles: {}, structure: structure };
@@ -1265,6 +1643,8 @@
     contrastReport: contrastReport, layoutColorBlocks: layoutColorBlocks, effectiveColors: effectiveColors, oklch: oklch, toOklch: toOklch, rng: rng,
     generate: generate, randomSeed: randomSeed, imageColors: imageColors, seedFromImage: seedFromImage,
     seedFromColors: seedFromColors, fromPalette: fromPalette,
+    COMMUNITY: COMMUNITY, SPDX: SPDX, communityCheck: communityCheck,
+    CSS_MAX: CSS_MAX, CSS_MAP: CSS_MAP, parseCss: parseCss, parseCssColor: parseCssColor, importDiscordCss: importDiscordCss, applyCssImport: applyCssImport,
     encode: encode, encodeSync: encodeSync, decode: decode, compact: compact, expand: expand, clone: clone,
   };
 });

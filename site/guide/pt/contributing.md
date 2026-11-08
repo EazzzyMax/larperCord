@@ -25,7 +25,9 @@ O CI (`.github/workflows/ci.yml`) roda os testes, depois compila o app no Arch e
 
 ## Enviando um tema
 
-Um tema é o jeito mais fácil de contribuir: um arquivo `.kdl` e nada de Zig. O `zig build test` carrega todos os temas embutidos e monta o layout de cada um, então um tema novo é verificado automaticamente. Leia [Escrevendo temas](page:themes), principalmente as dicas de design no final.
+Um tema é o jeito mais fácil de contribuir: um arquivo `.kdl` e nada de Zig. Leia [Escrevendo temas](page:themes), principalmente as dicas de design no final.
+
+Para compartilhar com todo mundo, coloque ele em `themes/community/` num pull request: ele aparece na [galeria da comunidade](community:) com prévia ao vivo. [Compartilhar seu tema](page:themes#compartilhar-seu-tema) tem os passos, os metadados que o arquivo precisa e o que é conferido. O `python3 tools/gen_site.py` para num tema da comunidade quebrado, e o CI roda essa checagem em todo pull request.
 
 Para incluir um como embutido, ponha o arquivo em `themes/` e acrescente o nome dele em `theme_names` no `build.zig` e em `themes/builtin.zig`.
 
