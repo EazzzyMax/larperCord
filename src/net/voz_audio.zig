@@ -9,11 +9,21 @@
 //! é um dispositivo lógico onde cada som liga o seu stream. O SDL mistura.
 //! A call e o medidor abrem cada um o seu microfone (o SDL deixa), então
 //! testar não encosta no que está indo para a call.
+//!
+//! Os sons (entrar, sair, mutar…, o toque de chamada) são os de core/sons.zig
+//! ou o arquivo que a pessoa escolheu, lido e decodificado só na hora de tocar
+//! (core/som_arquivo.zig): nada fica na memória entre um som e outro, e o
+//! toque do arquivo só enquanto toca.
 const std = @import("std");
 const c = @import("c");
 const voz = @import("../core/voz.zig");
+const sons = @import("../core/sons.zig");
+const arq = @import("../core/som_arquivo.zig");
 const ruido = @import("../core/ruido.zig");
 const S = @import("../ui/settings_state.zig");
+const fsutil = @import("../platform/fsutil.zig");
+
+const alloc = std.heap.c_allocator;
 
 const Atomic = std.atomic.Value;
 const bytes_per_ms = voz.rate * voz.channels * @sizeOf(i16) / 1000;
@@ -58,6 +68,12 @@ pub const Shared = struct {
     gate: Atomic(bool) = .init(false),
     denoise: Atomic(ruido.Mode) = .init(ruido.Mode.default),
     sounds: Atomic(bool) = .init(true),
+    /// Por evento (core/sons.zig Event): a variante e o volume (%) escolhidos.
+    variant: [sons.Event.count]Atomic(u8) = defaultVariants(),
+    volume: [sons.Event.count]Atomic(u8) = @splat(.init(100)),
+    /// Um bit por evento: o arquivo escolhido não abriu da última vez (tocou o
+    /// clássico no lugar). A página Voz avisa.
+    custom_bad: Atomic(u16) = .init(0),
     ptt: Atomic(bool) = .init(false),
     /// A tecla do aperte para falar está apertada (eventos do SDL, janela em foco).
     ptt_down: Atomic(bool) = .init(false),
@@ -109,6 +125,16 @@ pub const Shared = struct {
 
 pub var sh: Shared = .{};
 
+fn defaultVariants() [sons.Event.count]Atomic(u8) {
+    var out: [sons.Event.count]Atomic(u8) = undefined;
+    for (&out, std.enums.values(sons.Event)) |*a, e| a.* = .init(@backingInt(e.defaultVariant()));
+    return out;
+}
+
+fn eventBit(e: sons.Event) u16 {
+    return @as(u16, 1) << @intCast(@backingInt(e));
+}
+
 var names_lock: c.SDL_SpinLock = 0;
 var mic_name: S.Text = .{};
 var out_name: S.Text = .{};
@@ -116,6 +142,11 @@ var out_name: S.Text = .{};
 var ui_mic: S.Text = .{};
 var ui_out: S.Text = .{};
 var ui_binding: S.Text = .{};
+/// O arquivo de cada som (o nome dentro da pasta dos sons): a cópia da
+/// interface e a que a thread lê, sob a trava.
+var ui_files: [sons.Event.count]S.Text = @splat(.{});
+var custom_lock: c.SDL_SpinLock = 0;
+var custom_names: [sons.Event.count]S.Text = @splat(.{});
 
 fn chosenName(recording: bool) S.Text {
     c.SDL_LockSpinlock(&names_lock);
@@ -134,6 +165,18 @@ pub fn apply(set: *const S.Settings) void {
     sh.gate.store(set.voice_gate, .monotonic);
     sh.denoise.store(ruido.Mode.fromByte(set.voice_denoise), .monotonic);
     sh.sounds.store(set.voice_sounds, .monotonic);
+    for (std.enums.values(sons.Event), 0..) |e, i| {
+        sh.variant[i].store(S.soundVariantC(set, e), .monotonic);
+        sh.volume[i].store(S.soundVolumeC(set, e), .monotonic);
+        const file = S.soundFileC(set, e);
+        if (!std.mem.eql(u8, file.slice(), ui_files[i].slice())) {
+            ui_files[i] = file.*;
+            c.SDL_LockSpinlock(&custom_lock);
+            custom_names[i] = file.*;
+            c.SDL_UnlockSpinlock(&custom_lock);
+            _ = sh.custom_bad.fetchAnd(~eventBit(e), .monotonic);
+        }
+    }
     if (set.voice_ptt != sh.ptt.load(.monotonic)) {
         sh.ptt.store(set.voice_ptt, .monotonic);
         sh.ptt_down.store(false, .monotonic);
@@ -504,7 +547,9 @@ pub fn copyDevices(recording: *DeviceList, playback: *DeviceList) void {
 
 var state_lock: c.SDL_SpinLock = 0;
 var running = false;
-var pending: [8]voz.Sound = undefined;
+/// Um som pedido: na call (respeita "Sons da call") ou o Ouvir da página.
+const Req = struct { ev: sons.Event, preview: bool };
+var pending: [8]Req = undefined;
 var n_pending: usize = 0;
 var stop_req: Atomic(bool) = .init(false);
 /// Só a thread da interface mexe neste.
@@ -548,29 +593,46 @@ pub fn requestList() void {
     ensureThread();
 }
 
-/// Toca um bipe, se estiverem ligados. Não bloqueia: a thread abre o áudio.
-pub fn play(sound: voz.Sound) void {
-    if (!sh.sounds.load(.monotonic)) return;
+fn variantOf(e: sons.Event) sons.Variant {
+    return sons.Variant.fromByte(sh.variant[@backingInt(e)].load(.monotonic));
+}
+
+fn enqueue(req: Req) void {
     c.SDL_LockSpinlock(&state_lock);
     if (n_pending < pending.len) {
-        pending[n_pending] = sound;
+        pending[n_pending] = req;
         n_pending += 1;
     }
     c.SDL_UnlockSpinlock(&state_lock);
     ensureThread();
 }
 
+/// Toca o som do evento, se os sons estão ligados e o dele não está
+/// desligado. Não bloqueia: a thread abre o áudio (e lê o arquivo, se é um).
+pub fn play(e: sons.Event) void {
+    if (!sh.sounds.load(.monotonic) or variantOf(e) == .off) return;
+    enqueue(.{ .ev = e, .preview = false });
+}
+
+/// O Ouvir da página Voz: toca mesmo com "Sons da call" desligado, e corta o
+/// que a página estava tocando (clicar de novo recomeça, não empilha).
+pub fn preview(e: sons.Event) void {
+    enqueue(.{ .ev = e, .preview = true });
+}
+
 /// Toque de chamada: liga (repete até desligar) ou desliga. Não bloqueia.
 /// Sozinho, para depois de `ring_max_ms` (um CALL_UPDATE perdido não deixa
-/// o toque para sempre).
+/// o toque para sempre). Desligado nas configurações, nada toca (nem a
+/// thread sobe).
 pub fn setRinging(on: bool) void {
-    if (ring_on.load(.acquire) == on) return;
+    const want = on and variantOf(.ring) != .off;
+    if (ring_on.load(.acquire) == want) return;
     // Sob a trava, como a fila dos bipes: a thread que está saindo vê o
     // pedido, ou `ensureThread` vê que ela saiu.
     c.SDL_LockSpinlock(&state_lock);
-    ring_on.store(on, .release);
+    ring_on.store(want, .release);
     c.SDL_UnlockSpinlock(&state_lock);
-    if (on) ensureThread();
+    if (want) ensureThread();
 }
 
 pub fn ringing() bool {
@@ -581,6 +643,8 @@ var ring_on: Atomic(bool) = .init(false);
 const ring_max_ms = 60_000;
 /// 50 ms por pedaço (intercalado).
 const ring_chunk = 50 * voz.rate / 1000 * voz.channels;
+/// O toque do arquivo, no Ouvir da página, para aqui (o de verdade repete).
+const preview_ring_len = 6 * voz.rate * voz.channels;
 
 /// Ao fechar o app, antes do SDL_Quit.
 pub fn shutdown() void {
@@ -599,6 +663,9 @@ const Helper = struct {
     ring: ?*c.SDL_AudioStream = null,
     ring_pos: usize = 0,
     ring_since_ms: i64 = 0,
+    ring_variant: sons.Variant = .classic,
+    /// O arquivo do toque, decodificado só enquanto toca.
+    ring_pcm: ?[]i16 = null,
     /// Até quando os bipes já postos ainda estão tocando.
     sfx_until_ms: i64 = 0,
     next_scan_ms: i64 = 0,
@@ -616,7 +683,13 @@ const Helper = struct {
         h.sfx = null;
         if (h.ring) |s| c.SDL_DestroyAudioStream(s);
         h.ring = null;
+        h.freeRing();
         h.out.close();
+    }
+
+    fn freeRing(h: *Helper) void {
+        if (h.ring_pcm) |p| alloc.free(p);
+        h.ring_pcm = null;
     }
 
     fn ensureOut(h: *Helper, now: i64) bool {
@@ -686,19 +759,17 @@ const Helper = struct {
     }
 
     fn stepSounds(h: *Helper, now: i64) void {
-        var list: [pending.len]voz.Sound = undefined;
+        var list: [pending.len]Req = undefined;
         c.SDL_LockSpinlock(&state_lock);
         const n = n_pending;
         @memcpy(list[0..n], pending[0..n]);
         n_pending = 0;
         c.SDL_UnlockSpinlock(&state_lock);
-        for (list[0..n]) |sound| {
+        for (list[0..n]) |req| {
             if (h.sfx == null) h.sfx = h.newStream(now);
             const s = h.sfx orelse break;
-            var pcm: [voz.max_sound_len]i16 = undefined;
-            const data = voz.synth(sound, &pcm);
-            _ = c.SDL_PutAudioStreamData(s, data.ptr, @intCast(data.len * @sizeOf(i16)));
-            _ = sh.sounds_played.fetchAdd(1, .monotonic);
+            if (req.preview) _ = c.SDL_ClearAudioStream(s);
+            if (putSound(s, req)) _ = sh.sounds_played.fetchAdd(1, .monotonic);
         }
         if (h.sfx) |s| {
             if (n > 0) h.sfx_until_ms = now + @divTrunc(c.SDL_GetAudioStreamQueued(s), bytes_per_ms) + 300;
@@ -716,11 +787,18 @@ const Helper = struct {
             if (h.ring) |s| c.SDL_DestroyAudioStream(s);
             h.ring = null;
             h.ring_since_ms = 0;
+            h.freeRing();
             return;
         }
         if (h.ring_since_ms == 0) {
             h.ring_since_ms = now;
             h.ring_pos = 0;
+            // A escolha vale para o toque inteiro; o arquivo decodifica uma vez.
+            h.ring_variant = variantOf(.ring);
+            if (h.ring_variant == .custom) {
+                h.ring_pcm = loadCustom(.ring, sons.Event.ring.maxMs());
+                if (h.ring_pcm == null) h.ring_variant = .classic;
+            }
         }
         if (now - h.ring_since_ms > ring_max_ms) {
             ring_on.store(false, .release);
@@ -728,10 +806,15 @@ const Helper = struct {
         }
         if (h.ring == null) h.ring = h.newStream(now);
         const s = h.ring orelse return;
+        // Um arquivo curto repete no ritmo do embutido (um "dim" a cada 3 s, não
+        // colado); um longo emenda no começo.
+        const period = if (h.ring_pcm) |p| @max(p.len / voz.channels, sons.ring_cycle_len) else sons.ring_cycle_len;
+        const vol = sh.volume[@backingInt(sons.Event.ring)].load(.monotonic);
         while (c.SDL_GetAudioStreamQueued(s) < 200 * bytes_per_ms) {
             var pcm: [ring_chunk]i16 = undefined;
-            voz.ringSynth(h.ring_pos, &pcm);
-            h.ring_pos = (h.ring_pos + ring_chunk / voz.channels) % voz.ring_cycle_len;
+            if (h.ring_pcm) |file| loopInto(file, period, h.ring_pos, &pcm) else sons.ringSynth(h.ring_variant, h.ring_pos, &pcm);
+            sons.applyGain(&pcm, vol);
+            h.ring_pos = (h.ring_pos + ring_chunk / voz.channels) % period;
             if (!c.SDL_PutAudioStreamData(s, &pcm, @intCast(pcm.len * @sizeOf(i16)))) break;
             _ = sh.ring_chunks.fetchAdd(1, .monotonic);
         }
@@ -756,6 +839,175 @@ const Helper = struct {
         return sh.page_open.load(.acquire) or h.sfx != null or n_pending > 0 or ring_on.load(.acquire) or h.ring != null or sh.list_req.load(.acquire);
     }
 };
+
+/// `out` (intercalado) com o arquivo em loop a partir do quadro `pos`; depois
+/// do fim do arquivo e antes de `period`, silêncio.
+fn loopInto(file: []const i16, period: usize, pos: usize, out: []i16) void {
+    const frames = file.len / voz.channels;
+    var f: usize = 0;
+    while (f * voz.channels + 1 < out.len) : (f += 1) {
+        const i = (pos + f) % period;
+        const l: i16 = if (i < frames) file[i * 2] else 0;
+        const r: i16 = if (i < frames) file[i * 2 + 1] else 0;
+        out[f * 2] = l;
+        out[f * 2 + 1] = r;
+    }
+}
+
+fn putPcm(s: *c.SDL_AudioStream, pcm: []const i16) bool {
+    return c.SDL_PutAudioStreamData(s, pcm.ptr, @intCast(pcm.len * @sizeOf(i16)));
+}
+
+/// Põe o som pedido na fila. false = nada para tocar (desligado) ou a fila
+/// recusou. O arquivo que não abre toca o clássico.
+fn putSound(s: *c.SDL_AudioStream, req: Req) bool {
+    var v = variantOf(req.ev);
+    const vol = sh.volume[@backingInt(req.ev)].load(.monotonic);
+    if (v == .off) return false;
+    if (v == .custom) {
+        if (loadCustom(req.ev, req.ev.maxMs())) |pcm| {
+            defer alloc.free(pcm);
+            const cut = if (req.ev == .ring) @min(pcm.len, preview_ring_len) else pcm.len;
+            sons.applyGain(pcm[0..cut], vol);
+            return putPcm(s, pcm[0..cut]);
+        }
+        v = .classic;
+    }
+    if (req.ev == .ring) {
+        // O toque embutido, no Ouvir da página: um ciclo.
+        var pos: usize = 0;
+        var chunk: [ring_chunk]i16 = undefined;
+        while (pos < sons.ring_cycle_len) : (pos += ring_chunk / voz.channels) {
+            sons.ringSynth(v, pos, &chunk);
+            sons.applyGain(&chunk, vol);
+            if (!putPcm(s, &chunk)) return false;
+        }
+        return true;
+    }
+    var pcm: [sons.max_sound_len]i16 = undefined;
+    const data = sons.synth(v, req.ev, &pcm);
+    sons.applyGain(data, vol);
+    return putPcm(s, data);
+}
+
+// --- Arquivo escolhido pela pessoa --------------------------------------------
+
+/// No QA e nos prints, as cópias ficam em qa-out/sons (nunca na pasta de
+/// configurações de quem roda o teste).
+pub var qa_sounds_dir = false;
+
+/// Onde fica a cópia `name` (só o nome do arquivo, como nas configurações).
+pub fn soundPath(buf: []u8, name: []const u8) ?[:0]const u8 {
+    if (!sons.safeName(name)) return null;
+    if (qa_sounds_dir) return std.fmt.bufPrintSentinel(buf, "qa-out/sons/{s}", .{name}, 0) catch null;
+    var nb: [256]u8 = undefined;
+    const rel = std.fmt.bufPrint(&nb, "sons/{s}", .{name}) catch return null;
+    return fsutil.configPath(buf, rel);
+}
+
+/// O Opus de cada pacote, pela libopus (core/som_arquivo.zig não a conhece).
+const OpusDec = struct {
+    h: *c.OpusDecoder,
+    channels: usize,
+
+    fn init(channels: u8) ?OpusDec {
+        var err: c_int = 0;
+        const h = c.opus_decoder_create(@intCast(arq.out_rate), channels, &err) orelse return null;
+        return .{ .h = h, .channels = channels };
+    }
+
+    fn deinit(d: *OpusDec) void {
+        c.opus_decoder_destroy(d.h);
+    }
+
+    pub fn decode(d: *OpusDec, packet: []const u8, pcm: []i16) ?usize {
+        const got = c.opus_decode(d.h, packet.ptr, @intCast(packet.len), pcm.ptr, @intCast(pcm.len / d.channels), 0);
+        return if (got > 0) @intCast(got) else null;
+    }
+};
+
+/// WAV ou Ogg Opus (pelo começo do arquivo) inteiro, a 48 kHz estéreo.
+pub fn decodeFile(gpa: std.mem.Allocator, bytes: []const u8, max_ms: u32) arq.Error![]i16 {
+    switch (arq.sniff(bytes) orelse return error.Unsupported) {
+        .wav => return arq.decodeWav(gpa, bytes, max_ms),
+        .ogg => {
+            var s = try arq.openOgg(gpa, bytes, max_ms);
+            defer s.deinit(gpa);
+            var dec = OpusDec.init(s.channels) orelse return error.Unsupported;
+            defer dec.deinit();
+            return arq.decodeOgg(gpa, bytes, &s, &dec);
+        },
+    }
+}
+
+pub const LoadError = arq.Error || error{Read};
+
+/// Lê (até 2 MB, conferido antes de abrir) e decodifica.
+pub fn loadFile(gpa: std.mem.Allocator, path: [:0]const u8, max_ms: u32) LoadError![]i16 {
+    const bytes = try readSmall(path);
+    defer c.SDL_free(@constCast(bytes.ptr));
+    return decodeFile(gpa, bytes, max_ms);
+}
+
+/// O arquivo inteiro, se é um arquivo comum de até `arq.max_bytes`. Quem
+/// chama solta com SDL_free.
+fn readSmall(path: [:0]const u8) LoadError![]const u8 {
+    var info: c.SDL_PathInfo = undefined;
+    if (!c.SDL_GetPathInfo(path.ptr, &info) or info.type != c.SDL_PATHTYPE_FILE) return error.Read;
+    if (info.size > arq.max_bytes) return error.TooBig;
+    var size: usize = 0;
+    const data = c.SDL_LoadFile(path.ptr, &size) orelse return error.Read;
+    return @as([*]const u8, @ptrCast(data))[0..size];
+}
+
+/// O arquivo escolhido para o evento, decodificado. null: nenhum escolhido,
+/// ou ele sumiu ou estragou (marca em `custom_bad`; quem chama toca o clássico).
+fn loadCustom(e: sons.Event, max_ms: u32) ?[]i16 {
+    c.SDL_LockSpinlock(&custom_lock);
+    const name = custom_names[@backingInt(e)];
+    c.SDL_UnlockSpinlock(&custom_lock);
+    if (name.len == 0) return null;
+    var pb: [600]u8 = undefined;
+    const pcm = if (soundPath(&pb, name.slice())) |path| loadFile(alloc, path, max_ms) catch null else null;
+    if (pcm == null) {
+        _ = sh.custom_bad.fetchOr(eventBit(e), .monotonic);
+        return null;
+    }
+    _ = sh.custom_bad.fetchAnd(~eventBit(e), .monotonic);
+    return pcm;
+}
+
+pub const ImportError = arq.Error || error{ Read, Write };
+
+/// A pessoa escolheu `src` para o evento: confere (decodifica uma vez e joga
+/// fora), copia para a pasta dos sons (continua tocando se o original mudar
+/// de lugar) e põe o nome da cópia em `out`. A cópia anterior do mesmo evento
+/// (`old`) sai se o nome mudou. Roda na thread da interface: até 2 MB e 15 s,
+/// uma vez por escolha.
+pub fn importSound(e: sons.Event, src: [:0]const u8, old: []const u8, out: *S.Text) ImportError!void {
+    const bytes = try readSmall(src);
+    defer c.SDL_free(@constCast(bytes.ptr));
+    const pcm = try decodeFile(alloc, bytes, e.maxMs());
+    alloc.free(pcm);
+    var nb: [256]u8 = undefined;
+    const name = sons.copyName(&nb, e, src);
+    var pb: [600]u8 = undefined;
+    const dst = soundPath(&pb, name) orelse return error.Write;
+    if (std.mem.lastIndexOfScalar(u8, dst, '/')) |slash| {
+        if (!fsutil.ensureDir(dst[0..slash])) return error.Write;
+    }
+    // Pelo SDL: nome com acento funciona também no Windows.
+    if (!c.SDL_SaveFile(dst.ptr, bytes.ptr, bytes.len)) {
+        _ = c.SDL_RemovePath(dst.ptr);
+        return error.Write;
+    }
+    // Só a cópia deste evento (o nome começa com ele): nunca outro arquivo.
+    if (!std.mem.eql(u8, old, name) and std.mem.startsWith(u8, old, @tagName(e)) and old.len > @tagName(e).len and old[@tagName(e).len] == '-') {
+        var ob: [600]u8 = undefined;
+        if (soundPath(&ob, old)) |op| _ = c.SDL_RemovePath(op.ptr);
+    }
+    out.set(name);
+}
 
 fn helperMain(_: ?*anyopaque) callconv(.c) c_int {
     var h: Helper = .{};

@@ -31,6 +31,7 @@ const images = @import("ui/images.zig");
 const i18n = @import("ui/i18n.zig");
 const widgets = @import("ui/widgets.zig");
 const settings_state = @import("ui/settings_state.zig");
+const settings_voz = @import("ui/settings_voz.zig");
 const kdl = @import("theme/kdl.zig");
 const custom = @import("theme/custom.zig");
 const guild_color = @import("ui/guild_color.zig");
@@ -235,6 +236,7 @@ pub const App = struct {
         }
         // No QA e nos prints ninguém abre o microfone de verdade.
         voz_audio.force_dummy = opts.qa or opts.shot != null;
+        voz_audio.qa_sounds_dir = opts.qa or opts.shot != null;
         app.themes.mode = app.wantedMode();
         // Já aqui: os dados da demonstração saem no idioma da interface.
         i18n.set(if (opts.qa and opts.lang == null) .pt else opts.lang orelse i18n.fromSetting(app.st.settings.language));
@@ -494,6 +496,19 @@ pub const App = struct {
     fn pickFiles(app: *App) void {
         if (app.opts.qa) return;
         c.SDL_ShowOpenFileDialog(pickedCb, app, app.win.window, null, 0, null, true);
+    }
+
+    /// Um som para a página Voz (ui/settings_voz.zig). Cancelar o seletor
+    /// avisa, para o próximo arquivo anexado não virar som.
+    fn pickSound(app: *App) void {
+        if (app.opts.qa) return;
+        const filters = [_]c.SDL_DialogFileFilter{.{ .name = "WAV, Ogg Opus", .pattern = "wav;ogg;opus" }};
+        c.SDL_ShowOpenFileDialog(pickedSoundCb, app, app.win.window, &filters, filters.len, null, false);
+    }
+
+    fn pickedSoundCb(data: ?*anyopaque, list: [*c]const [*c]const u8, filter: c_int) callconv(.c) void {
+        if (list == null or list[0] == null) settings_voz.cancelPick();
+        pickedCb(data, list, filter);
     }
 
     /// Só uma imagem, para o ícone ou o banner (ui/edit_place.zig).
@@ -763,6 +778,17 @@ pub const App = struct {
         } else if ((was_mute or was_deaf) and !f.serverMuted() and !f.deaf) {
             app.st.showToast(now(), false, "o servidor liberou seu microfone", "the server unmuted you", .{});
         }
+    }
+
+    /// O som de alguém entrando ou saindo da call em que estamos (conectados:
+    /// a lista que chega ao entrar não toca nada). Mudar só mudo/surdo, não.
+    fn othersVoice(app: *App, user: types.Id, channel: ?types.Id) void {
+        const ch = app.st.voice orelse return;
+        if (app.st.voice_status != .connected) return;
+        const cs = app.store.channel(ch) orelse return;
+        const was = std.mem.indexOfScalar(types.Id, cs.voice_members.items, user) != null;
+        const is = channel != null and channel.? == ch;
+        if (is and !was) voz_audio.play(.user_join) else if (was and !is) voz_audio.play(.user_leave);
     }
 
     fn voiceAudio(app: *App, mic_ok: bool, out_ok: bool) void {
@@ -1527,6 +1553,7 @@ pub const App = struct {
             },
             .delete_thread => |id| app.cmd(.{ .delete_thread = id }),
             .pick_image => app.pickImage(),
+            .pick_sound => app.pickSound(),
             .restart => if (app.opts.qa) st.showToast(now(), false, "reiniciando", "restarting", .{}) else {
                 app.restart_wanted = true;
             },
@@ -1652,7 +1679,7 @@ pub const App = struct {
             .toggle_deafen => {
                 st.deafened = !st.deafened;
                 if (st.deafened) st.muted = true;
-                if (st.voice != null) voz_audio.play(if (st.deafened) .mute else .unmute);
+                if (st.voice != null) voz_audio.play(if (st.deafened) .deafen else .undeafen);
                 if (st.voice != null) app.cmd(.{ .voice_flags = .{ .mute = st.muted, .deaf = st.deafened } });
             },
             .toggle_voice_mixer => st.voice_mixer = !st.voice_mixer,
@@ -1880,6 +1907,9 @@ pub const App = struct {
                     app.st.voice_mixer = false;
                 }
             }
+            // Outra pessoa entrou ou saiu da nossa call (antes do Store, que ainda
+            // tem a lista de antes).
+            if (e == .voice_state and e.voice_state.user != app.store.me and app.store.me != 0) app.othersVoice(e.voice_state.user, e.voice_state.channel);
             if (e == .voice_ping) app.st.voice_ping_ms = e.voice_ping;
             if (e == .voice_audio) app.voiceAudio(e.voice_audio.mic_ok, e.voice_audio.out_ok);
             if (e == .history) timeline.mark(.historico);
@@ -2547,9 +2577,14 @@ pub const App = struct {
             {
                 var picked: std.ArrayList([:0]u8) = .empty;
                 defer picked.deinit(std.heap.c_allocator);
+                settings_voz.pollCancel();
                 app.picked.drain(&picked);
                 for (picked.items) |p| {
                     defer std.heap.c_allocator.free(p);
+                    if (settings_voz.takePicked(&app.st, now(), p)) {
+                        app.saveSettings();
+                        continue;
+                    }
                     if (@import("ui/edit_place.zig").takePicked(&app.st, now(), p)) continue;
                     if (app.store.ready) app.attachFile(p);
                 }

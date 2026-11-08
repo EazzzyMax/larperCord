@@ -98,7 +98,7 @@ const Page = struct {
         return p.ids;
     }
 
-    fn markText(p: *Page, r: d.Rect) void {
+    pub fn markText(p: *Page, r: d.Rect) void {
         qa.mark(r, "pg:{d}", .{p.marks});
         p.marks += 1;
     }

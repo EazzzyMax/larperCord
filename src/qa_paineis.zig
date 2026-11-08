@@ -352,7 +352,7 @@ pub const ops_theme = [_]Op{
 
 // --- Configurações sem nada sobreposto ------------------------------------------
 
-const page_marks = [_][]const u8{ "pg:", "button:", "toggle:", "select:", "slider:", "seg:", "radio:", "accent:", "theme-card:", "theme-color:", "changelog-version:", "changelog-section:", "changelog-item:" };
+const page_marks = [_][]const u8{ "pg:", "button:", "toggle:", "select:", "slider:", "seg:", "radio:", "accent:", "theme-card:", "theme-color:", "changelog-version:", "changelog-section:", "changelog-item:", "som-var:", "som-play:", "som-vol:", "som-nome:" };
 
 fn noOverlap(_: *App) bool {
     return qa.overlapping(&page_marks) == null;
@@ -965,7 +965,7 @@ pub const ops_pages = [_]Op{
     .{ .wait = 350 },
 };
 
-/// Em todo tema: as páginas redesenhadas (cada tema tem a sua fonte).
+/// Em todo tema: as páginas redesenhadas (cada tema tem a sua fonte) e os sons da página Voz.
 pub const ops_pages_theme = [_]Op{
     s("atualizações e novidades no tema"),
     .{ .key = .{ .key = c.ImGuiKey_Comma, .ctrl = true } },
@@ -978,6 +978,15 @@ pub const ops_pages_theme = [_]Op{
     .{ .wait = 120 },
     check,
     .{ .shot = "tema-novidades" },
+    // A lista dos sons (escolha, Ouvir e volume de cada evento) em cada tema.
+    click("settings:Voz"),
+    .{ .wait = 120 },
+    check,
+    click("som-var:ring"),
+    .{ .wait = 150 },
+    .{ .shot = "tema-voz-sons" },
+    key(c.ImGuiKey_Escape),
+    .{ .wait = 150 },
     key(c.ImGuiKey_Escape),
     .{ .wait = 350 },
 };

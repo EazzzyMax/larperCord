@@ -3,6 +3,7 @@
 //! São salvos em ~/.config/larpercord/settings.kdl.
 const std = @import("std");
 const L = @import("../core/lsp.zig");
+const sons = @import("../core/sons.zig");
 
 pub const Page = enum {
     conta,
@@ -151,7 +152,39 @@ pub const Settings = struct {
     voice_gate: bool = false,
     /// Supressão de ruído: o número de `core/ruido.zig` Mode (0 desligada, 1 RNNoise).
     voice_denoise: u8 = 1,
+    /// Liga os avisos da call (o toque de chamada tem a escolha dele, abaixo).
     voice_sounds: bool = true,
+    /// Cada som (core/sons.zig Event): a variante (Variant: 0 desligado,
+    /// 1 clássico, 2..4 embutidos, 5 o arquivo da pessoa), o volume em %
+    /// (0..200) e o arquivo copiado para <config>/larpercord/sons (só o nome).
+    /// Os padrões são o que tocava antes de dar para escolher.
+    sound_join: u8 = 1,
+    sound_join_vol: u8 = 100,
+    sound_join_file: Text = .{},
+    sound_leave: u8 = 1,
+    sound_leave_vol: u8 = 100,
+    sound_leave_file: Text = .{},
+    sound_user_join: u8 = 0,
+    sound_user_join_vol: u8 = 100,
+    sound_user_join_file: Text = .{},
+    sound_user_leave: u8 = 0,
+    sound_user_leave_vol: u8 = 100,
+    sound_user_leave_file: Text = .{},
+    sound_mute: u8 = 1,
+    sound_mute_vol: u8 = 100,
+    sound_mute_file: Text = .{},
+    sound_unmute: u8 = 1,
+    sound_unmute_vol: u8 = 100,
+    sound_unmute_file: Text = .{},
+    sound_deafen: u8 = 1,
+    sound_deafen_vol: u8 = 100,
+    sound_deafen_file: Text = .{},
+    sound_undeafen: u8 = 1,
+    sound_undeafen_vol: u8 = 100,
+    sound_undeafen_file: Text = .{},
+    sound_ring: u8 = 1,
+    sound_ring_vol: u8 = 100,
+    sound_ring_file: Text = .{},
 
     /// Volume dos vídeos em % (0..100; 0 = mudo).
     video_volume: u8 = 100,
@@ -245,6 +278,47 @@ pub fn lspCmdC(s: *const Settings, i: usize) *const Text {
         inline 0...L.known.len - 1 => |k| &@field(s, "lsp_cmd_" ++ L.known[k].key),
         else => unreachable,
     };
+}
+
+/// Os campos de cada som (sound_<evento>, _vol e _file).
+pub fn soundVariant(s: *Settings, e: sons.Event) *u8 {
+    return switch (e) {
+        inline else => |k| &@field(s, "sound_" ++ @tagName(k)),
+    };
+}
+pub fn soundVariantC(s: *const Settings, e: sons.Event) u8 {
+    return switch (e) {
+        inline else => |k| @field(s, "sound_" ++ @tagName(k)),
+    };
+}
+pub fn soundVolume(s: *Settings, e: sons.Event) *u8 {
+    return switch (e) {
+        inline else => |k| &@field(s, "sound_" ++ @tagName(k) ++ "_vol"),
+    };
+}
+pub fn soundVolumeC(s: *const Settings, e: sons.Event) u8 {
+    return switch (e) {
+        inline else => |k| @field(s, "sound_" ++ @tagName(k) ++ "_vol"),
+    };
+}
+pub fn soundFile(s: *Settings, e: sons.Event) *Text {
+    return switch (e) {
+        inline else => |k| &@field(s, "sound_" ++ @tagName(k) ++ "_file"),
+    };
+}
+pub fn soundFileC(s: *const Settings, e: sons.Event) *const Text {
+    return switch (e) {
+        inline else => |k| &@field(s, "sound_" ++ @tagName(k) ++ "_file"),
+    };
+}
+
+/// Todos os sons como vêm de fábrica (as cópias continuam na pasta).
+pub fn resetSounds(s: *Settings) void {
+    for (std.enums.values(sons.Event)) |e| {
+        soundVariant(s, e).* = @backingInt(e.defaultVariant());
+        soundVolume(s, e).* = 100;
+        soundFile(s, e).* = .{};
+    }
 }
 
 /// Alguma linguagem ligada? Falso é o caso comum: o caminho de quem não usa.
@@ -486,6 +560,48 @@ test "configurações de voz vão e voltam (volume acima de 3x e nome com acento
     try std.testing.expectEqual(@as(usize, 0), fresh.voice_mic.slice().len);
     try std.testing.expect(fresh.voice_highpass and fresh.voice_sounds and !fresh.voice_ptt);
     try std.testing.expectEqual(@as(u8, 1), fresh.voice_denoise);
+}
+
+test "sons por evento vão e voltam, e o arquivo antigo toca o de antes" {
+    const kdl = @import("../theme/kdl.zig");
+    // De fábrica: o que tocava antes de dar para escolher.
+    var fresh: Settings = .{};
+    for (std.enums.values(sons.Event)) |e| {
+        try std.testing.expectEqual(@backingInt(e.defaultVariant()), soundVariantC(&fresh, e));
+        try std.testing.expectEqual(@as(u8, 100), soundVolumeC(&fresh, e));
+        try std.testing.expectEqual(@as(usize, 0), soundFileC(&fresh, e).len);
+    }
+    var s: Settings = .{};
+    soundVariant(&s, .join).* = @backingInt(sons.Variant.glass);
+    soundVolume(&s, .join).* = 35;
+    soundVariant(&s, .ring).* = @backingInt(sons.Variant.custom);
+    soundFile(&s, .ring).set("ring-meu \"toque\".ogg");
+    soundVariant(&s, .user_leave).* = @backingInt(sons.Variant.retro);
+    soundVolume(&s, .mute).* = 200;
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try write(&s, "vidro", &out, std.testing.allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const nodes = try kdl.parse(arena.allocator(), out.items, null);
+    var back: Settings = .{};
+    apply(&back, &nodes[0]);
+    try std.testing.expectEqual(@as(u8, 3), back.sound_join);
+    try std.testing.expectEqual(@as(u8, 35), back.sound_join_vol);
+    try std.testing.expectEqual(@as(u8, 5), back.sound_ring);
+    try std.testing.expectEqualStrings("ring-meu \"toque\".ogg", back.sound_ring_file.slice());
+    try std.testing.expectEqual(@as(u8, 4), back.sound_user_leave);
+    try std.testing.expectEqual(@as(u8, 200), back.sound_mute_vol);
+    try std.testing.expectEqual(@as(u8, 1), back.sound_leave);
+    // Arquivo de antes dos sons: os padrões.
+    const old = try kdl.parse(arena.allocator(), "settings voice_sounds=#true\n", null);
+    var older: Settings = .{};
+    apply(&older, &old[0]);
+    try std.testing.expectEqual(@as(u8, 1), older.sound_join);
+    try std.testing.expectEqual(@as(u8, 0), older.sound_user_join);
+    resetSounds(&back);
+    try std.testing.expectEqual(@as(u8, 1), back.sound_join);
+    try std.testing.expectEqual(@as(usize, 0), back.sound_ring_file.len);
 }
 
 test "volume dos vídeos e fechar para a bandeja vão e voltam" {
