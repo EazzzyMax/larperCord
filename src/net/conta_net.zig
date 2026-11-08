@@ -233,6 +233,7 @@ pub fn execute(g: anytype, cmd: conta.Cmd) void {
             // Um pedido só, como o de cima.
             g.no_retry = true;
             defer g.no_retry = false;
+            context(g, .add_friend);
             var resp = g.request("POST", conta.friend_name_path, body) orelse return emit(g, .{ .friend_by_name = .failed });
             defer resp.body.deinit(alloc);
             const status = conta.nameStatus(resp.status, errorCode(resp.body.items), hasCaptcha(resp.body.items));

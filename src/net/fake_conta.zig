@@ -23,8 +23,9 @@ pub const sent = struct {
     pub var block_user: A = .init(0);
     pub var ignores: A = .init(0);
     pub var friend_requests: A = .init(0);
-    /// O último PUT/DELETE de /users/@me/relationships: quantos, com quem e de
-    /// onde foi o clique (o `X-Context-Properties`, core/conta.zig `Origin`).
+    /// O último PUT/DELETE (ou o POST pelo nome) de /users/@me/relationships:
+    /// quantos, com quem e de onde foi o clique (o `X-Context-Properties`,
+    /// core/conta.zig `Origin`).
     pub var relationships: A = .init(0);
     pub var rel_user: A = .init(0);
     pub var rel_from: A = .init(0);
@@ -133,6 +134,8 @@ pub fn execute(g: anytype, cmd: conta.Cmd) void {
         },
         .friend_by_name => |body| {
             keep(body);
+            // O POST pelo nome não leva o ID de ninguém; o lugar é "Add Friend".
+            noteRelationship(0, .add_friend);
             _ = sent.friend_names.fetchAdd(1, .release);
             g.emit(.{ .conta = .{ .friend_by_name = byName(g, body) } });
         },

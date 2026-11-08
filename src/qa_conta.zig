@@ -173,9 +173,10 @@ fn cardOffersAdd(_: *App) bool {
     return qa.find("profile-add") != null;
 }
 fn cardRequested(app: *App) bool {
-    // Um clique, um pedido (o captcha de novo devolve o botão para a pessoa).
+    // Um clique, um pedido (o captcha de novo devolve o botão para a pessoa),
+    // com o lugar do perfil ("user profile modal v2").
     const st = app.st.conta.friends.get(fc.captcha_user) orelse return false;
-    return load(&fc.sent.friend_requests) == 3 and st == .captcha;
+    return load(&fc.sent.friend_requests) == 3 and st == .captcha and load(&fc.sent.rel_user) == fc.captcha_user and fc.lastFrom() == .profile;
 }
 
 // --- Adicionar amigo pelo nome --------------------------------------------------------
@@ -200,9 +201,11 @@ fn kaiqueNone(app: *App) bool {
     return app.store.relationship(kaique) == .none;
 }
 fn kaiqueSent(app: *App) bool {
-    // Um pedido, com o nome em minúsculas e sem o "@"; a pessoa vai para os pendentes.
+    // Um pedido, com o nome em minúsculas e sem o "@" e o lugar "Add Friend";
+    // a pessoa vai para os pendentes.
     return load(&fc.sent.friend_names) == 2 and std.mem.eql(u8, body(), "{\"username\":\"kaique\",\"discriminator\":null}") and
-        app.st.conta.name_status == .sent and app.store.relationship(kaique) == .outgoing and qa.find("add-friend-result:sent") != null;
+        app.st.conta.name_status == .sent and app.store.relationship(kaique) == .outgoing and qa.find("add-friend-result:sent") != null and
+        fc.lastFrom() == .add_friend;
 }
 fn alreadyShown(app: *App) bool {
     return load(&fc.sent.friend_names) == 3 and app.st.conta.name_status == .already and qa.find("add-friend-result:already") != null;
