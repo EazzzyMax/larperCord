@@ -282,11 +282,17 @@ fn expire(app: *App) void {
     if (next != 0 and nowMs() >= next) refreshMuted(app);
 }
 
+/// A conversa está silenciada agora (DM, grupo ou canal, pelas configurações
+/// da conta)? Um silêncio com prazo vencido sai antes de responder.
+pub fn mutedNow(app: *App, ch: Id) bool {
+    expire(app);
+    return app.st.muted_channels.contains(ch);
+}
+
 /// Mensagem de outra pessoa: notifica? `important` é o que já valia (DM,
 /// menção, alerta). Sem configuração da conta para o lugar, fica como antes.
 pub fn allowsNotify(app: *App, m: types.Message, cs: *const store_mod.ChannelState, important: bool) bool {
-    expire(app);
-    if (app.st.muted_channels.contains(m.channel)) return false;
+    if (mutedNow(app, m.channel)) return false;
     const guild = cs.info.guild;
     const gs = app.st.conta.settings(guild);
     const level = conta.effectiveLevel(gs, m.channel, cs.info.parent orelse 0);

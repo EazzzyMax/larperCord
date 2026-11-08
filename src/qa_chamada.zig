@@ -1,9 +1,9 @@
 //! QA das calls em DM e grupo, contra a demonstração (net/fake_gateway.zig):
 //! ligar pelo cabeçalho (op 4 sem servidor e o pedido de tocar), quem está na
 //! call, a chamada chegando por cima de tudo, atender, recusar (stop-ringing),
-//! a call que acaba (CALL_DELETE), o Não perturbe sem toque e a janela
-//! escondida. O som é o driver mudo do SDL: confere que o toque foi posto na
-//! saída, não como ele soa.
+//! a call que acaba (CALL_DELETE), o Não perturbe e a DM/grupo silenciado sem
+//! toque, e a janela escondida. O som é o driver mudo do SDL: confere que o
+//! toque foi posto na saída, não como ele soa.
 const std = @import("std");
 const c = @import("c");
 const App = @import("app.zig").App;
@@ -13,6 +13,7 @@ const qa = @import("ui/qa.zig");
 const gw = @import("net/fake_gateway.zig");
 const voz_audio = @import("net/voz_audio.zig");
 const chamada = @import("ui/chamada.zig");
+const fc = @import("net/fake_conta.zig");
 const platform = @import("platform/window.zig");
 const Id = @import("core/types.zig").Id;
 
@@ -108,6 +109,27 @@ fn hideWindow(app: *App) void {
 fn showWindow(app: *App) void {
     _ = c.SDL_ShowWindow(app.win.window);
 }
+/// Outro aparelho silencia a DM 2 e o grupo nas configurações da conta (as das DMs
+/// são as de "@me", guild_id null); depois volta ao padrão.
+fn dmSettings(app: *App, json: []const u8) void {
+    const e = fc.remoteEvent(json) orelse return;
+    app.events.push(e);
+    platform.Window.wake(app.win.wake_type, .gateway);
+}
+const muted_dms =
+    \\{"guild_id":null,"muted":false,"mute_config":null,"message_notifications":3,"suppress_everyone":false,"suppress_roles":false,
+    \\ "channel_overrides":[{"channel_id":"900002","muted":true,"mute_config":null,"message_notifications":3,"collapsed":false},
+    \\ {"channel_id":"900006","muted":true,"mute_config":null,"message_notifications":3,"collapsed":false}],"version":20}
+;
+const default_dms =
+    \\{"guild_id":null,"muted":false,"mute_config":null,"message_notifications":3,"suppress_everyone":false,"suppress_roles":false,"channel_overrides":[],"version":21}
+;
+fn muteDms(app: *App) void {
+    dmSettings(app, muted_dms);
+}
+fn unmuteDms(app: *App) void {
+    dmSettings(app, default_dms);
+}
 
 // --- Checagens -----------------------------------------------------------------
 
@@ -173,10 +195,30 @@ fn isDnd(app: *App) bool {
 fn isOnline(app: *App) bool {
     return app.store.user(me).?.status == .online;
 }
-fn silentInDnd(_: *App) bool {
+/// O aviso de `ch` está na tela e o toque não foi posto na saída.
+fn silentFor(ch: Id) bool {
     // Um tempinho para a thread de áudio, se fosse tocar.
     c.SDL_Delay(120);
-    return overlayFor(dm2) and !voz_audio.ringing() and voz_audio.sh.ring_chunks.load(.monotonic) == chunks0;
+    return overlayFor(ch) and !voz_audio.ringing() and voz_audio.sh.ring_chunks.load(.monotonic) == chunks0;
+}
+fn silentInDnd(_: *App) bool {
+    return silentFor(dm2);
+}
+fn dmsMuted(app: *App) bool {
+    return app.st.muted_channels.contains(dm2) and app.st.muted_channels.contains(group) and !app.st.muted_channels.contains(dm1);
+}
+fn dmsUnmuted(app: *App) bool {
+    return !app.st.muted_channels.contains(dm2) and !app.st.muted_channels.contains(group);
+}
+fn silentMutedDm(_: *App) bool {
+    return silentFor(dm2);
+}
+fn silentMutedGroup(_: *App) bool {
+    return silentFor(group);
+}
+/// A DM 1 não foi silenciada: a dela toca como sempre.
+fn ringsDm1(_: *App) bool {
+    return overlayFor(dm1) and voz_audio.ringing();
 }
 fn ringingHidden(app: *App) bool {
     const hidden = c.SDL_GetWindowFlags(app.win.window) & c.SDL_WINDOW_HIDDEN != 0;
@@ -247,6 +289,24 @@ pub const ops = [_]Op{
     expect("recusar no não perturbe", overlayGone),
     run(setOnline),
     expect("online de novo", isOnline),
+
+    run(muteDms),
+    expect("DM e grupo silenciados em outro aparelho", dmsMuted),
+    run(ringDm2),
+    expect("DM silenciada: o aviso aparece, sem toque", silentMutedDm),
+    shot("chamada-silenciada"),
+    click("call-decline"),
+    expect("recusar a chamada da DM silenciada", overlayGone),
+    run(ringGroup),
+    expect("grupo silenciado: o aviso aparece, sem toque", silentMutedGroup),
+    click("call-decline"),
+    expect("recusar a chamada do grupo silenciado", overlayGone),
+    run(ringDm1),
+    expect("a DM que não foi silenciada toca", ringsDm1),
+    click("call-decline"),
+    expect("e recusar some com ela", overlayGone),
+    run(unmuteDms),
+    expect("silêncio tirado em outro aparelho", dmsUnmuted),
 
     run(hideWindow),
     expect("com a janela escondida, toca e avisa", ringingHidden),
