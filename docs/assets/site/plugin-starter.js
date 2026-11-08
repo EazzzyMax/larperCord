@@ -12,6 +12,8 @@
   var DOCS = { en: "https://rshacudevidro.github.io/larperCord/guide/plugins.html", pt: "https://rshacudevidro.github.io/larperCord/pt/guide/plugins.html" };
   // Os mesmos limites de src/plugins/manifest.zig: passou disso, o app corta.
   var MAX = { name: 48, description: 320, version: 16 };
+  // O `contains` de larper.on (runtime.zig optNeedles): passou disso, o plugin não carrega.
+  var NEEDLES = { max: 16, bytes: 64 };
   var TRIGGERS = [";", "!", "$", "%", "&", "+", "=", "?", "^"];
   // A lista de src/plugins/host.zig (keyCode): o resto o app recusa.
   var NAMED_KEYS = ["enter", "space", "tab", "backspace", "delete", "insert", "home", "end", "pageup", "pagedown",
@@ -86,26 +88,40 @@
   // runtime.zig validCommand: "/" e até 31 letras, números, _ ou -.
   function validCommand(c) { return /^\/[A-Za-z0-9_-]{1,31}$/.test(c); }
 
-  // runtime.zig parseKeys + host.zig keyCode.
-  function checkKeybind(spec) {
+  // runtime.zig parseKeys: os modificadores e a tecla, ou null se o formato não serve.
+  function parseKeys(spec) {
     var mods = { ctrl: false, shift: false, alt: false, super: false }, key = null;
     var parts = String(spec).split("+");
     for (var i = 0; i < parts.length; i++) {
       var w = parts[i].trim().toLowerCase();
-      if (!w || w.length > 16) return "format";
+      if (!w || w.length > 16) return null;
       if (w === "ctrl" || w === "control") mods.ctrl = true;
       else if (w === "shift") mods.shift = true;
       else if (w === "alt") mods.alt = true;
       else if (w === "super" || w === "meta" || w === "win" || w === "cmd") mods.super = true;
-      else if (key !== null) return "format";
+      else if (key !== null) return null;
       else key = w;
     }
-    if (key === null) return "format";
+    return key === null ? null : { mods: mods, key: key };
+  }
+
+  // runtime.zig parseKeys + host.zig keyCode.
+  function checkKeybind(spec) {
+    var k = parseKeys(spec);
+    if (!k) return "format";
+    var mods = k.mods, key = k.key;
     var fkey = /^f\d/.test(key);
     if (!(/^[a-z0-9]$/.test(key) || (fkey && /^f([1-9]|1\d|2[0-4])$/.test(key)) || NAMED_KEYS.indexOf(key) >= 0)) return "key";
     if (!mods.ctrl && !mods.alt && !mods.super && !fkey) return "modifier";
     if (mods.ctrl && !mods.shift && !mods.alt && !mods.super && key.length === 1 && "acvxyz".indexOf(key) >= 0) return "typing";
     return null;
+  }
+
+  // "Control+Shift+M" -> "ctrl+shift+m": a mesma forma das teclas do app em plugin-api.js.
+  function canonKeys(spec) {
+    var k = parseKeys(spec);
+    if (!k) return "";
+    return ["ctrl", "shift", "alt", "super"].filter(function (m) { return k.mods[m]; }).concat(k.key).join("+");
   }
 
   // manifest.zig validHost + isDiscord.
@@ -132,6 +148,9 @@
     keykey: { en: "Unknown key. Use a–z, 0–9, f1–f24 or one of: " + NAMED_KEYS.join(" "), pt: "Tecla desconhecida. Use a–z, 0–9, f1–f24 ou uma destas: " + NAMED_KEYS.join(" ") },
     keymodifier: { en: "Only F1–F24 can go alone; other keys need ctrl, alt or super.", pt: "Só F1–F24 vão sozinhas; as outras teclas pedem ctrl, alt ou super." },
     keytyping: { en: "Ctrl plus a, c, v, x, y or z happens all the time while typing: add shift or alt.", pt: "Ctrl com a, c, v, x, y ou z acontece o tempo todo digitando: some shift ou alt." },
+    keyApp: { en: "{k} is also an app shortcut ({a}): both would run. Pick another combination.", pt: "{k} também é um atalho do app ({a}): os dois rodariam. Escolha outra combinação." },
+    wordsMany: { en: "“Only messages with” takes at most {max} words; there are {n}.", pt: "“Só mensagens com” aceita no máximo {max} palavras; tem {n}." },
+    wordLong: { en: "“{w}” is over {max} bytes: each word in “Only messages with” takes 1 to {max}.", pt: "“{w}” passa de {max} bytes: cada palavra de “Só mensagens com” vai de 1 a {max}." },
     hostsEmpty: { en: "Fetching needs at least one host, like api.example.com.", pt: "Buscar dados pede pelo menos um host, como api.exemplo.com." },
     hostsMany: { en: "At most {n} hosts.", pt: "No máximo {n} hosts." },
     hostdiscord: { en: "{h} is Discord: plugins can't talk to Discord directly.", pt: "{h} é o Discord: plugins não falam direto com o Discord." },
@@ -181,9 +200,26 @@
     var command = oneLine(o.command);
     if (f.command && !validCommand(command)) errors.push(say(lang, "command"));
     var keybind = oneLine(o.keybind).toLowerCase();
-    if (f.keybind) { var kb = checkKeybind(keybind); if (kb) errors.push(say(lang, "key" + kb)); }
-    var words = String(o.contains || "").split(/[,\n]/).map(oneLine).filter(Boolean).slice(0, 16);
-    if (f.onMessage && !words.length) notes.push(say(lang, "noFilter"));
+    if (f.keybind) {
+      var kb = checkKeybind(keybind);
+      if (kb) errors.push(say(lang, "key" + kb));
+      else {
+        // O app não troca os próprios atalhos pelo do plugin: os dois disparam.
+        var canon = canonKeys(keybind);
+        var clash = ((api && api.appKeys) || []).filter(function (a) { return a.k === canon; })[0];
+        if (clash) notes.push(say(lang, "keyApp", { k: keybind, a: clash[lang] }));
+      }
+    }
+    // runtime.zig optNeedles: de 1 a 16 textos, cada um de 1 a 64 bytes; fora disso o plugin nem carrega.
+    var words = String(o.contains || "").split(/[,\n]/).map(oneLine).filter(Boolean);
+    if (f.onMessage) {
+      if (!words.length) notes.push(say(lang, "noFilter"));
+      if (words.length > NEEDLES.max) errors.push(say(lang, "wordsMany", { max: NEEDLES.max, n: words.length }));
+      words.forEach(function (w) {
+        var cut = Array.from(w);
+        if (bytes(w) > NEEDLES.bytes) errors.push(say(lang, "wordLong", { w: cut.length > 24 ? cut.slice(0, 24).join("") + "…" : w, max: NEEDLES.bytes }));
+      });
+    }
     var hosts = [];
     if (f.http) {
       hosts = String(o.hosts || "").split(/[\s,]+/).filter(Boolean);
@@ -276,9 +312,10 @@
 
     if (f.http) {
       line("local HOST = " + luaStr(hosts[0] || "api.example.com"));
-      line("-- " + C("Nothing goes out until you approve the host on the plugin's card.", "Nada sai antes de você aprovar o host no cartão do plugin."));
+      line("-- " + C("Nothing goes out until you approve the host on the plugin's card. The text is cut", "Nada sai antes de você aprovar o host no cartão do plugin. O texto é cortado"));
+      line("-- " + C("first: the app refuses a URL over 2048 bytes.", "antes: o app recusa uma URL com mais de 2048 bytes."));
       line("local function fetch(text)");
-      line("  larper.http.get(\"https://\" .. HOST .. \"/?q=\" .. larper.urlencode(text), function(res)");
+      line("  larper.http.get(\"https://\" .. HOST .. \"/?q=\" .. larper.urlencode(short(text, 200)), function(res)");
       line("    if res.ok then");
       line("      report(HOST .. \": \" .. short(res.body, 120))");
       line("    elseif res.error == \"not_approved\" then");
@@ -305,7 +342,7 @@
       }
       line("  report(tr(\"Você pediu: \", \"You asked: \") .. (text ~= \"\" and short(text, 80) or \"-\")" + (f.storage || f.settings ? " .. \" (\" .. data.uses .. \")\"" : "") + ")");
       if (f.composer) line("  larper.insert(text ~= \"\" and text or tr(\"olá\", \"hello\"))");
-      if (f.links) line("  larper.open(\"https://example.com/?q=\" .. larper.urlencode(text)) -- " + C("change to the site you want", "troque pelo site que quiser"));
+      if (f.links) line("  larper.open(\"https://example.com/?q=\" .. larper.urlencode(short(text, 200))) -- " + C("change to the site you want (URLs up to 2000 bytes)", "troque pelo site que quiser (URLs de até 2000 bytes)"));
       if (f.http) line("  fetch(text)");
       if (f.panel) line("  larper.panel.open()");
       line("end");
@@ -318,6 +355,10 @@
       if (f.send) {
         line("  if args ~= \"\" then");
         line("    -- " + C("Sends the text after the command to the open channel, as if you typed it.", "Envia o texto depois do comando para o canal aberto, como se você digitasse."));
+        line("    if #args > 2000 then");
+        line("      report(tr(\"Longo demais para enviar: o máximo é 2000 bytes.\", \"Too long to send: 2000 bytes at most.\"))");
+        line("      return");
+        line("    end");
         line("    larper.send(nil, args)");
         line("    return");
         line("  end");
@@ -451,8 +492,8 @@
     return { file: file + ".lua", source: L.join("\n") + "\n", caps: caps, hosts: hosts, features: f, errors: errors, notes: notes, warn: warn };
   }
 
-  return { FEATURES: FEATURES, TRIGGERS: TRIGGERS, MAX: MAX, defaults: defaults, build: build, checkKeybind: checkKeybind,
-           checkHost: checkHost, validCommand: validCommand, slug: slug, bytes: bytes };
+  return { FEATURES: FEATURES, TRIGGERS: TRIGGERS, MAX: MAX, NEEDLES: NEEDLES, defaults: defaults, build: build, checkKeybind: checkKeybind,
+           canonKeys: canonKeys, checkHost: checkHost, validCommand: validCommand, slug: slug, bytes: bytes };
 });
 
 // O formulário. Só no navegador.
@@ -584,11 +625,22 @@
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   });
+  // "Copiado" só depois que a área de transferência aceitou; se não deu, o código fica selecionado.
+  function copied(ok) {
+    out.copy.textContent = ok ? C("Copied", "Copiado") : C("Couldn't copy: the code is selected", "Não deu para copiar: o código ficou selecionado");
+    if (!ok) {
+      var range = document.createRange(), sel = window.getSelection();
+      range.selectNodeContents(out.code);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    setTimeout(function () { out.copy.textContent = C("Copy", "Copiar"); }, ok ? 1200 : 3000);
+  }
   out.copy.addEventListener("click", function () {
     if (!last) return;
-    if (navigator.clipboard) navigator.clipboard.writeText(last.source);
-    out.copy.textContent = C("Copied", "Copiado");
-    setTimeout(function () { out.copy.textContent = C("Copy", "Copiar"); }, 1200);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(last.source).then(function () { copied(true); }, function () { copied(false); });
+    } else copied(false);
   });
   render();
 })();

@@ -55,7 +55,7 @@ Or download the [zip](https://github.com/RshaCuDeVidro/larperCord/releases/lates
 :::
 ::::
 
-After that the app updates itself from Settings → Updates (except the AUR package, which updates through pacman). Older versions and checksums: [all releases](https://github.com/RshaCuDeVidro/larperCord/releases).
+After that the app updates itself from Settings → Updates (except the AUR package, which updates through your AUR helper, like yay or paru). Older versions and checksums: [all releases](https://github.com/RshaCuDeVidro/larperCord/releases).
 
 The table above matters if you build from source, below.
 

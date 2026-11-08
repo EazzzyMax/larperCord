@@ -721,6 +721,34 @@ def keys_html(spec):
     return " / ".join(caps(a) for a in spec.split(" / "))
 
 
+PLUGIN_KEY = re.compile(r"[a-z0-9]|f(?:[1-9]|1\d|2[0-4])|enter|space|tab|backspace|delete|insert|home|end|pageup|pagedown|up|down|left|right|[,./;=-]")
+
+
+def plugin_keys(spec):
+    """"F2 / Ctrl+T" -> ["f2", "ctrl+t"]: as teclas na forma de larper.keybind, para o gerador
+    de plugin avisar quando um atalho dele também é do app. Mouse e teclas que um plugin nem
+    pode pedir ficam de fora. "Ctrl +" é a tecla = (root.zig zoomKeys); "Alt+1…9" vira nove."""
+    out = []
+    for alt in spec.split(" / "):
+        m = re.fullmatch(r"(\S+) (\S)", alt)
+        parts = [m.group(1), m.group(2)] if m else re.split(r"(?<=\S)\+(?=\S)", alt)
+        *mods, key = [p.lower() for p in parts]
+        key = {"+": "=", "↑": "up", "↓": "down", "←": "left", "→": "right"}.get(key, key)
+        if set(mods) - {"ctrl", "shift", "alt", "super"}:
+            continue
+        r = re.fullmatch(r"(\d)…(\d)", key)
+        for k in [str(d) for d in range(int(r.group(1)), int(r.group(2)) + 1)] if r else [key]:
+            fkey = re.fullmatch(r"f\d+", k)
+            # As regras de runtime.zig parseKeys: fora F1–F24, pede ctrl, alt ou super, e
+            # ctrl sozinho com a, c, v, x, y ou z fica para a digitação.
+            if not PLUGIN_KEY.fullmatch(k) or not (fkey or {"ctrl", "alt", "super"} & set(mods)):
+                continue
+            if mods == ["ctrl"] and k in ("a", "c", "v", "x", "y", "z"):
+                continue
+            out.append("+".join([x for x in ("ctrl", "shift", "alt", "super") if x in mods] + [k]))
+    return out
+
+
 def keys_md(lang, which):
     """As tabelas de atalhos, em markdown: `{{keys}}` são todos os grupos menos o vim."""
     groups, rows = load_keys()
@@ -770,6 +798,16 @@ def load_plugin_api():
     if len(warn) != 2:
         raise SystemExit("src/ui/plugins_page.zig: alertLine mudou; ajuste load_plugin_api")
     family = re.findall(ZSTR, re.search(r"const family = \[_\]\[\]const u8\{(.*?)\};", man, re.S).group(1))
+    # Os atalhos do app (src/ui/atalhos.zig): um plugin com a mesma combinação dispara junto.
+    groups, rows = load_keys()
+    gname = {g["id"]: g for g in groups}
+    app_keys = {}
+    for r in rows:
+        en, pt = r["en"], r["pt"]
+        if r["grupo"] == "vim":
+            en, pt = f"{gname['vim']['en']}: {en}", f"{gname['vim']['pt']}: {pt}"
+        for k in plugin_keys(r["teclas"]):
+            app_keys.setdefault(k, {"k": k, "en": en, "pt": pt})
     return {
         "caps": caps,
         "labels": {c: {"en": labels[c]["en"], "pt": labels[c]["pt"], "tipEn": labels[c]["tip_en"], "tipPt": labels[c]["tip_pt"],
@@ -777,6 +815,7 @@ def load_plugin_api():
         "warn": {"http": {"pt": warn[0][0], "en": warn[0][1]}, "links": {"pt": warn[1][0], "en": warn[1][1]}},
         "maxHosts": int(re.search(r"pub const max_hosts = (\d+);", man).group(1)),
         "discord": family,
+        "appKeys": list(app_keys.values()),
     }
 
 
@@ -803,9 +842,15 @@ def load_bundled_plugins():
 def plugins_md(lang, api):
     """A página com os plugins que vêm com o app."""
     plugins = load_bundled_plugins()
+    # O nome do botão, como o app mostra (src/ui/plugins_page.zig).
+    page = (ROOT / "src" / "ui" / "plugins_page.zig").read_text(encoding="utf-8")
+    btn = re.search(r"p\.button\(i18n\.tr\(" + ZSTR + r', "(Install bundled[^"]*)"\)', page)
+    if not btn:
+        raise SystemExit("src/ui/plugins_page.zig: não achei o botão Install bundled plugins; ajuste plugins_md")
+    install = zig_unescape(btn.group(2) if lang == "en" else btn.group(1))
     out = [t(lang, "# Plugin directory", "# Diretório de plugins"), "",
-           t(lang, f"The {len(plugins)} plugins that come inside the app, with what each one asks for. **Settings → Plugins → Install bundled plugins** copies the ones you don't have into your plugins folder; it never overwrites a file you've edited. The ones that use the internet send nothing until you approve the host on their card.",
-             f"Os {len(plugins)} plugins que vêm dentro do app, com o que cada um pede. **Configurações → Plugins → Instalar os plugins incluídos** copia os que você não tem para a sua pasta de plugins; nunca sobrescreve um arquivo que você editou. Os que usam a internet não mandam nada antes de você aprovar o host no cartão deles."),
+           t(lang, f"The {len(plugins)} plugins that come inside the app, with what each one asks for. **Settings → Plugins → {install}** copies the ones you don't have into your plugins folder; it never overwrites a file you've edited. The ones that use the internet send nothing until you approve the host on their card.",
+             f"Os {len(plugins)} plugins que vêm dentro do app, com o que cada um pede. **Configurações → Plugins → {install}** copia os que você não tem para a sua pasta de plugins; nunca sobrescreve um arquivo que você editou. Os que usam a internet não mandam nada antes de você aprovar o host no cartão deles."),
            "",
            t(lang, "This page is generated from the files themselves (`docs/plugins/`) and from the labels the app shows on each plugin's card, so it matches what you'll see in Settings. To write your own, start with the [plugin starter](page:plugin-starter) and the [API](page:plugins).",
              "Esta página é gerada dos próprios arquivos (`docs/plugins/`) e dos rótulos que o app mostra no cartão de cada plugin, então bate com o que você vê nas Configurações. Para escrever o seu, comece pelo [gerador de plugin](page:plugin-starter) e pela [API](page:plugins)."),

@@ -47,6 +47,10 @@ local function def(name, fn)
   t[k] = function(...) check(name); return fn(...) end
 end
 
+-- Um texto bem longo (quase 7 KB) também passa pelo plugin: o que vai para uma URL ou para
+-- larper.send precisa caber nos limites do app.
+local long = string.rep("palavra comprida ção ", 300)
+
 local function text(v, max, what)
   if type(v) ~= "string" or #v == 0 or #v > max then fail(what .. ": expected text up to " .. max .. " bytes") end
 end
@@ -58,7 +62,9 @@ def("on", function(ev, f, opts)
   if type(f) ~= "function" then fail("larper.on: not a function") end
   if opts ~= nil then
     if ev ~= "message" and ev ~= "edit" then fail("contains only works on message and edit") end
-    if type(opts.contains) ~= "table" or #opts.contains > 16 then fail("contains: up to 16 texts") end
+    -- runtime.zig optNeedles: de 1 a 16 textos, cada um de 1 a 64 bytes.
+    if type(opts.contains) ~= "table" or #opts.contains < 1 or #opts.contains > 16 then fail("contains: 1 to 16 texts") end
+    for _, w in ipairs(opts.contains) do text(w, 64, "contains") end
   end
   table.insert(reg.on[ev], f)
 end)
@@ -97,9 +103,13 @@ def("undecorate", function(m) end)
 def("rules", function(list) if type(list) ~= "table" or #list > 256 then fail("rules") end end)
 def("messages", function(o, f) return true end)
 def("jump", function(ch, id) end)
-def("insert", function(t) text(t, 4000, "insert") end)
+-- runtime.zig lInsert corta em 2000 bytes, sem erro.
+def("insert", function(t) if type(t) ~= "string" then fail("insert: text") end end)
 def("copy", function(t) text(t, 4000, "copy") end)
-def("open", function(url) if type(url) ~= "string" or not url:match("^https?://") then fail("open: url") end end)
+-- runtime.zig validOpenUrl: http(s), até 2000 bytes, sem espaço nem caractere de controle.
+def("open", function(url)
+  if type(url) ~= "string" or not url:match("^https?://.") or #url > 2000 or url:find("[%c ]") then fail("open: bad url (" .. #tostring(url) .. " bytes)") end
+end)
 def("completions", function(trig, list)
   if type(trig) ~= "string" or #trig ~= 1 or not (";!$%&+=?^"):find(trig, 1, true) then fail("completions: trigger") end
   if type(list) ~= "table" or #list > 256 then fail("completions: list") end
@@ -129,6 +139,8 @@ local function http(url, o, f)
   if type(url) ~= "string" then fail("http: url") end
   local host = url:match("^https://([^/?#]+)")
   if not host or url:find("[%s\128-\255]") then fail("http: bad url " .. url) end
+  -- manifest.zig: a URL inteira tem no máximo 2048 bytes.
+  if #url > 2048 then fail("http: url over 2048 bytes (" .. #url .. ")") end
   if not HOSTS[host:lower()] then fail("http: host not in @hosts: " .. host) end
   table.insert(reg.http, { f = f, gesture = gesture })
 end
@@ -172,7 +184,7 @@ local function walk(t, what)
   if type(t) ~= "table" then return end
   for _, n in ipairs(t) do
     if n.on_click then asGesture(what .. " click", n.on_click) end
-    if n.on_submit then asGesture(what .. " submit", n.on_submit, "texto de teste") end
+    if n.on_submit then asGesture(what .. " submit", n.on_submit, "texto de teste"); asGesture(what .. " submit", n.on_submit, long) end
     if n.on_change then
       if n.type == "toggle" then asGesture(what .. " toggle", n.on_change, false); asGesture(what .. " toggle", n.on_change, true)
       elseif n.type == "select" then asGesture(what .. " select", n.on_change, n.value)
@@ -206,10 +218,16 @@ lang = lang == "en" and "pt" or "en"
 fire("lang")
 lang = lang == "en" and "pt" or "en"
 fire("lang")
-for name, f in pairs(reg.commands) do asGesture(name, f, ""); asGesture(name, f, "um texto qualquer") end
+for name, f in pairs(reg.commands) do asGesture(name, f, ""); asGesture(name, f, "um texto qualquer"); asGesture(name, f, long) end
 for i, f in ipairs(reg.keys) do asGesture("keybind " .. i, f) end
 for i, m in ipairs(reg.menus) do
   asGesture("menu " .. i, m.f, m.where == "message" and msg or { id = "1001", name = "ana" })
+  if m.where == "message" then
+    local big = {}
+    for k, v in pairs(msg) do big[k] = v end
+    big.content = long
+    asGesture("menu " .. i .. " (long message)", m.f, big)
+  end
 end
 walk(reg.panel, "panel")
 walk(reg.settings, "settings")

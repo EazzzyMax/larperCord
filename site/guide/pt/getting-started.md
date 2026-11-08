@@ -55,7 +55,7 @@ Ou baixe o [zip](https://github.com/RshaCuDeVidro/larperCord/releases/latest/dow
 :::
 ::::
 
-Depois disso o app se atualiza sozinho em Configurações → Atualizações (menos o pacote do AUR, que se atualiza pelo pacman). Versões antigas e checksums: [todas as versões](https://github.com/RshaCuDeVidro/larperCord/releases).
+Depois disso o app se atualiza sozinho em Configurações → Atualizações (menos o pacote do AUR, que se atualiza pelo seu ajudante do AUR, como o yay ou o paru). Versões antigas e checksums: [todas as versões](https://github.com/RshaCuDeVidro/larperCord/releases).
 
 A tabela acima vale para quem compila do código, abaixo.
 

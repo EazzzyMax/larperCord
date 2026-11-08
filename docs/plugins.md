@@ -192,7 +192,7 @@ Everything lives in the global table `larper`. Discord IDs are strings (`"123456
 | `msg.mentions_me` | only from `larper.messages`: `true` if it calls you (a mention, one of your roles, `@everyone`) |
 
 `"message"` and `"edit"` take a third argument, `{ contains = { "cve-", "://" } }` (up to 16 pieces of
-text, ignoring case): your function only runs for messages with one of them, and the others don't even
+text of up to 64 bytes each, ignoring case): your function only runs for messages with one of them, and the others don't even
 reach Lua. Use it whenever you can, so a plugin that cares about few messages costs nothing on the rest.
 
 The history loaded when you open a channel doesn't fire `"message"`, only what arrives live.

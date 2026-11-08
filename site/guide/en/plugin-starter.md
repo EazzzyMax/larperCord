@@ -19,7 +19,8 @@ Start larperCord from a terminal to see what the plugin `print`s: the starter wr
 
 - The name (48 bytes), the description (320 bytes) and the version (16 bytes) fit what the app reads. Longer text would be cut.
 - Commands are `/` followed by up to 31 letters, numbers, `_` or `-`.
-- Shortcuts follow the app's rules: only F1–F24 can go alone, every other key needs `ctrl`, `alt` or `super`, and `ctrl` with `a`, `c`, `v`, `x`, `y` or `z` is left to typing.
+- Shortcuts follow the app's rules: only F1–F24 can go alone, every other key needs `ctrl`, `alt` or `super`, and `ctrl` with `a`, `c`, `v`, `x`, `y` or `z` is left to typing. If the combination is also one of the app's [shortcuts](page:shortcuts), the starter says so: both would run.
+- “Only messages with” takes up to 16 words of up to 64 bytes each. Past that, the app wouldn't load the plugin.
 - Hosts are plain names like `api.example.com`: no `https://`, port or IP address, nothing from Discord, at most 8.
 - Sending, typing in the message box, opening links and opening the panel only happen inside your command, shortcut, menu entry or panel button, never in an event or a timer. The app refuses them anywhere else.
 

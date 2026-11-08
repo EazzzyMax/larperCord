@@ -190,7 +190,7 @@ Tudo fica na tabela global `larper`. IDs do Discord são textos (`"1234567890"`)
 | `msg.mentions_me` | só em `larper.messages`: `true` se ela chama você (menção, um cargo seu, `@everyone`) |
 
 `"message"` e `"edit"` aceitam um terceiro argumento, `{ contains = { "cve-", "://" } }` (até 16 pedaços
-de texto, sem ligar para maiúsculas): a sua função só roda para as mensagens com um deles, e as outras
+de texto de até 64 bytes cada, sem ligar para maiúsculas): a sua função só roda para as mensagens com um deles, e as outras
 nem chegam ao Lua. Use sempre que der: um plugin que só liga para poucas mensagens não custa nada nas
 outras.
 

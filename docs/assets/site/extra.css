@@ -32,19 +32,19 @@
 .st-form input:focus-visible,.st-form textarea:focus-visible,.st-form select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .st-file{display:flex;align-items:center;gap:4px}
 .st-file input{flex:1;min-width:0}
-.st-file i{font:400 13px var(--mono);font-style:normal;color:var(--faint);margin-top:4px}
+.st-file i{font:400 13px var(--mono);font-style:normal;color:var(--muted);margin-top:4px}
 .st-opt{padding:7px 0;border-top:1px solid var(--border)}
 .st-opt:first-of-type{border-top:0}
 .st-form .st-check{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;color:var(--text);font-size:14px;cursor:pointer}
 .st-check input{accent-color:var(--accent);width:16px;height:16px;margin:0;flex:none;align-self:center}
 .st-check span{flex:1 1 220px}
-.st-asks{font:400 11px var(--mono);color:var(--faint)}
+.st-asks{font:400 11.5px var(--mono);color:var(--muted)}
 .st-more{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:8px 14px;padding:8px 0 4px 26px}
 .st-out{border:1px solid var(--accent);border-radius:calc(var(--radius) + 2px);padding:14px clamp(12px,3vw,20px)}
 .st-caps{margin:0 0 10px;font-size:13.5px;line-height:2}
 .st-chip{display:inline-block;padding:0 8px;border:1px solid var(--border);border-radius:11px;font-size:12.5px;line-height:1.7;white-space:nowrap;background:var(--hover)}
 .st-chip.strong{background:var(--selected);border-color:var(--accent)}
-.st-chip code{font-size:.85em;color:var(--faint);border:0;background:none;padding:0}
+.st-chip code{font-size:.85em;color:var(--muted);border:0;background:none;padding:0}
 .st-warn{margin:0 0 10px;font-size:13px;color:var(--idle)}
 .st-msgs{list-style:none;margin:0 0 10px;padding:0;font-size:13px}
 .st-msgs li{margin:4px 0;padding-left:16px;position:relative}

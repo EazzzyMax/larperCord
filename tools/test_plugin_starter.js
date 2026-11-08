@@ -63,7 +63,18 @@ ok(EVENTS.length === 9, "eventos: " + EVENTS);
 for (const f of starter.FEATURES) for (const c of f.caps) ok(CAPS.includes(c), `a parte ${f.id} pede ${c}, que o app não conhece`);
 ok(starter.MAX.name === MAX.name && starter.MAX.description === MAX.description && starter.MAX.version === MAX.version, "limites do cabeçalho iguais aos de manifest.zig");
 
-const API_DATA = { caps: CAPS, maxHosts: MAX.hosts, discord: DISCORD };
+// O `contains` de larper.on: quantos textos e quantos bytes cada um (runtime.zig optNeedles).
+const needles = runtimeZig.match(/fn optNeedles[\s\S]*?n == 0 or n > (\d+)\)[\s\S]*?s\.len == 0 or s\.len > (\d+)\)/);
+ok(needles && starter.NEEDLES.max === +needles[1] && starter.NEEDLES.bytes === +needles[2], "limites do contains iguais aos de runtime.zig: " + (needles && needles.slice(1)));
+// Os atalhos do app saem de src/ui/atalhos.zig para plugin-api.js (tools/gen_site.py).
+const PLUGIN_API = JSON.parse(read("docs/assets/site/plugin-api.js").replace(/^window\.LC_PLUGIN_API=/, "").replace(/;\s*$/, ""));
+const APP_KEYS = PLUGIN_API.appKeys || [];
+for (const k of ["ctrl+k", "ctrl+shift+m", "ctrl+shift+d", "ctrl+w", "ctrl+t", "ctrl+shift+t", "f2", "shift+f2", "f11", "alt+enter", "alt+1", "alt+9", "ctrl+=", "ctrl+-", "ctrl+0", "ctrl+enter", "ctrl+tab", "ctrl+d"]) {
+  ok(APP_KEYS.some((a) => a.k === k), "atalho do app em plugin-api.js: " + k);
+}
+ok(!APP_KEYS.some((a) => /click|clique|esc|^[a-z]$|^shift\+enter$/.test(a.k)), "plugin-api.js só tem teclas que um plugin pode pedir");
+
+const API_DATA = { caps: CAPS, maxHosts: MAX.hosts, discord: DISCORD, appKeys: APP_KEYS };
 
 // --- O cabeçalho, lido como src/plugins/manifest.zig lê -------------------------
 function parseManifest(src) {
@@ -208,10 +219,43 @@ refuses({ features: { http: true }, hosts: "a.com b.com c.com d.com e.com f.com 
 refuses({ features: { lsp: true }, lspLang: "Python" }, "linguagem com maiúscula");
 refuses({ features: { lsp: true }, lspCmd: "" }, "lsp sem comando");
 refuses({ features: { completions: true }, trigger: "#" }, "gatilho que o app não aceita");
+// O plugin não carregaria: runtime.zig recusa a lista inteira.
+refuses({ features: { onMessage: true }, contains: "x".repeat(65) }, "palavra com 65 bytes");
+refuses({ features: { onMessage: true }, contains: "ok, " + "ã".repeat(33) }, "palavra com 66 bytes em UTF-8");
+refuses({ features: { onMessage: true }, contains: Array.from({ length: 17 }, (_, i) => "w" + i).join(", ") }, "17 palavras");
+validate(Object.assign({}, base, { features: { onMessage: true }, contains: Array.from({ length: 16 }, (_, i) => String(i % 10).repeat(64 - 2) + "ç").join(", ") }), "16 palavras de 64 bytes");
+ok(starter.build(Object.assign({}, base, { features: { command: true }, contains: "x".repeat(70) }), API_DATA).errors.length === 0, "palavras não contam sem o evento de mensagem");
+// Atalho que o app já usa: os dois disparam, então o gerador avisa (sem recusar).
+for (const k of ["ctrl+shift+m", "Control+Shift+D", "ctrl+w", "ctrl+k", "ctrl+t", "f2", "alt+3", "shift+ctrl+t"]) {
+  const r = starter.build(Object.assign({}, base, { features: { keybind: true }, keybind: k }), API_DATA);
+  ok(r.errors.length === 0 && r.notes.some((n) => /app shortcut/.test(n)), "aviso de atalho do app: " + k);
+}
+for (const lang of ["en", "pt"]) {
+  const r = starter.build(Object.assign({}, base, { lang, features: { keybind: true }, keybind: "ctrl+shift+m" }), API_DATA);
+  const want = APP_KEYS.find((a) => a.k === "ctrl+shift+m")[lang];
+  ok(r.notes.some((n) => n.includes(want)), `aviso em ${lang} com o nome do atalho: ${want}`);
+}
+ok(starter.build(Object.assign({}, base, { features: { keybind: true } }), API_DATA).notes.length === 0, "ctrl+shift+y não é do app: sem aviso");
 // Texto do usuário vira string Lua sem escapar do lugar.
 const tricky = validate(Object.assign({}, base, { name: 'Aspas "duplas" \\ e\nquebra', features: { menuMessage: true, panel: true } }), "nome com aspas e barra");
 ok(!/\n-- @name:pt .*\n.*quebra/.test(tricky.source.split("\n").slice(0, 3).join("\n")), "quebra de linha não sai do cabeçalho");
 ok(starter.slug("Meu Plugin Ótimo!") === "meu-plugin-otimo", "nome do arquivo a partir do nome");
+
+// O larper de mentira pega os limites do app: sem isso, os testes acima passariam à toa.
+if (HAS_LUA) {
+  const fakeFails = (src, caps, hosts, label) => {
+    const file = path.join(tmp, "quebrado.lua");
+    fs.writeFileSync(file, src + '\nprint("loaded")\n');
+    const h = spawnSync(LUA, [path.join(ROOT, "tools/test_plugin_starter.lua"), file, caps, NEED_ARG, hosts, "en"], { encoding: "utf8" });
+    ok(h.status !== 0, "o larper de mentira devia recusar: " + label);
+  };
+  fakeFails('larper.on("message", function() end, { contains = { string.rep("x", 65) } })', "messages", "", "palavra de 65 bytes");
+  fakeFails('larper.on("message", function() end, { contains = {} })', "messages", "", "contains vazio");
+  fakeFails('larper.command("/a", function(t) larper.open("https://example.com/?q=" .. larper.urlencode(t)) end)', "links", "", "URL de larper.open acima de 2000 bytes");
+  fakeFails('larper.command("/a", function(t) larper.http.get("https://api.example.com/?q=" .. larper.urlencode(t), function() end) end)', "http", "api.example.com", "URL de larper.http acima de 2048 bytes");
+  fakeFails('larper.command("/a", function(t) if t ~= "" then larper.send(nil, t) end end)', "send", "", "larper.send acima de 2000 bytes");
+  fakeFails('larper.menu("message", "x", function(m) larper.open("https://example.com/?q=" .. larper.urlencode(m.content)) end)', "menu,links", "", "mensagem longa direto na URL");
+}
 
 console.log(`${checks} conferências, ${combos} combinações, luac ${HAS_LUAC ? "sim" : "ausente"}, lua ${HAS_LUA ? "sim" : "ausente"}`);
 
