@@ -6,35 +6,156 @@ on:
       - "docs/**"
       - "site/**"
       - "themes/**"
+      - "src/**"
+      - "build.zig"
       - "tools/gen_site.py"
+      - "tools/web/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
+env:
+  # O Emscripten com que o build web foi conferido (tools/web/README.md).
+  EM_VERSION: 6.0.13
+  EM_CACHE_FOLDER: emsdk-cache
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+    timeout-minutes: 60
+    # Um push novo cancela o build que estiver rodando: só o mais recente vai para o ar.
+    concurrency:
+      group: pages-build
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # --- A demonstração no navegador (tools/web/README.md): o app compilado para
+      # WebAssembly. Tudo daqui até "Sem a demonstração" pode falhar sem parar o site:
+      # ele sai sem a página try/ e sem o botão dela na inicial (o gen_site.py só gera
+      # os dois com o build inteiro em docs/try/).
+      - id: zig
+        continue-on-error: true
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      # O emsdk e as portas que o embuilder compila (SDL3, FreeType, zlib) de uma vez.
+      - continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.EM_CACHE_FOLDER }}
+          key: emsdk-${{ env.EM_VERSION }}-${{ runner.os }}-sdl3-freetype-zlib
+      - id: emsdk
+        continue-on-error: true
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: ${{ env.EM_VERSION }}
+          actions-cache-folder: ${{ env.EM_CACHE_FOLDER }}
+
+      - id: web_deps
+        name: Cabeçalhos e fontes da demonstração
+        if: steps.zig.outcome == 'success' && steps.emsdk.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            libcurl4-openssl-dev libopus-dev libwebp-dev libfontconfig-dev \
+            fonts-dejavu-core fonts-noto-color-emoji
+          # Só os tipos e as assinaturas de curl, opus, webp e fontconfig: na página quem
+          # responde são os stubs. No Ubuntu o curl fica na pasta multiarch.
+          inc="$RUNNER_TEMP/web-include"
+          mkdir -p "$inc"
+          for d in curl opus webp fontconfig; do
+            for p in "/usr/include/$d" "/usr/include/$(gcc -dumpmachine)/$d"; do
+              if [ -d "$p" ]; then cp -r "$p" "$inc/"; break; fi
+            done
+          done
+          for h in curl/curl.h opus/opus.h webp/decode.h webp/demux.h fontconfig/fontconfig.h; do
+            test -f "$inc/$h"
+          done
+          echo "WEB_INCLUDE=$inc" >> "$GITHUB_ENV"
+
+          # Inter e JetBrains Mono das releases oficiais (os mesmos arquivos que o Arch
+          # empacota), conferidas pelo sha256. DejaVu e Noto Color Emoji vêm do apt.
+          fonts="$HOME/.local/share/fonts"
+          mkdir -p "$fonts"
+          curl -fsSLo "$RUNNER_TEMP/inter.zip" https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip
+          curl -fsSLo "$RUNNER_TEMP/jbmono.zip" https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip
+          printf '%s  %s\n' \
+            9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e "$RUNNER_TEMP/inter.zip" \
+            6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf "$RUNNER_TEMP/jbmono.zip" | sha256sum -c -
+          unzip -oj "$RUNNER_TEMP/inter.zip" Inter.ttc -d "$fonts"
+          unzip -oj "$RUNNER_TEMP/jbmono.zip" fonts/ttf/JetBrainsMono-Regular.ttf fonts/ttf/JetBrainsMono-Bold.ttf -d "$fonts"
+          fc-cache -f
+          python3 -m pip install --quiet fonttools==4.67.0
+          python3 tools/web/fonts.py
+          # O fc-match cai em outra fonte sem avisar: confere se vieram as certas.
+          n=zig-out/web-fonts/NOTICE.txt
+          grep -q '^ui-regular.ttf: Inter.*(Inter.ttc)' "$n"
+          grep -q '^mono.ttf: JetBrains Mono.*(JetBrainsMono-Regular.ttf)' "$n"
+          grep -q '^emoji.ttf: Noto Color Emoji' "$n"
+
+      - id: web
+        name: Demonstração em WebAssembly (zig build web)
+        if: steps.web_deps.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # A raiz do emsdk e o sysroot que o emcc usa de fato (o EM_CACHE muda o lugar).
+          emsdk_root="${EMSDK:-$(cd "$(dirname "$(command -v emcc)")/../.." && pwd)}"
+          sysroot="$(em-config CACHE)/sysroot"
+          emcc --version
+          # Otimizado para tamanho: Zig em small e o emcc com -Oz (e o wasm-opt dele).
+          zig build web \
+            -Demsdk="$emsdk_root" \
+            -Dweb-sysroot="$sysroot" \
+            -Dweb-host-include="$WEB_INCLUDE" \
+            -Dweb-optimize=small
+          ls -l zig-out/web
+          mkdir -p docs/try
+          cp zig-out/web/larpercord.js zig-out/web/larpercord.wasm zig-out/web/larpercord.data docs/try/
+
+      # Nada de um build pela metade em docs/try/.
+      - name: Sem a demonstração
+        if: steps.web.outcome != 'success'
+        run: rm -rf docs/try docs/pt/try
+
       # Só biblioteca padrão. Regenera aqui para o site nunca ficar atrás dos temas e guias.
+      # Com docs/try/ completo e sem threads, gera também try/, pt/try/ e o botão da inicial.
       - run: python3 tools/gen_site.py
-      - uses: actions/configure-pages@v5
+      - name: Resumo
+        run: |
+          if [ -f docs/try/index.html ]; then
+            echo "Demonstração no navegador: publicada em try/ ($(du -ch docs/try/larpercord.* | tail -1 | cut -f1) sem compressão)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            # Um build que o gen_site.py recusou (o motivo está no passo dele) não vai para o ar.
+            rm -rf docs/try
+            echo "Demonstração no navegador: fora deste deploy." >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Demonstração no navegador::o site sai sem a página try/ (ver os passos do build web e do gen_site.py)"
+          fi
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    # Um deploy por vez e nenhum cortado no meio.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v4
