@@ -549,7 +549,7 @@ function fakeDocument() {
   const made = [];
   function el(tag) {
     const e = {
-      tag, kids: [], className: "", _text: "", _html: "", ownerDocument: doc,
+      tag, kids: [], className: "", _text: "", _html: "", ownerDocument: doc, dataset: {},
       style: { setProperty(k, v) { this[k] = v; } },
       classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, on) { if (on) this.set.add(c); else this.set.delete(c); } },
       appendChild(k) { this.kids.push(k); return k; },
@@ -574,6 +574,15 @@ tasks.push(test("mount draws every built-in layout with the shared renderer", ()
       assert.ok(comps.length >= 3, t + " " + mode + " components " + comps.length);
       for (const c of comps) if (c._html) scanHtml(c._html);
       assert.ok(!doc.made.some((e) => e.className.includes("pv-bad")), t + " has no unknown component");
+      // As caixas levam a camada e os tokens para o clique-para-editar: só números e nomes da lista.
+      const boxes = doc.made.filter((e) => e.className === "pv-b");
+      assert.ok(boxes.length && boxes.every((b) => /^\d+$/.test(b.dataset.start) && /^\d+$/.test(b.dataset.line)), t + " layer data");
+      for (const b of boxes) {
+        for (const k of ["tk", "over"]) if (b.dataset[k]) for (const tok of b.dataset[k].split(" ")) assert.ok(TB.TOKENS.includes(tok), t + " " + k + " " + tok);
+        if (b.dataset.fg) assert.ok(TB.TOKENS.includes(b.dataset.fg), t + " fg " + b.dataset.fg);
+        if (b.dataset.node) assert.ok(/^[a-z][a-z0-9-]*$/.test(b.dataset.node));
+      }
+      assert.ok(boxes.some((b) => b.dataset.tk), t + " has panels with a token background");
     }
   }
 }));
@@ -1085,6 +1094,180 @@ tasks.push(test("community gallery page matches the folder", () => {
     for (const n of builder.community) assert.ok(fs.existsSync(path.join(ROOT, "docs/community", n + ".kdl")), n + ".kdl is published");
   }
   assert.ok(fs.readFileSync(path.join(ROOT, "docs/index.html"), "utf8").includes('href="community-themes.html"'), "nav link");
+}));
+
+
+// 14. O editor novo: gerador de paletas por harmonia, cores travadas, inversão do modo,
+// camadas (esconder e mover) e o mapa do clique-para-editar.
+function hueGap(a, b) { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
+tasks.push(test("harmony generator: every scheme and base gives a theme the app loads, with readable text", () => {
+  const bases = ["#e8590c", "#7aa2f7", "#22c55e", "#d946ef", "#9ca3af", "#000000", "#ffffff"];
+  let n = 0;
+  for (const scheme of Object.keys(TB.HARMONY)) {
+    for (const base of bases) {
+      for (const layout of ["orbital", "classico", "papel"]) {
+        const seed = TB.seedFromBase(base, scheme, {});
+        assert.strictEqual(seed.scheme, scheme);
+        const s0 = TB.fromSource(sources[layout], { base: layout, name: "h" });
+        const s = TB.applyGenerated(s0, TB.generate(seed), {});
+        const kdl = TB.toKdl(s);
+        checkLoads(kdl, scheme + " " + base + " " + layout);
+        for (const m of MODES) {
+          const app = TB.contrastReport(s, m).filter((r) => r.app && r.fails.length && !r.gated);
+          assert.deepStrictEqual(app.map((r) => r.id), [], scheme + " " + base + " " + m);
+          for (const t of TB.TOKENS) assert.ok(/^#[0-9a-f]{6}([0-9a-f]{2})?$/.test(s.colors[m][t]), t);
+        }
+        n++;
+      }
+    }
+    // A menção e o link ficam nos ângulos da harmonia (medidos no escuro, em OKLCH).
+    const seed = TB.seedFromBase("#e8590c", scheme, { chroma: 0.16 }), g = TB.generate(seed), off = TB.HARMONY[scheme];
+    const h = (hex) => TB.toOklch(TB.hexRgba(hex))[2];
+    assert.ok(hueGap(h(g.colors.dark.mention), seed.accentHue + off[0]) < 14, scheme + " mention hue");
+    assert.ok(hueGap(h(g.colors.dark.link), seed.accentHue + off[1]) < 14, scheme + " link hue");
+  }
+  assert.ok(n === Object.keys(TB.HARMONY).length * 21);
+  // Valores fora da faixa ou que não são número caem no padrão.
+  const odd = TB.seedFromBase("#336699", "nope", { neutral: 9, chroma: -1, lightness: "x" });
+  assert.strictEqual(odd.scheme, "analogous");
+  assert.ok(odd.neutral <= 0.06 && odd.accentChroma >= 0 && odd.accentL >= 0.55 && odd.accentL <= 0.9);
+}));
+tasks.push(test("locked colors survive a new palette, and text on a locked fill stays readable", () => {
+  const s0 = TB.fromSource(sources.orbital, { base: "orbital", name: "l" });
+  s0.colors.dark.accent = "#ffd400";
+  s0.colors.light.accent = "#1a1a8c";
+  for (let i = 1; i <= 40; i++) {
+    const g = TB.generate(TB.randomSeed(i * 7919));
+    const locks = { accent: true, bg: i % 2 === 0, muted: i % 3 === 0 };
+    const s = TB.applyGenerated(s0, g, locks);
+    for (const m of MODES) {
+      assert.strictEqual(s.colors[m].accent, s0.colors[m].accent, "accent locked");
+      if (locks.bg) assert.strictEqual(s.colors[m].bg, s0.colors[m].bg, "bg locked");
+      if (locks.muted) assert.strictEqual(s.colors[m].muted, s0.colors[m].muted, "muted locked");
+      else assert.notStrictEqual(s.colors[m].muted, undefined);
+      assert.strictEqual(s.colors[m]["accent-text"], TB.onColor(s.colors[m].accent));
+      assert.strictEqual(s.colors[m]["bubble-self"], s.colors[m].accent);
+      const a = TB.hexRgba(s.colors[m].accent), t = TB.hexRgba(s.colors[m]["accent-text"]);
+      assert.ok(TB.contrast(t, a) >= Math.max(TB.contrast([0, 0, 0, 1], a), TB.contrast([1, 1, 1, 1], a)) - 1e-9);
+    }
+    checkLoads(TB.toKdl(s), "locks " + i);
+  }
+}));
+tasks.push(test("dark to light (and back) with lightness inversion loads and reads", () => {
+  for (const t of THEMES) {
+    const s = TB.fromSource(sources[t], { base: t, name: t });
+    for (const from of MODES) {
+      const to = from === "dark" ? "light" : "dark", n = TB.invertMode(s, from);
+      checkLoads(TB.toKdl(n), t + " " + from + "→" + to);
+      assert.deepStrictEqual(n.colors[from], s.colors[from], "the source mode doesn't change");
+      const bad = TB.contrastReport(n, to).filter((r) => r.fails.length && !r.gated && !r.stuck);
+      assert.deepStrictEqual(bad.map((r) => r.id), [], t + " " + to + " contrast");
+      const bgL = TB.toOklch(TB.hexRgba(n.colors[to].bg))[0], textL = TB.toOklch(TB.hexRgba(n.colors[to].text))[0];
+      assert.ok(to === "light" ? bgL > textL : bgL < textL, t + " " + to + " lightness flipped");
+      // A transparência de cada cor vem junto (o vidro continua vidro).
+      for (const k of ["bg", "surface", "sidebar", "elevated", "overlay", "accent", "border", "hover", "selected"]) assert.ok(Math.abs(TB.hexRgba(n.colors[to][k])[3] - TB.hexRgba(s.colors[from][k])[3]) < 0.01, t + " " + k + " alpha");
+    }
+  }
+  // A curva vai e volta (as duas metades são a mesma linha).
+  for (let L = 0; L <= 1.0001; L += 0.05) assert.ok(Math.abs(TB.flipL(TB.flipL(L, true), false) - L) < 1e-9, "flip " + L);
+}));
+tasks.push(test("layers: outline, hide and reorder edit only the layout tree", () => {
+  for (const t of THEMES) {
+    const s = TB.fromSource(sources[t], { base: t, name: t }), out = TB.outline(s.structure);
+    assert.ok(out.length >= 5, t + " layers");
+    for (const o of out) {
+      assert.ok(o.index >= 0 && o.index < o.count, t + " " + o.name + " index");
+      for (const f of o.fields) if (f.kind === "num") assert.ok(f.range && f.range[0] < f.range[1] && f.range[2] > 0, t + " " + o.name + "." + f.key + " range");
+    }
+    // Mover para baixo e de volta devolve o mesmo texto; o arquivo movido carrega.
+    const movable = out.filter((o) => o.count > 1 && o.index < o.count - 1);
+    for (const o of movable.slice(0, 4)) {
+      const moved = TB.moveNode(s.structure, o.start, 1);
+      assert.notStrictEqual(moved, s.structure, t + " " + o.name + " moved");
+      checkLoads(TB.toKdl(Object.assign({}, s, { structure: moved })), t + " moved " + o.name);
+      const again = TB.outline(moved).find((x) => x.name === o.name && x.parent === o.parent && x.index === o.index + 1 && x.depth === o.depth);
+      assert.ok(again, t + " " + o.name + " is one step down");
+      assert.strictEqual(TB.moveNode(moved, again.start, -1), s.structure, t + " " + o.name + " back");
+    }
+    // O primeiro não sobe e o último não desce.
+    const first = out.find((o) => o.index === 0), last = out.find((o) => o.index === o.count - 1);
+    assert.strictEqual(TB.moveNode(s.structure, first.start, -1), s.structure);
+    assert.strictEqual(TB.moveNode(s.structure, last.start, 1), s.structure);
+    // Esconder: show=#false no nó, o app deixa de desenhar e a prévia também.
+    const comp = out.find((o) => o.component);
+    const hidden = TB.setProp(s.structure, comp.start, "show", false);
+    assert.strictEqual(TB.outline(hidden).find((o) => o.start === comp.start).show, false);
+    const th = TB.loadTheme(TB.toKdl(Object.assign({}, s, { structure: hidden })), { mode: "dark" });
+    const P = PREVIEW(TB, "en");
+    const nd = TB.findNode(th.nodes, comp.start + TB.toKdl(Object.assign({}, s, { structure: hidden })).lastIndexOf(hidden.replace(/\s+$/, "")));
+    assert.ok(nd && !P.visible(th, nd), t + " hidden layer is not drawn");
+    assert.strictEqual(TB.setProp(hidden, comp.start, "show", null), s.structure, t + " show again");
+  }
+}));
+tasks.push(test("every option the builder offers is one the app reads", () => {
+  // Cada propriedade de componente aparece como "nome" no código do app (src/ui, src/theme).
+  const zig = [];
+  for (const dir of ["src/ui", "src/theme"]) for (const f of fs.readdirSync(path.join(ROOT, dir))) if (f.endsWith(".zig")) zig.push(fs.readFileSync(path.join(ROOT, dir, f), "utf8"));
+  const all = zig.join("\n");
+  for (const [comp, spec] of Object.entries(TB.COMPONENTS)) {
+    assert.ok(all.includes('"' + comp + '"'), "component " + comp);
+    for (const [key] of spec) assert.ok(all.includes('"' + key + '"'), comp + "." + key + " is read by the app");
+  }
+  for (const key of ["show", "width", "height", "gap", "padding", "default"]) assert.ok(all.includes('"' + key + '"'), key);
+  for (const top of ["radius", "transparent", "ui", "mono", "size"]) assert.ok(all.includes('"' + top + '"'), top);
+  for (const k of Object.keys(TB.RANGES)) assert.ok(TB.RANGES[k][0] < TB.RANGES[k][1], k);
+}));
+tasks.push(test("click-to-edit map: only real tokens, only the preview's own classes", () => {
+  const P = PREVIEW(TB, "en");
+  const cssText = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder.css"), "utf8");
+  const previewJs = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder-preview.js"), "utf8");
+  assert.ok(P.INSPECT.length > 40);
+  for (const [sel, toks] of P.INSPECT) {
+    assert.ok(toks.length >= 1);
+    for (const t of toks) assert.ok(t === "r" || TB.TOKENS.includes(t), sel + " " + t);
+    for (const cls of sel.match(/\.[a-z][\w-]*/g)) assert.ok(cssText.includes(cls) || previewJs.includes(cls.slice(1)), sel + " uses " + cls);
+  }
+  // Os tokens citados numa expressão de cor: só nomes da lista, nunca o texto do arquivo.
+  assert.deepStrictEqual(P.refTokens("alpha(@surface, 0.9)", false), ["surface"]);
+  assert.deepStrictEqual(P.refTokens("sidebar", true), ["sidebar"]);
+  assert.deepStrictEqual(P.refTokens('@x" onclick="y @constructor @__proto__ #fff', false), []);
+  assert.deepStrictEqual(P.refTokens("mix(@accent, @bg, .2) @accent", false), ["accent", "bg"]);
+  const th = TB.loadTheme(sources.orbital, { mode: "dark" });
+  const box = P.boxTokens(th, TB.parseKdl('column bg="#ff0000"')[0]);
+  assert.deepStrictEqual(box, { toks: [], literal: true });
+  assert.deepStrictEqual(P.boxTokens(th, TB.parseKdl("column bg=rail")[0]).toks, ["rail"]);
+}));
+// O topo do site: grupos com menu, que sem JavaScript são links, e a demonstração só com o build dela.
+tasks.push(test("site header: grouped menus, plain links without JS, try link only with the demo build", () => {
+  for (const [file, lang] of [["docs/index.html", "en"], ["docs/pt/index.html", "pt"], ["docs/guide/shortcuts.html", "en"], ["docs/pt/theme-builder.html", "pt"]]) {
+    const page = fs.readFileSync(path.join(ROOT, file), "utf8");
+    const head = page.slice(page.indexOf('<header class="topnav"'), page.indexOf("</header>"));
+    assert.strictEqual((head.match(/data-nav-group/g) || []).length, 2, file + " groups");
+    for (const m of head.matchAll(/<a class="nav-trig" href="([^"]+)"/g)) assert.ok(/#(themes|features)$/.test(m[1]), file + " trigger links somewhere: " + m[1]);
+    assert.ok(/class="nav-burger"[^>]*aria-controls="site-nav"[^>]*aria-expanded="false"/.test(head), file + " burger");
+    assert.ok(head.includes('id="site-nav"') && head.includes('id="nav-m-themes"') && head.includes('id="nav-m-why"'), file + " ids");
+    assert.ok(head.includes("ko-fi.com") && head.includes("github.com/RshaCuDeVidro/larperCord"), file + " links");
+    assert.ok(/class="nav-lang"[^>]*hreflang="(pt-BR|en)"/.test(head), file + " language");
+    assert.ok(!/<img/.test(head), file + " no images in the header");
+  }
+  const py = ["import sys", "sys.path.insert(0, sys.argv[1])", "import gen_site as g",
+    "a = g.topnav('pt', 'pt/index.html', 'index.html', 'landing', None)", "g.TRY_SIZE = '1.0 MB'",
+    "b = g.topnav('pt', 'pt/index.html', 'index.html', 'landing', None)", "print('nav-try' in a, 'nav-try' in b, 'Testar no navegador' in b)"].join("\n");
+  const r = spawnSync("python3", ["-I", "-B", "-c", py, path.join(ROOT, "tools")], { encoding: "utf8" });
+  assert.strictEqual(r.stdout.trim(), "False True True", r.stdout + r.stderr);
+}));
+// A página do criador: a mesma CSP estrita, nada de fora, e as instruções de instalar na página.
+tasks.push(test("builder page keeps the strict CSP and the install instructions", () => {
+  for (const [file, lang] of [["docs/theme-builder.html", "en"], ["docs/pt/theme-builder.html", "pt"]]) {
+    const page = fs.readFileSync(path.join(ROOT, file), "utf8");
+    assert.ok(page.includes("Content-Security-Policy\" content=\"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;"), file + " CSP");
+    assert.ok(page.includes("object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'self'; form-action 'none'"), file + " CSP rest");
+    assert.ok(!/<script[^>]+src="https?:/.test(page) && !/<link[^>]+href="https?:\/\/(?!rshacudevidro)/.test(page.replace(/<link rel="(canonical|alternate)"[^>]*>/g, "")), file + " nothing from outside");
+    assert.ok(!/<script(?![^>]*\bsrc=)(?![^>]*application\/json)[^>]*>/.test(page), file + " no inline script");
+    for (const id of ["tbx-os-p-linux", "tbx-os-p-win", "tbx-export", "tbx-p-colors", "tbx-p-gen", "tbx-p-layout", "tbx-p-type", "tbx-p-code", "tbx-p-file"]) assert.ok(page.includes('id="' + id + '"'), file + " " + id);
+    assert.ok(page.includes(".config/larpercord/themes") && page.includes("$env:APPDATA"), file + " both systems");
+    assert.ok(page.includes("data-css-dialog") && page.includes("data-import-dialog"), file + " importers");
+  }
 }));
 
 Promise.all(tasks).then(() => {

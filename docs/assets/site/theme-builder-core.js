@@ -825,8 +825,28 @@
     composer: [["variant", ["box", "pill", "prompt"]], ["typing", "bool"]],
     "member-list": [["variant", ["discord", "tty"]]],
     "status-bar": [["variant", ["pills", "tty", "plain"]], ["items", "text"]],
+    // Fundos procedurais e enfeites (src/ui/backdrop.zig e comp_extra.zig leem estas).
+    starfield: [["density", "num"], ["seed", "num"], ["motion", "bool"]],
+    orbit: [["center-x", "num"], ["center-y", "num"], ["rings", "num"], ["seed", "num"], ["motion", "bool"]],
+    radar: [["center-x", "num"], ["center-y", "num"], ["rings", "num"], ["seed", "num"], ["motion", "bool"]],
+    topography: [["levels", "num"], ["seed", "num"]],
+    aurora: [["seed", "num"], ["motion", "bool"]],
+    dunes: [["seed", "num"], ["motion", "bool"]],
+    crt: [["spacing", "num"], ["strength", "num"]],
+    logo: [["variant", ["wordmark", "ascii"]], ["size", "num"]],
+    "window-controls": [["size", "num"], ["gap", "num"], ["align", ["left", "center", "right"]]],
   };
   var CONTAINERS = ["row", "column", "stack"];
+  // A faixa dos controles deslizantes de cada número: [mínimo, máximo, passo]. É só a régua da
+  // página; o campo ao lado aceita qualquer valor que o app aceita (ele mesmo limita alguns).
+  var RANGES = {
+    size: [16, 80, 1], "avatar-size": [16, 72, 1], spacing: [0, 48, 1], "font-size": [10, 24, 0.5],
+    width: [40, 520, 1], height: [16, 240, 1], gap: [0, 40, 1], padding: [0, 64, 1],
+    density: [0.1, 6, 0.1], "center-x": [-1, 2, 0.01], "center-y": [-1, 2, 0.01], rings: [1, 12, 1],
+    levels: [4, 40, 1], seed: [1, 999, 1], strength: [0, 0.4, 0.01],
+    "crt.spacing": [1, 10, 1], "logo.size": [8, 40, 1], "window-controls.size": [6, 24, 1], "window-controls.gap": [2, 24, 1],
+  };
+  function range(comp, key) { return own(RANGES, comp + "." + key) ? RANGES[comp + "." + key] : own(RANGES, key) ? RANGES[key] : [0, 400, 1]; }
 
   function listTweaks(structure) {
     var nodes = parseKdl(structure), out = [];
@@ -851,6 +871,52 @@
 
   function structureOptions(structure) {
     try { return optionList(parseKdl(structure)); } catch (e) { return []; }
+  }
+
+  // A árvore do layout como camadas (o painel Layout da página): cada nó com o pai, a posição
+  // entre os irmãos, se aparece (`show`) e os campos que a página sabe editar.
+  function outline(structure) {
+    var nodes = parseKdl(structure), out = [];
+    function walk(nd, depth, parent) {
+      var spec = COMPONENTS[nd.name], fields = [], box = CONTAINERS.indexOf(nd.name) >= 0;
+      if (parent && parent.name !== "stack" && CONTAINERS.indexOf(parent.name) >= 0) {
+        var axis = parent.name === "row" ? "width" : "height";
+        if (typeof pv(nd, axis) === "number") fields.push({ key: axis, kind: "num", value: pv(nd, axis), range: range(nd.name, axis) });
+      }
+      if (spec) spec.forEach(function (f) {
+        var en = Array.isArray(f[1]);
+        fields.push({ key: f[0], kind: en ? "enum" : f[1], options: en ? f[1] : null, value: pv(nd, f[0]), range: f[1] === "num" ? range(nd.name, f[0]) : null });
+      });
+      if (box) ["gap", "padding"].forEach(function (k) { if (typeof pv(nd, k) === "number") fields.push({ key: k, kind: "num", value: pv(nd, k), range: range(nd.name, k) }); });
+      var sibs = parent ? parent.kids : [];
+      out.push({ start: nd.start, name: nd.name, line: nd.line, depth: depth, parent: parent && parent.name !== "layout" ? parent.start : null,
+        index: sibs.indexOf(nd), count: sibs.length, show: flag(nd, "show"), when: str(nd, "when"), unless: str(nd, "unless"),
+        container: box, component: !!spec, variant: str(nd, "variant"), fields: fields });
+      if (nd.name !== "label") nd.kids.forEach(function (k) { walk(k, depth + 1, nd); });
+    }
+    nodes.forEach(function (top) { if (top.name === "layout") top.kids.forEach(function (k) { walk(k, 0, top); }); });
+    return out;
+  }
+
+  // Troca um nó de lugar com o irmão de antes (dir -1) ou de depois (+1): a ordem no arquivo é a
+  // ordem na tela (e, num `stack`, a ordem de desenho). Só os dois pedaços de texto mudam.
+  function findParent(nodes, start) {
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].start === start) return { list: nodes, at: i };
+      var f = findParent(nodes[i].kids, start);
+      if (f) return f;
+    }
+    return null;
+  }
+  function moveNode(text, start, dir) {
+    var nodes = parseKdl(text), f = findParent(nodes, start);
+    if (!f) return text;
+    var j = f.at + (dir < 0 ? -1 : 1);
+    if (j < 0 || j >= f.list.length) return text;
+    var a = f.list[Math.min(f.at, j)], b = f.list[Math.max(f.at, j)];
+    if (a.name === "layout" || b.name === "layout") return text;
+    var ta = text.slice(a.start, a.end), tb = text.slice(b.start, b.end);
+    return text.slice(0, a.start) + tb + text.slice(a.end, b.start) + ta + text.slice(b.end);
   }
 
   // ------------------------------------------- Cores que vêm do layout ----
@@ -1149,6 +1215,103 @@
     var p = pal.map(hexRgba), t = defaults(p, mode), o = {};
     TOKENS.forEach(function (k) { o[k] = toHex(t[k]); });
     return { colors: o, roles: defaultRoles(p, mode).map(toHex) };
+  }
+
+  // ------------------------------------------------ Gerador de paletas ----
+  // Harmonias a partir de uma cor base: o destaque fica na base, a menção e o link nas cores
+  // que a harmonia pede (graus no círculo do OKLCH). `generate` faz o resto, nos dois modos.
+  var HARMONY = { mono: [0, 0], analogous: [32, -32], complementary: [180, 205], split: [150, 210], triadic: [120, 240] };
+  function clampTo(v, lo, hi, d) { return typeof v === "number" && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; }
+  function seedFromBase(hex, scheme, opt) {
+    opt = opt || {};
+    var c = toOklch(hexRgba(hex)), off = own(HARMONY, scheme) ? HARMONY[scheme] : HARMONY.analogous, A = c[2], grey = c[1] < 0.03;
+    return {
+      scheme: own(HARMONY, scheme) ? scheme : "analogous", hue: A, accentHue: A,
+      secondHue: (A + off[0] + 360) % 360, linkHue: (A + off[1] + 360) % 360,
+      neutral: clampTo(opt.neutral, 0, 0.06, grey ? 0.004 : 0.016),
+      accentChroma: clampTo(opt.chroma, 0, 0.24, grey ? 0.02 : Math.max(0.06, Math.min(0.22, c[1]))),
+      accentL: clampTo(opt.lightness, 0.55, 0.9, Math.max(0.62, Math.min(0.86, c[0]))),
+    };
+  }
+  // A cor que mais contrasta (preto ou branco) para texto em cima de `back`.
+  function onColor(back) { var b = hexRgba(back); return contrast(BLACK, b) >= contrast(WHITE, b) ? "#000000" : "#ffffff"; }
+  var ON_PAIRS = [["accent-text", "accent"], ["bubble-self-text", "bubble-self"]];
+  // Põe uma paleta gerada no estado, sem mexer nos tokens travados (`locks`: { token: true }).
+  // O texto em cima de um preenchimento travado segue o preenchimento, e muted/faint ficam na regra do app.
+  function applyGenerated(state, gen, locks) {
+    locks = locks || {};
+    var next = clone(state);
+    ["dark", "light"].forEach(function (mode) {
+      var old = state.colors[mode], out = {};
+      TOKENS.forEach(function (t) { out[t] = own(locks, t) && locks[t] ? old[t] : gen.colors[mode][t]; });
+      ON_PAIRS.forEach(function (p) { if (locks[p[1]] && !locks[p[0]]) out[p[0]] = onColor(out[p[1]]); });
+      if (locks.accent && !locks.selected) out.selected = toHex(alpha(hexRgba(out.accent), mode === "dark" ? 0.16 : 0.12));
+      if (locks.accent && !locks["bubble-self"]) { out["bubble-self"] = out.accent; if (!locks["bubble-self-text"]) out["bubble-self-text"] = onColor(out.accent); }
+      var toks = {};
+      TOKENS.forEach(function (t) { toks[t] = hexRgba(out[t]); });
+      LEGIBLE.forEach(function (w) {
+        if (locks[w.tok]) return;
+        var f = legibleFix(toks, w.tok, w.min);
+        out[w.tok] = f.value;
+        toks[w.tok] = hexRgba(f.value);
+      });
+      next.colors[mode] = out;
+      next.roles[mode] = gen.roles[mode].slice();
+    });
+    next.palette = { dark: gen.palette.dark.slice(), light: gen.palette.light.slice() };
+    return next;
+  }
+
+  // ------------------------------------------- Do escuro para o claro ----
+  // Um ponto de partida para o outro modo: a luminosidade (L do OKLCH) é espelhada por uma
+  // curva que leva os fundos escuros para papel claro e o texto claro para tinta escura,
+  // com o matiz e o croma de cada cor. Os preenchimentos de cor (destaque, status, balões)
+  // ficam numa faixa em que continuam coloridos. Depois, os consertos de contraste de sempre.
+  var FLIP = [[0, 1], [0.12, 0.995], [0.22, 0.975], [0.32, 0.93], [0.45, 0.78], [0.62, 0.55], [0.78, 0.38], [0.95, 0.22], [1, 0.16]];
+  var FILLS = ["accent", "mention", "online", "idle", "dnd", "danger", "bubble-self"];
+  // Fundos que já estão do lado certo (a barra escura de um tema claro, como a do escritorio)
+  // ficam onde estão: virar papel claro deixaria o texto claro de cima ilegível.
+  var GROUNDS = ["bg", "rail", "sidebar", "surface", "elevated", "overlay", "code-bg", "bubble-other"];
+  function flipL(L, toLight) {
+    var pts = toLight ? FLIP : FLIP.map(function (p) { return [p[1], p[0]]; }).reverse();
+    L = clamp01(L);
+    for (var i = 1; i < pts.length; i++) {
+      if (L <= pts[i][0]) {
+        var a = pts[i - 1], b = pts[i], k = b[0] === a[0] ? 0 : (L - a[0]) / (b[0] - a[0]);
+        return a[1] + (b[1] - a[1]) * k;
+      }
+    }
+    return pts[pts.length - 1][1];
+  }
+  function flipColor(hex, toLight, fill, ground) {
+    var c = hexRgba(hex), lch = toOklch(c), L = flipL(lch[0], toLight);
+    if (ground && (toLight ? lch[0] > 0.62 : lch[0] < 0.45)) L = lch[0];
+    if (fill && lch[1] > 0.04) L = toLight ? Math.min(0.62, Math.max(0.42, L)) : Math.min(0.86, Math.max(0.64, L));
+    var out = oklch(L, lch[1], lch[2]);
+    out[3] = c[3];
+    return toHex(out);
+  }
+  function invertMode(state, from) {
+    var to = from === "light" ? "dark" : "light", toLight = to === "light", next = clone(state), src = state.colors[from === "light" ? "light" : "dark"], out = {};
+    TOKENS.forEach(function (t) {
+      if (t === "shadow") {
+        var a = hexRgba(src.shadow)[3];
+        out.shadow = toHex(alpha(BLACK, toLight ? Math.min(a, 0.14) : Math.max(a, 0.35)));
+        return;
+      }
+      out[t] = flipColor(src[t], toLight, FILLS.indexOf(t) >= 0, GROUNDS.indexOf(t) >= 0);
+    });
+    ON_PAIRS.forEach(function (p) { out[p[0]] = onColor(out[p[1]]); });
+    next.colors[to] = out;
+    next.roles[to] = state.roles[from === "light" ? "light" : "dark"].map(function (r) { return flipColor(r, toLight, true); });
+    next.palette[to] = state.palette[from === "light" ? "light" : "dark"].slice();
+    // O texto, o muted/faint e o link passam a ler: o mesmo "Consertar tudo" do painel de contraste.
+    for (var round = 0; round < 4; round++) {
+      var fixes = contrastReport(next, to).filter(function (r) { return r.fails.length && r.fix; });
+      if (!fixes.length) break;
+      fixes.forEach(function (r) { next.colors[to][r.fix.tok] = r.fix.value; });
+    }
+    return next;
   }
 
   // ------------------------------------------------ Galeria da comunidade ----
@@ -1800,6 +1963,9 @@
     evalColor: evalColor, splitColors: splitColors, defaults: defaults, defaultRoles: defaultRoles, legibleText: legibleText,
     loadTheme: loadTheme, fromSource: fromSource, toKdl: toKdl, slug: slug, quote: q,
     setProp: setProp, listTweaks: listTweaks, structureOptions: structureOptions, findNode: findNode,
+    outline: outline, moveNode: moveNode, RANGES: RANGES, range: range,
+    HARMONY: HARMONY, seedFromBase: seedFromBase, applyGenerated: applyGenerated, onColor: onColor,
+    flipL: flipL, invertMode: invertMode, toOklab: toOklab, fromOklab: fromOklab,
     contrastReport: contrastReport, layoutColorBlocks: layoutColorBlocks, effectiveColors: effectiveColors, oklch: oklch, toOklch: toOklch, rng: rng,
     generate: generate, randomSeed: randomSeed, imageColors: imageColors, seedFromImage: seedFromImage,
     seedFromColors: seedFromColors, fromPalette: fromPalette,

@@ -536,6 +536,20 @@
     b.className = "pv-b";
     // O nome do nó só vira classe se for um nome simples (um link pode trazer qualquer coisa).
     if (/^[a-z][a-z0-9-]{0,40}$/.test(nd.name)) b.classList.add("pv-k-" + nd.name);
+    // Para o clique-para-editar do criador: a camada (início do nó no texto e linha), os tokens
+    // do fundo e da cor do nó, e os que ele troca (c-…). Só nomes da lista de tokens e números.
+    var ds = b.dataset;
+    if (ds) {
+      ds.start = String(nd.start);
+      ds.line = String(nd.line);
+      if (/^[a-z][a-z0-9-]{0,40}$/.test(nd.name)) ds.node = nd.name;
+      var fill = boxTokens(th, nd);
+      if (fill.toks.length) ds.tk = fill.toks.join(" ");
+      else if (fill.literal) ds.lit = "1";
+      var fg = refTokens(TB.str(nd, "color"), true);
+      if (fg.length) ds.fg = fg[0];
+      if (over.length) ds.over = over.map(function (o) { return o[0]; }).join(" ");
+    }
     var mw = TB.num(nd, "max-width");
     if (mw !== null) { b.style.maxWidth = mw + "px"; b.style.marginLeft = b.style.marginRight = "auto"; }
     over.forEach(function (o) { b.style.setProperty("--t-" + o[0], o[1]); });
@@ -565,9 +579,102 @@
       }
       b.appendChild(c);
       if (flagOpt(th, nd, "autohide", false)) n.classList.add("pv-autohide");
+      // As linhas do CRT ficam por cima de tudo, mas o ponteiro passa (o clique-para-editar chega no que está embaixo).
+      if (nd.name === "crt") n.classList.add("pv-pass");
     }
     n.appendChild(b);
     return n;
+  }
+
+  // Os tokens citados numa expressão de cor ("@surface", "alpha(@accent, 0.4)" ou, num nó, o
+  // nome puro "sidebar"). Só nomes que existem na lista de tokens saem daqui.
+  function refTokens(expr, bare) {
+    if (typeof expr !== "string") return [];
+    var out = [], m, re = /@([a-z][a-z0-9_-]*)/g;
+    if (bare && TB.tokenName(expr.trim())) out.push(TB.tokenName(expr.trim()));
+    while ((m = re.exec(expr)) && out.length < 4) { var t = TB.tokenName(m[1]); if (t && out.indexOf(t) < 0) out.push(t); }
+    return out;
+  }
+  // O fundo de um nó: o do estilo nomeado e o do próprio nó (bg, depois o gradiente).
+  function boxTokens(th, nd) {
+    var toks = [], literal = false, sn = TB.str(nd, "style"), st = sn !== null && own(th.styles, sn) ? th.styles[sn] : null;
+    [[nd, true], [st, false]].forEach(function (p) {
+      if (!p[0]) return;
+      ["bg", "gradient"].forEach(function (k) {
+        var v = TB.str(p[0], k);
+        if (v === null) return;
+        var r = refTokens(v, p[1] && k === "bg");
+        if (!r.length) literal = true;
+        r.forEach(function (t) { if (toks.indexOf(t) < 0) toks.push(t); });
+      });
+    });
+    return { toks: toks, literal: literal && !toks.length };
+  }
+
+  // Que token cada pedaço da prévia usa (as regras de theme-builder.css). O primeiro da lista é o
+  // que o clique abre; "r" é a cor de cargo do elemento (style --c ou color com var(--rN)).
+  // Ordem: do mais específico para o mais geral; vale o elemento mais perto do ponteiro.
+  var INSPECT = [
+    [".pv-men", ["mention"]], [".pv-msg.men", ["mention"]], [".pv-irc.men", ["mention", "text"]],
+    [".pv-badge", ["danger"]], [".pv-newm span", ["danger"]], [".pv-newm", ["danger"]],
+    [".pv-st.idle", ["idle"]], [".pv-st.dnd", ["dnd"]], [".pv-st.off", ["faint"]], [".pv-st", ["online"]],
+    [".pv-mem.tty u.idle", ["idle"]], [".pv-mem.tty u.dnd", ["dnd"]], [".pv-mem.tty u.off", ["faint"]], [".pv-mem.tty u", ["online"]],
+    [".pv-link", ["link"]], [".pv-embed>div>b", ["link"]], [".pv-embed small", ["muted"]], [".pv-embed", ["elevated", "idle", "text"]],
+    [".pv-gi.on .pv-gico", ["accent", "accent-text"]], [".pv-gico.home", ["elevated", "text"]], [".pv-gico", ["r"]],
+    [".pv-guild.list .pv-gi.on", ["selected", "text"]], [".pv-gtext .on", ["accent", "accent-text"]], [".pv-gtext", ["muted"]],
+    [".pv-guild hr", ["border"]], [".pv-gi>span", ["muted"]], [".pv-guild.dock", ["elevated", "border"]],
+    [".pv-banner", ["accent", "sidebar"]], [".pv-shead", ["text", "border"]], [".pv-chrows small", ["faint"]], [".pv-tree", ["faint"]],
+    [".pv-chan.pills .pv-ch.on", ["accent", "accent-text"]], [".pv-chan.tree .pv-ch.on", ["accent", "accent-text"]],
+    [".pv-ch.on", ["selected", "text"]], [".pv-ch.unread", ["text"]], [".pv-ch", ["muted"]], [".pv-vu", ["muted"]],
+    [".pv-user .pv-who b", ["text"]], [".pv-user .pv-who small", ["muted"]], [".pv-user", ["muted"]],
+    [".pv-hsearch", ["elevated", "faint"]], [".pv-head.tty b", ["accent"]], [".pv-head.min .pv-ht b", ["text"]], [".pv-head.min .pv-ht small", ["faint"]],
+    [".pv-hdiv", ["border"]], [".pv-head>b", ["text"]], [".pv-head", ["muted", "border"]],
+    [".pv-tabs.tty span.on", ["accent", "accent-text"]], [".pv-tabs.underline span.on", ["accent", "text"]], [".pv-tabs span.on", ["selected", "text"]],
+    [".pv-tabs span u", ["r"]], [".pv-tabs", ["muted"]],
+    [".pv-mh time", ["faint"]], [".pv-irc time", ["faint"]], [".pv-mh b", ["r"]], [".pv-irc b", ["r"]], [".pv-bb>b", ["r"]],
+    [".pv-re em.mine", ["accent", "text"]], [".pv-re em", ["elevated", "muted"]],
+    [".pv-bub.me .pv-bb", ["bubble-self", "bubble-self-text"]], [".pv-bb", ["bubble-other", "text"]], [".pv-ticks", ["muted"]], [".pv-typing i", ["muted"]],
+    [".pv-mb p", ["text"]], [".pv-irc", ["text"]], [".pv-av", ["r"]],
+    [".pv-comp.prompt>div", ["accent"]], [".pv-caret", ["accent"]], [".pv-comp .pv-cplus", ["muted", "elevated"]], [".pv-comp>div", ["elevated", "faint"]],
+    [".pv-members small", ["faint"]], [".pv-mem.off b", ["faint"]], [".pv-mem .pv-who small", ["muted"]], [".pv-mem b", ["r"]], [".pv-members", ["muted"]],
+    [".pv-status.pills span", ["elevated", "muted"]], [".pv-status", ["muted"]],
+    [".pv-logo", ["accent"]], [".pv-tsearch", ["elevated", "faint"]], [".pv-top", ["muted"]],
+    [".pv-msgs.ruled", ["border"]],
+  ];
+  // O que está embaixo do ponteiro: os tokens (o primeiro é o que o clique abre), o elemento que
+  // casou, a camada do layout e os tokens que algum nó acima troca. Precisa de DOM (`closest`).
+  function tokensAt(el, frame) {
+    var hit = null, toks = [], role = null, comp = null, over = {}, lit = null, boxTok = null;
+    function roleOf(e) {
+      var v = (e.style && (e.style.getPropertyValue("--c") || e.style.color)) || "";
+      var m = /var\(--r([0-7])\)/.exec(v);
+      return m ? +m[1] : null;
+    }
+    for (var e = el; e && e !== frame && e.nodeType === 1; e = e.parentElement) {
+      if (!hit) {
+        for (var i = 0; i < INSPECT.length; i++) {
+          if (!e.matches(INSPECT[i][0])) continue;
+          hit = e;
+          toks = INSPECT[i][1].slice();
+          if (toks.indexOf("r") >= 0) {
+            for (var r = e; r && r !== frame && role === null; r = r.parentElement) role = roleOf(r);
+            toks = toks.filter(function (t) { return t !== "r"; });
+            if (role !== null) toks.unshift("role:" + role);
+          }
+          break;
+        }
+      }
+      if (e.classList && e.classList.contains("pv-b")) {
+        var d = e.dataset || {};
+        if (!comp && d.node && ["row", "column", "stack"].indexOf(d.node) < 0) comp = { name: d.node, line: +d.line || 0, start: +d.start };
+        if (d.over) d.over.split(" ").forEach(function (t) { if (!own(over, t)) over[t] = +d.line || 0; });
+        if (!hit && d.fg) { hit = e; toks = [d.fg]; }
+        if (!boxTok && d.tk) { boxTok = d.tk.split(" "); if (!hit) hit = e; }
+        if (!boxTok && d.lit && lit === null) { lit = +d.line || 0; if (!hit) hit = e; }
+      }
+    }
+    (boxTok || ["bg"]).forEach(function (t) { if (toks.indexOf(t) < 0) toks.push(t); });
+    return { el: hit || frame, tokens: toks, comp: comp, over: over, literal: lit };
   }
 
   // Desenha o tema `th` (de TB.loadTheme) dentro de `frame`, que tem 1280×800 e a classe tb-frame.
@@ -590,5 +697,6 @@
     f.appendChild(tree);
   }
 
-  return { W: W, H: H, esc: esc, fontOf: fontOf, flagOpt: flagOpt, visible: visible, paintBox: paintBox, component: component, mount: mount, names: Object.keys(C) };
+  return { W: W, H: H, esc: esc, fontOf: fontOf, flagOpt: flagOpt, visible: visible, paintBox: paintBox, component: component, mount: mount, names: Object.keys(C),
+    INSPECT: INSPECT, tokensAt: tokensAt, refTokens: refTokens, boxTokens: boxTokens };
 });
