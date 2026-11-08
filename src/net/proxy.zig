@@ -48,11 +48,16 @@ pub fn valid(url: []const u8) bool {
         for (host) |ch| if (!(std.ascii.isAlphanumeric(ch) or ch == '.' or ch == '-' or ch == '_')) return false;
         if (host[0] == '.' or host[0] == '-') return false;
     }
-    if (port.len > 0) {
-        const n = std.fmt.parseInt(u32, port, 10) catch return false;
-        if (n == 0 or n > 65535) return false;
-    }
+    if (port.len > 0 and parsePort(port) == null) return false;
     return true;
+}
+
+/// Porta de 1 a 65535. `valid` e o formulário leem do mesmo jeito: o que um aceita, o
+/// outro desmonta ("003128" vira 3128 no campo).
+fn parsePort(p: []const u8) ?u16 {
+    const n = std.fmt.parseInt(u32, p, 10) catch return null;
+    if (n == 0 or n > 65535) return null;
+    return @intCast(n);
 }
 
 fn userChar(ch: u8) bool {
@@ -83,14 +88,18 @@ pub const Kind = enum(u8) {
 pub const BuildError = error{ NoHost, BadHost, BadPort, PassWithoutUser, TooLong };
 
 /// Os campos da tela, cada um uma string C (é o buffer do ImGui). Login e senha ficam
-/// decodificados aqui; o `%` só aparece na URL.
+/// decodificados aqui; o `%` só aparece na URL. Cabe neles qualquer login e senha de
+/// uma URL que `valid` aceita.
 pub const Form = struct {
     /// Índice em `Kind` (o seletor da tela escreve direto aqui).
     kind: u8 = 0,
     host: [254]u8 = @splat(0),
     port: [6]u8 = @splat(0),
-    user: [128]u8 = @splat(0),
-    pass: [128]u8 = @splat(0),
+    user: [max_len + 1]u8 = @splat(0),
+    pass: [max_len + 1]u8 = @splat(0),
+    /// A URL salva não deu para desmontar e tinha login e senha: eles ficaram fora da
+    /// tela (só o endereço aparece) e precisam ser digitados de novo.
+    hidden_login: bool = false,
 
     pub fn kindOf(f: *const Form) Kind {
         return @enumFromInt(@min(f.kind, @intFromEnum(Kind.socks5h)));
@@ -101,12 +110,25 @@ pub const Form = struct {
     }
 
     /// Mostra o que está salvo. Vazio limpa os campos (o tipo fica); uma URL que não
-    /// dá para desmontar vai inteira para o endereço, para a pessoa ver e corrigir.
+    /// dá para desmontar vai para o endereço, para a pessoa ver e corrigir, mas sem o
+    /// login e a senha (o endereço não é um campo escondido).
     pub fn load(f: *Form, url: []const u8) void {
         if (url.len > 0 and f.fill(url)) return;
         const kind = f.kind;
         f.* = .{ .kind = kind };
-        setText(&f.host, url);
+        var scheme: []const u8 = "";
+        var rest = url;
+        if (std.mem.indexOf(u8, url, "://")) |sep| {
+            scheme = url[0 .. sep + 3];
+            rest = url[sep + 3 ..];
+        }
+        // O último @: a senha pode ter outro, e uma barra não codificada também.
+        if (std.mem.lastIndexOfScalar(u8, rest, '@')) |at| {
+            rest = rest[at + 1 ..];
+            f.hidden_login = true;
+        }
+        var b: Buf = undefined;
+        setText(&f.host, std.fmt.bufPrint(&b, "{s}{s}", .{ scheme, rest }) catch rest);
     }
 
     /// Desmonta `esquema://[usuário[:senha]@]host[:porta][/]` nos campos (sem o esquema,
@@ -124,8 +146,8 @@ pub const Form = struct {
         } else if (std.mem.indexOfScalar(u8, text, '@') == null) return false;
         if (std.mem.endsWith(u8, rest, "/")) rest = rest[0 .. rest.len - 1];
         if (rest.len == 0 or std.mem.indexOfScalar(u8, rest, '/') != null) return false;
-        var user: [128]u8 = @splat(0);
-        var pass: [128]u8 = @splat(0);
+        var user: [max_len + 1]u8 = @splat(0);
+        var pass: [max_len + 1]u8 = @splat(0);
         var hostport = rest;
         // O @ que separa é o último: a senha pode trazer um @ (codificado ou não).
         if (std.mem.lastIndexOfScalar(u8, rest, '@')) |at| {
@@ -139,10 +161,17 @@ pub const Form = struct {
         if (hp.host.len == 0 or hp.host.len >= f.host.len) return false;
         f.kind = @intFromEnum(kind);
         setText(&f.host, hp.host);
-        setText(&f.port, hp.port);
+        f.setPort(hp.port);
         f.user = user;
         f.pass = pass;
+        f.hidden_login = false;
         return true;
+    }
+
+    /// A porta no campo sempre em decimal simples ("003128" e "+3128" viram "3128").
+    fn setPort(f: *Form, port: ?u16) void {
+        var b: [6]u8 = undefined;
+        setText(&f.port, if (port) |n| std.fmt.bufPrint(&b, "{d}", .{n}) catch "" else "");
     }
 
     /// O endereço às vezes chega com mais coisa: a URL inteira (colada ou digitada),
@@ -154,9 +183,9 @@ pub const Form = struct {
         const text = tmp[0..h.len];
         if (std.mem.indexOf(u8, text, "://") != null or std.mem.indexOfScalar(u8, text, '@') != null) return f.fill(text);
         const hp = splitHostPort(text) orelse return false;
-        if (hp.port.len == 0) return false;
+        if (hp.port == null) return false;
         setText(&f.host, hp.host);
-        setText(&f.port, hp.port);
+        f.setPort(hp.port);
         return true;
     }
 
@@ -268,10 +297,10 @@ fn percentDecode(out: []u8, s: []const u8) bool {
     return true;
 }
 
-const HostPort = struct { host: []const u8, port: []const u8 };
+const HostPort = struct { host: []const u8, port: ?u16 };
 
 /// `host`, `host:porta`, `[IPv6]` ou `[IPv6]:porta`. Um IPv6 sem colchetes é só host.
-/// null = porta que não é número de 1 a 65535, ou colchete aberto.
+/// null = porta que não é número de 1 a 65535 (lida como em `valid`), ou colchete aberto.
 fn splitHostPort(s: []const u8) ?HostPort {
     var host = s;
     var port: ?[]const u8 = null;
@@ -290,13 +319,8 @@ fn splitHostPort(s: []const u8) ?HostPort {
             port = s[colon + 1 ..];
         }
     }
-    if (port) |p| {
-        // Cabe no campo da porta (5 dígitos): "000080" não.
-        if (p.len > 5) return null;
-        const n = std.fmt.parseInt(u16, p, 10) catch return null;
-        if (n == 0) return null;
-    }
-    return .{ .host = host, .port = port orelse "" };
+    const n: ?u16 = if (port) |p| parsePort(p) orelse return null else null;
+    return .{ .host = host, .port = n };
 }
 
 // O valor em uso: escrito pela interface, lido pelas threads de rede.
@@ -409,6 +433,53 @@ test "proxy: campos viram URL com login e senha codificados, e voltam" {
     try std.testing.expect(g.fill("socks5://user:pa%ss@h:1080"));
     try std.testing.expectEqualStrings("pa%ss", std.mem.sliceTo(&g.pass, 0));
     try std.testing.expectEqualStrings("socks5://user:pa%25ss@h:1080", try g.build(&b));
+}
+
+test "proxy: URL salva que vale nunca mostra login nem senha fora dos campos deles" {
+    const long_pass: [130]u8 = @splat('s');
+    const urls = [_][]const u8{
+        "http://eu:segredo@proxy.local:003128",
+        "socks5://eu:segredo@h:+1080",
+        "socks5h://eu:se%00gredo@h:9050",
+        "http://eu:" ++ long_pass ++ "@h:8080",
+        "socks5://eu:segredo%40x@host:1080",
+        "socks5h://eu:segredo@[::1]:9050",
+        "https://eu@p.example.com",
+    };
+    for (urls) |u| {
+        try std.testing.expect(valid(u));
+        var f: Form = .{};
+        f.load(u);
+        for ([_][]const u8{ std.mem.sliceTo(&f.host, 0), std.mem.sliceTo(&f.port, 0), std.mem.sliceTo(&f.user, 0) }) |shown| {
+            if (std.mem.indexOfScalar(u8, shown, '@') != null or std.mem.indexOf(u8, shown, "segredo") != null or std.mem.indexOf(u8, shown, "sss") != null) {
+                std.debug.print("{s}: a senha apareceu fora do campo dela ({s})\n", .{ u, shown });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+    // Porta com zeros na frente: vai para o campo em decimal, com login e senha nos deles.
+    var f: Form = .{};
+    f.load("http://eu:segredo@proxy.local:003128");
+    try std.testing.expect(!f.hidden_login);
+    try std.testing.expectEqualStrings("proxy.local", std.mem.sliceTo(&f.host, 0));
+    try std.testing.expectEqualStrings("3128", std.mem.sliceTo(&f.port, 0));
+    try std.testing.expectEqualStrings("eu", std.mem.sliceTo(&f.user, 0));
+    try std.testing.expectEqualStrings("segredo", std.mem.sliceTo(&f.pass, 0));
+    // Senha longa (de uma versão antiga) cabe no campo.
+    f.load("http://eu:" ++ long_pass ++ "@h:8080");
+    try std.testing.expectEqualStrings(&long_pass, std.mem.sliceTo(&f.pass, 0));
+    // %00 não cabe numa string C: o endereço aparece sem o login, que fica para digitar de novo.
+    f.load("socks5h://eu:se%00gredo@h:9050");
+    try std.testing.expect(f.hidden_login);
+    try std.testing.expectEqualStrings("socks5h://h:9050", std.mem.sliceTo(&f.host, 0));
+    try std.testing.expectEqualStrings("", std.mem.sliceTo(&f.pass, 0));
+    // Inválida e com login: também sem ele.
+    f.load("http://eu:p/w@h:1");
+    try std.testing.expect(f.hidden_login);
+    try std.testing.expectEqualStrings("http://h:1", std.mem.sliceTo(&f.host, 0));
+    // Desmontar de novo limpa o aviso.
+    try std.testing.expect(f.fill("socks5://h:1"));
+    try std.testing.expect(!f.hidden_login);
 }
 
 test "proxy: IPv6 com e sem colchetes" {

@@ -694,6 +694,7 @@ fn network(p: *Page) void {
     d.tip(ctx, eye_r, if (proxy_show) i18n.tr("Esconder a senha", "Hide the password") else i18n.tr("Mostrar a senha", "Show the password"), he.hovered);
     p.y += 32 + 14;
 
+    if (proxy_form.hidden_login) p.note(i18n.tr("O login e a senha salvos não couberam nos campos e ficaram escondidos. Para mudar o proxy, digite os dois de novo.", "The saved login and password didn't fit in the fields and are hidden. To change the proxy, type both again."));
     if (proxy_err) |e| p.note(switch (e) {
         error.NoHost => i18n.tr("Falta o endereço do proxy.", "The proxy address is missing."),
         error.BadHost => i18n.tr("Endereço inválido: só o nome ou o IP do proxy, ou cole a URL inteira (esquema://host:porta, com http, https, socks5 ou socks5h).", "Invalid address: just the proxy's name or IP, or paste the full URL (scheme://host:port, with http, https, socks5 or socks5h)."),
