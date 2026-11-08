@@ -391,6 +391,10 @@ html[data-fx=glass] .palette-box{background:var(--elevated)}
 /* Entradas */
 .reveal{opacity:0;transform:translateY(40px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1)}
 .reveal.seen{opacity:1;transform:none}
+/* Sem JavaScript ninguém marca .seen: tudo fica à vista (boot.js põe .js no <html>). */
+html:not(.js) .reveal{opacity:1;transform:none}
+html:not(.js) .receipt.reveal{transform:rotate(1.6deg)}
+html:not(.js) [data-copy]{display:none}
 @keyframes drop{from{opacity:0;transform:translateY(.25em)}}
 @keyframes peek{from{opacity:0;transform:translateY(46px) rotate(6deg)}}
 

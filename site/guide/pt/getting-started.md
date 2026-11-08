@@ -17,27 +17,45 @@ O larperCord é um cliente de Discord nativo para Linux e Windows, escrito em Zi
 
 ## Instalar
 
-**Baixar:** [Linux](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-linux-x86_64) · [Windows](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-windows-x86_64.zip) · [todas as versões](https://github.com/RshaCuDeVidro/larperCord/releases). No Linux, marque o arquivo com `chmod +x` e rode. No Windows, descompacte e abra o `larpercord.exe`; ele ainda não tem assinatura de código, então o Windows pode avisar na primeira vez.
+Escolha o seu sistema. O site mostra o seu primeiro; os outros ficam a um clique.
 
-A versão para Linux roda em distros de 2022 para cá (glibc 2.34 ou mais nova). SDL3, libcurl e OpenSSL vêm dentro dela. FreeType, fontconfig, libwebp, Opus e zlib vêm do sistema, e uma distro de desktop costuma já ter. Antes de cada versão, ela é aberta em contêineres de Ubuntu 22.04 e 24.04, Debian 12 e 13, Fedora, openSUSE e Arch, na demonstração e sem GPU.
+:::: os-pick
+::: os arch | Arch Linux e distros baseadas nele
+O pacote é o [`larpercord-bin`](https://aur.archlinux.org/packages/larpercord-bin), no AUR. Instale com o seu ajudante do AUR:
 
-O GitHub Actions compila esse arquivo a partir do código deste repositório. Com o GitHub CLI dá para conferir: `gh attestation verify larpercord-linux-x86_64 --repo RshaCuDeVidro/larperCord`.
+```bash
+yay -S larpercord-bin
+# ou
+paru -S larpercord-bin
+```
 
-Ou use um script:
-
-No Linux (em `~/.local`, sem sudo):
+É o mesmo arquivo do download para Linux, instalado em `/usr/bin` com o ícone no menu de aplicativos. As atualizações vêm pelo seu ajudante do AUR: quando sai uma versão nova, Configurações → Atualizações avisa e deixa a instalação com o pacote.
+:::
+::: os linux | Outras distros Linux
+Um comando instala em `~/.local`, sem sudo. Ele confere o download com o `SHA256SUMS` e lista as bibliotecas do sistema que faltam:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.sh | sh
 ```
 
-No Windows, no PowerShell (para o seu usuário, sem administrador):
+Ou pegue o arquivo portátil: [larpercord-linux-x86_64](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-linux-x86_64). Marque com `chmod +x` e rode.
+
+Ele roda em distros de 2022 para cá (glibc 2.34 ou mais nova). SDL3, libcurl e OpenSSL vêm dentro dele. FreeType, fontconfig, libwebp, Opus e zlib vêm do sistema, e uma distro de desktop costuma já ter. Antes de cada versão, ele é aberto em contêineres de Ubuntu 22.04 e 24.04, Debian 12 e 13, Fedora, openSUSE e Arch, na demonstração e sem GPU.
+
+O GitHub Actions compila esse arquivo a partir do código deste repositório. Com o GitHub CLI dá para conferir: `gh attestation verify larpercord-linux-x86_64 --repo RshaCuDeVidro/larperCord`.
+:::
+::: os windows | Windows 10 e 11
+No PowerShell, para o seu usuário, sem administrador. Ele confere o download com o `SHA256SUMS`:
 
 ```powershell
 irm https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.ps1 | iex
 ```
 
-Os dois conferem o download com o `SHA256SUMS`. No Linux o script lista as bibliotecas do sistema que faltam. Depois disso o app se atualiza em Configurações → Atualizações.
+Ou baixe o [zip](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-windows-x86_64.zip), descompacte e abra o `larpercord.exe`. Ele ainda não tem assinatura de código, então o Windows pode avisar na primeira vez.
+:::
+::::
+
+Depois disso o app se atualiza sozinho em Configurações → Atualizações (menos o pacote do AUR, que se atualiza pelo seu ajudante do AUR, como o yay ou o paru). Versões antigas e checksums: [todas as versões](https://github.com/RshaCuDeVidro/larperCord/releases).
 
 A tabela acima vale para quem compila do código, abaixo.
 

@@ -63,6 +63,10 @@ não engasga o app. A interface e essa thread só conversam por duas filas.
 
 ## Um exemplo
 
+Para começar de um modelo, o [gerador de plugin](https://rshacudevidro.github.io/larperCord/pt/guide/plugin-starter.html)
+do site monta um arquivo com as partes que você escolher, e o [diretório de plugins](https://rshacudevidro.github.io/larperCord/pt/guide/plugin-directory.html)
+lista o que cada plugin incluído pede.
+
 ```lua
 -- @name Shrug
 -- @name:pt Dar de ombros
@@ -105,7 +109,7 @@ de configurações mostra tudo isso mesmo com o plugin desligado.
 | `menu` | `larper.menu` |
 | `decorate` | `larper.decorate`, `larper.undecorate`, `larper.rules`, `larper.on("dismiss")` |
 | `composer` | `larper.insert` |
-| `http` | `larper.http` (pede `@hosts`) |
+| `http` | `larper.http` (pede `@hosts`), `larper.on("hosts")` |
 | `lsp` | `larper.lsp` |
 | `settings` | `larper.settings` |
 | `completions` | `larper.completions` |
@@ -186,7 +190,7 @@ Tudo fica na tabela global `larper`. IDs do Discord são textos (`"1234567890"`)
 | `msg.mentions_me` | só em `larper.messages`: `true` se ela chama você (menção, um cargo seu, `@everyone`) |
 
 `"message"` e `"edit"` aceitam um terceiro argumento, `{ contains = { "cve-", "://" } }` (até 16 pedaços
-de texto, sem ligar para maiúsculas): a sua função só roda para as mensagens com um deles, e as outras
+de texto de até 64 bytes cada, sem ligar para maiúsculas): a sua função só roda para as mensagens com um deles, e as outras
 nem chegam ao Lua. Use sempre que der: um plugin que só liga para poucas mensagens não custa nada nas
 outras.
 
@@ -213,8 +217,9 @@ na ordem dos arquivos. Um `/qualquer` que nenhum plugin ligado conhece vai como 
 
 Um atalho de teclado. Modificadores: `ctrl`, `shift`, `alt`, `super`; teclas: `a`–`z`, `0`–`9`,
 `f1`–`f24`, `enter`, `space`, `tab`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`,
-`pagedown`, `up`, `down`, `left`, `right`, `,` `.` `/` `;` `-` `=`. Letras e números pedem `ctrl`, `alt`
-ou `super` (senão disparariam enquanto você digita); as teclas F podem ir sozinhas. O atalho funciona
+`pagedown`, `up`, `down`, `left`, `right`, `,` `.` `/` `;` `-` `=`. Toda tecla menos F1–F24 pede
+`ctrl`, `alt` ou `super` (senão dispararia enquanto você digita), e `ctrl` sozinho com `a`, `c`, `v`, `x`,
+`y` ou `z` fica para a digitação. O atalho funciona
 fora das configurações e da paleta de comandos, inclusive com a caixa de texto em foco. Os atalhos do
 app (`Ctrl+K`, `Ctrl+W`…) continuam funcionando junto: escolha outra combinação.
 

@@ -61,6 +61,7 @@ test {
     _ = @import("ui/anim.zig");
     _ = @import("ui/fuzzy.zig");
     _ = @import("ui/i18n.zig");
+    _ = @import("ui/atalhos.zig");
     _ = @import("ui/syntax.zig");
     _ = @import("ui/bidi.zig");
     _ = @import("ui/font_blocks.zig");

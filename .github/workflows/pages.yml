@@ -7,6 +7,9 @@ on:
       - "site/**"
       - "themes/**"
       - "tools/gen_site.py"
+      - "src/ui/atalhos.zig"
+      - "src/ui/plugins_page.zig"
+      - "src/plugins/manifest.zig"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 

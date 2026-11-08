@@ -1,5 +1,7 @@
 // Aplica o tema antes do primeiro desenho, para a página não piscar.
 (function () {
+  // Com JavaScript as seções entram ao rolar (.reveal em site.css); sem ele, ficam à vista.
+  document.documentElement.classList.add("js");
   var name = "larper", mode = "dark";
   try {
     name = localStorage.getItem("lc-theme") || name;

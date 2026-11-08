@@ -6,6 +6,9 @@ Entradas:
   site/guide/{en,pt}/*.md   os guias
   docs/plugins*.md, themes/README*.md   guias que também vivem fora do site
   themes/*.kdl              paletas, opções e layouts dos temas (a fonte de verdade)
+  src/ui/atalhos.zig        os atalhos de teclado ({{keys}} nos guias)
+  docs/plugins/*.lua        os plugins que vêm com o app (diretório de plugins)
+  src/plugins/manifest.zig, src/ui/plugins_page.zig   capacidades e rótulos dos plugins
 
 Só usa a biblioteca padrão. Rode: python3 tools/gen_site.py
 """
@@ -363,8 +366,8 @@ def inline(text, rewrite):
         return f"\x00{len(keep) - 1}\x00"
 
     text = re.sub(r"`([^`]+)`", lambda m: stash(f"<code>{html.escape(m.group(1), quote=False)}</code>"), text)
-    # HTML que os documentos usam de propósito (<sub>) passa; o resto é escapado.
-    text = re.sub(r"</?sub>", lambda m: stash(m.group(0)), text)
+    # HTML que os documentos usam de propósito (<sub>, <kbd>) passa; o resto é escapado.
+    text = re.sub(r"</?(?:sub|kbd)>", lambda m: stash(m.group(0)), text)
     text = html.escape(text, quote=False)
     text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", lambda m: stash(f'<img src="{rewrite(m.group(2))}" alt="{m.group(1)}" loading="lazy">'), text)
     text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", lambda m: f'<a href="{rewrite(m.group(2))}">{m.group(1)}</a>', text)
@@ -413,6 +416,12 @@ def markdown(src, rewrite, skip_h1=False):
         heads.append((level, re.sub(r"`", "", text), hid))
         return f'<h{level} id="{hid}"><a class="anchor" href="#{hid}" aria-hidden="true">#</a>{inline(text, rewrite)}</h{level}>'
 
+    # Blocos ":::" (como no pandoc): o seletor de sistema da instalação.
+    #   :::: os-pick            um grupo de opções; o site mostra primeiro a do visitante
+    #   ::: os arch | Título    uma opção, com um título que entra no índice da página
+    #   :::                     fecha (o mesmo número de dois-pontos)
+    fences = []
+
     def blocks_list(start):
         j = start
         kind = "ol" if re.match(r"\s*\d+\.\s", lines[j]) else "ul"
@@ -453,6 +462,23 @@ def markdown(src, rewrite, skip_h1=False):
                 j += 1
             out.append(code_block("\n".join(lines[i + 1:j]), lang))
             i = j + 1
+        elif re.match(r":{3,}", ln):
+            head = ln.lstrip(":").strip()
+            kind, _, rest = head.partition(" ")
+            if not head:
+                out.append(fences.pop())
+            elif kind == "os-pick":
+                out.append('<div class="os-pick" data-os-pick>')
+                fences.append('</div>\n<link rel="stylesheet" href="@@ROOT@@assets/site/extra.css">'
+                              '<script src="@@ROOT@@assets/site/os.js" defer></script>')
+            elif kind == "os":
+                key, _, title = rest.partition("|")
+                out.append(f'<section class="os-opt" data-os="{html.escape(key.strip())}">')
+                out.append(heading(3, title.strip()))
+                fences.append("</section>")
+            else:
+                raise SystemExit(f"bloco ::: desconhecido: {ln}")
+            i += 1
         elif re.match(r"#{1,6}\s", ln):
             lv = len(ln) - len(ln.lstrip("#"))
             text = ln[lv:].strip()
@@ -494,7 +520,7 @@ def markdown(src, rewrite, skip_h1=False):
             # A primeira linha é sempre do parágrafo: um "|" que não abre tabela chega aqui.
             j = i + 1
             para = [ln]
-            while j < len(lines) and lines[j].strip() and not re.match(r"(?:```|#{1,6}\s|>|\|)", lines[j]) and not re.match(r"\s*(?:[-*]|\d+\.)\s", lines[j]):
+            while j < len(lines) and lines[j].strip() and not re.match(r"(?:```|#{1,6}\s|>|\||:{3})", lines[j]) and not re.match(r"\s*(?:[-*]|\d+\.)\s", lines[j]):
                 para.append(lines[j])
                 j += 1
             out.append(f"<p>{inline(' '.join(para), rewrite)}</p>")
@@ -635,6 +661,244 @@ def layout_nodes(src, top, on, pal, raw):
     return out
 
 
+# ------------------------------------------------------- Fontes do app ----
+# Páginas que saem do próprio código, para nunca ficarem para trás: os atalhos
+# (src/ui/atalhos.zig), os plugins que vêm com o app (docs/plugins/) e o que um
+# plugin pode pedir (src/plugins/manifest.zig e os rótulos de src/ui/plugins_page.zig).
+ZSTR = r'"((?:\\.|[^"\\])*)"'
+
+
+def zig_unescape(s):
+    def rep(m):
+        e = m.group(1)
+        if e.startswith("u{"):
+            return chr(int(e[2:-1], 16))
+        return {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", '"': '"', "'": "'"}[e]
+    return re.sub(r"\\(u\{[0-9a-fA-F]+\}|[ntr\\\"'])", rep, s)
+
+
+def zig_entries(path, decl):
+    """As entradas `.{ .campo = valor, ... },` (uma por linha) de `const decl = [_]T{ ... };`."""
+    src = path.read_text(encoding="utf-8")
+    m = re.search(rf"^(?:pub )?const {decl}\s*=\s*\[_\]\w+\{{\n(.*?)\n\}};", src, re.S | re.M)
+    if not m:
+        raise SystemExit(f"{path.relative_to(ROOT)}: não achei a lista `{decl}`")
+    out = []
+    for ln in m.group(1).split("\n"):
+        ln = ln.strip()
+        if not ln or ln.startswith("//"):
+            continue
+        if not (ln.startswith(".{") and ln.endswith("},")):
+            raise SystemExit(f"{path.relative_to(ROOT)}: `{decl}` precisa de uma entrada por linha: {ln[:80]}")
+        fields = {}
+        for f in re.finditer(r"\.(\w+) = (?:" + ZSTR + r"|\.(\w+)|(true|false)\b)", ln):
+            if f.group(2) is not None:
+                fields[f.group(1)] = zig_unescape(f.group(2))
+            elif f.group(3) is not None:
+                fields[f.group(1)] = f.group(3)
+            else:
+                fields[f.group(1)] = f.group(4) == "true"
+        out.append(fields)
+    return out
+
+
+def load_keys():
+    path = ROOT / "src" / "ui" / "atalhos.zig"
+    groups, rows = zig_entries(path, "grupos"), zig_entries(path, "lista")
+    ids = [g["id"] for g in groups]
+    for r in rows:
+        if not all(k in r for k in ("grupo", "pt", "en", "teclas")) or r["grupo"] not in ids:
+            raise SystemExit(f"src/ui/atalhos.zig: linha incompleta ou grupo desconhecido: {r}")
+    return groups, rows
+
+
+def keys_html(spec):
+    """"Ctrl+Shift+P / F2" -> teclas em <kbd>. "Ctrl +" é Ctrl com a tecla +."""
+    def caps(piece):
+        m = re.fullmatch(r"(\S+) (\S)", piece)
+        parts = [m.group(1), m.group(2)] if m else re.split(r"(?<=\S)\+(?=\S)", piece)
+        return "+".join(f"<kbd>{p}</kbd>" for p in parts)
+    return " / ".join(caps(a) for a in spec.split(" / "))
+
+
+PLUGIN_KEY = re.compile(r"[a-z0-9]|f(?:[1-9]|1\d|2[0-4])|enter|space|tab|backspace|delete|insert|home|end|pageup|pagedown|up|down|left|right|[,./;=-]")
+
+
+def plugin_keys(spec):
+    """"F2 / Ctrl+T" -> ["f2", "ctrl+t"]: as teclas na forma de larper.keybind, para o gerador
+    de plugin avisar quando um atalho dele também é do app. Mouse e teclas que um plugin nem
+    pode pedir ficam de fora. "Ctrl +" é a tecla = (root.zig zoomKeys); "Alt+1…9" vira nove."""
+    out = []
+    for alt in spec.split(" / "):
+        m = re.fullmatch(r"(\S+) (\S)", alt)
+        parts = [m.group(1), m.group(2)] if m else re.split(r"(?<=\S)\+(?=\S)", alt)
+        *mods, key = [p.lower() for p in parts]
+        key = {"+": "=", "↑": "up", "↓": "down", "←": "left", "→": "right"}.get(key, key)
+        if set(mods) - {"ctrl", "shift", "alt", "super"}:
+            continue
+        r = re.fullmatch(r"(\d)…(\d)", key)
+        for k in [str(d) for d in range(int(r.group(1)), int(r.group(2)) + 1)] if r else [key]:
+            fkey = re.fullmatch(r"f\d+", k)
+            # As regras de runtime.zig parseKeys: fora F1–F24, pede ctrl, alt ou super, e
+            # ctrl sozinho com a, c, v, x, y ou z fica para a digitação.
+            if not PLUGIN_KEY.fullmatch(k) or not (fkey or {"ctrl", "alt", "super"} & set(mods)):
+                continue
+            if mods == ["ctrl"] and k in ("a", "c", "v", "x", "y", "z"):
+                continue
+            out.append("+".join([x for x in ("ctrl", "shift", "alt", "super") if x in mods] + [k]))
+    return out
+
+
+def keys_md(lang, which):
+    """As tabelas de atalhos, em markdown: `{{keys}}` são todos os grupos menos o vim."""
+    groups, rows = load_keys()
+    out = []
+    for g in groups:
+        if (g["id"] == "vim") != (which == "vim"):
+            continue
+        mine = [r for r in rows if r["grupo"] == g["id"]]
+        if not mine:
+            continue
+        if which != "vim":
+            out += [f"### {g['en'] if lang == 'en' else g['pt']}", ""]
+        out += [t(lang, "| Action | Keys |", "| Ação | Teclas |"), "|---|---|"]
+        for r in mine:
+            spec = r.get("teclas_pt") if lang == "pt" and r.get("teclas_pt") else r["teclas"]
+            out.append(f"| {r['en'] if lang == 'en' else r['pt']} | {keys_html(spec)} |")
+        out.append("")
+    return "\n".join(out)
+
+
+def lua_manifest(src):
+    """O cabeçalho de um plugin, lido como src/plugins/manifest.zig lê."""
+    out = {}
+    for raw in src.split("\n")[:80]:
+        s = raw.strip()
+        if not s:
+            continue
+        if not s.startswith("--"):
+            break
+        s = s[2:].lstrip()
+        if s.startswith("@"):
+            parts = re.split(r"[ \t]+", s[1:], maxsplit=1)
+            out[parts[0]] = parts[1].strip() if len(parts) > 1 else ""
+    return out
+
+
+def load_plugin_api():
+    """O que um plugin pode pedir, com os rótulos e as explicações do cartão do app."""
+    man = (ROOT / "src" / "plugins" / "manifest.zig").read_text(encoding="utf-8")
+    caps = re.findall(r"(\w+),", re.search(r"pub const Cap = enum\(\w+\) \{(.*?)\};", man, re.S).group(1))
+    page = ROOT / "src" / "ui" / "plugins_page.zig"
+    labels = {e["cap"]: e for e in zig_entries(page, "labels")}
+    if set(caps) - set(labels):
+        raise SystemExit(f"src/ui/plugins_page.zig: capacidade sem rótulo: {sorted(set(caps) - set(labels))}")
+    alert = re.search(r"fn alertLine\(.*?\n\}\n", page.read_text(encoding="utf-8"), re.S).group(0)
+    warn = [tuple(zig_unescape(x) for x in m) for m in re.findall(r"i18n\.tr\(" + ZSTR + r", " + ZSTR + r"\)", alert)]
+    if len(warn) != 2:
+        raise SystemExit("src/ui/plugins_page.zig: alertLine mudou; ajuste load_plugin_api")
+    family = re.findall(ZSTR, re.search(r"const family = \[_\]\[\]const u8\{(.*?)\};", man, re.S).group(1))
+    # Os atalhos do app (src/ui/atalhos.zig): um plugin com a mesma combinação dispara junto.
+    groups, rows = load_keys()
+    gname = {g["id"]: g for g in groups}
+    app_keys = {}
+    for r in rows:
+        en, pt = r["en"], r["pt"]
+        if r["grupo"] == "vim":
+            en, pt = f"{gname['vim']['en']}: {en}", f"{gname['vim']['pt']}: {pt}"
+        for k in plugin_keys(r["teclas"]):
+            app_keys.setdefault(k, {"k": k, "en": en, "pt": pt})
+    return {
+        "caps": caps,
+        "labels": {c: {"en": labels[c]["en"], "pt": labels[c]["pt"], "tipEn": labels[c]["tip_en"], "tipPt": labels[c]["tip_pt"],
+                       "strong": labels[c].get("strong", False)} for c in caps},
+        "warn": {"http": {"pt": warn[0][0], "en": warn[0][1]}, "links": {"pt": warn[1][0], "en": warn[1][1]}},
+        "maxHosts": int(re.search(r"pub const max_hosts = (\d+);", man).group(1)),
+        "discord": family,
+        "appKeys": list(app_keys.values()),
+    }
+
+
+def load_bundled_plugins():
+    """Os plugins embutidos no executável (docs/plugins/exemplos.zig), com o cabeçalho de cada um."""
+    lst = (ROOT / "docs" / "plugins" / "exemplos.zig").read_text(encoding="utf-8")
+    out = []
+    for name in re.findall(r'\.name = "([\w-]+\.lua)"', lst):
+        src = (ROOT / "docs" / "plugins" / name).read_text(encoding="utf-8")
+        m = lua_manifest(src)
+        out.append({
+            "file": name, "name": m.get("name", name), "namePt": m.get("name:pt", m.get("name", name)),
+            "desc": m.get("description", ""), "descPt": m.get("description:pt", m.get("description", "")),
+            "version": m.get("version", ""), "caps": re.split(r"[,\s]+", m.get("capabilities", "").strip()) if m.get("capabilities") else [],
+            "hosts": re.split(r"[,\s]+", m["hosts"].strip()) if m.get("hosts") else [],
+            "commands": re.findall(r'larper\.command\("(/[\w-]+)"', src),
+            "keys": re.findall(r'larper\.keybind\("([^"]+)"', src),
+            "menus": [{"pt": zig_unescape(a), "en": zig_unescape(b)} for a, b in re.findall(r'larper\.menu\("\w+", \{ pt = ' + ZSTR + r", en = " + ZSTR, src)],
+            "panel": "larper.panel.set" in src,
+        })
+    return out
+
+
+def plugins_md(lang, api):
+    """A página com os plugins que vêm com o app."""
+    plugins = load_bundled_plugins()
+    # O nome do botão, como o app mostra (src/ui/plugins_page.zig).
+    page = (ROOT / "src" / "ui" / "plugins_page.zig").read_text(encoding="utf-8")
+    btn = re.search(r"p\.button\(i18n\.tr\(" + ZSTR + r', "(Install bundled[^"]*)"\)', page)
+    if not btn:
+        raise SystemExit("src/ui/plugins_page.zig: não achei o botão Install bundled plugins; ajuste plugins_md")
+    install = zig_unescape(btn.group(2) if lang == "en" else btn.group(1))
+    out = [t(lang, "# Plugin directory", "# Diretório de plugins"), "",
+           t(lang, f"The {len(plugins)} plugins that come inside the app, with what each one asks for. **Settings → Plugins → {install}** copies the ones you don't have into your plugins folder; it never overwrites a file you've edited. The ones that use the internet send nothing until you approve the host on their card.",
+             f"Os {len(plugins)} plugins que vêm dentro do app, com o que cada um pede. **Configurações → Plugins → {install}** copia os que você não tem para a sua pasta de plugins; nunca sobrescreve um arquivo que você editou. Os que usam a internet não mandam nada antes de você aprovar o host no cartão deles."),
+           "",
+           t(lang, "This page is generated from the files themselves (`docs/plugins/`) and from the labels the app shows on each plugin's card, so it matches what you'll see in Settings. To write your own, start with the [plugin starter](page:plugin-starter) and the [API](page:plugins).",
+             "Esta página é gerada dos próprios arquivos (`docs/plugins/`) e dos rótulos que o app mostra no cartão de cada plugin, então bate com o que você vê nas Configurações. Para escrever o seu, comece pelo [gerador de plugin](page:plugin-starter) e pela [API](page:plugins)."),
+           ""]
+    for p in sorted(plugins, key=lambda p: (p["name"] if lang == "en" else p["namePt"]).lower()):
+        out += [f"## {p['name'] if lang == 'en' else p['namePt']}", ""]
+        meta = [f"`{p['file']}`"]
+        if p["version"]:
+            meta.append(t(lang, f"version {p['version']}", f"versão {p['version']}"))
+        meta.append(f"[{t(lang, 'source', 'código')}]({REPO}/blob/main/docs/plugins/{p['file']})")
+        out += [" · ".join(meta), "", p["desc"] if lang == "en" else p["descPt"], ""]
+        if p["caps"]:
+            out += [t(lang, "| It asks for | What that allows |", "| Pede | O que isso permite |"), "|---|---|"]
+            for c in p["caps"]:
+                lb = api["labels"][c]
+                name = lb["en"] if lang == "en" else lb["pt"]
+                out.append(f"| {'**' + name + '**' if lb['strong'] else name} (`{c}`) | {lb['tipEn'] if lang == 'en' else lb['tipPt']} |")
+            out.append("")
+        else:
+            out += [t(lang, "It asks for nothing beyond its own commands.", "Não pede nada além dos próprios comandos."), ""]
+        facts = []
+        if p["hosts"]:
+            hosts = ", ".join(f"`{h}`" for h in p["hosts"])
+            facts.append(t(lang, f"**Talks to:** {hosts}, only after you approve it on the card", f"**Fala com:** {hosts}, só depois de você aprovar no cartão"))
+        if p["commands"]:
+            facts.append(t(lang, "**Commands:** ", "**Comandos:** ") + ", ".join(f"`{c}`" for c in p["commands"]))
+        if p["keys"]:
+            facts.append(t(lang, "**Keybinds:** ", "**Atalhos:** ") + ", ".join(f"`{k}`" for k in p["keys"]))
+        if p["menus"]:
+            facts.append(t(lang, "**Right-click on a message:** ", "**Botão direito numa mensagem:** ") + ", ".join(m["en"] if lang == "en" else m["pt"] for m in p["menus"]))
+        if p["panel"]:
+            facts.append(t(lang, "**Panel:** from the channel header button or the palette (`Panel: name`)", "**Painel:** pelo botão no topo do canal ou pela paleta (`Painel: nome`)"))
+        if facts:
+            out += [f"- {f}" for f in facts] + [""]
+        if "messages" in p["caps"] and ("http" in p["caps"] or "links" in p["caps"]):
+            w = api["warn"]["http" if "http" in p["caps"] else "links"]
+            out += ["> [!WARNING]", t(lang, f"> The card shows: “{w['en']}”", f"> O cartão mostra: “{w['pt']}”"), ""]
+    return "\n".join(out)
+
+
+def starter_embed(lang, path):
+    root = root_of(path)
+    return (f'<div class="starter" data-starter><noscript><p class="callout warn">'
+            f'{t(lang, "The generator needs JavaScript. Without it, copy the example on the API page and edit the header by hand.", "O gerador precisa de JavaScript. Sem ele, copie o exemplo da página da API e edite o cabeçalho à mão.")}'
+            f'</p></noscript></div>\n<link rel="stylesheet" href="{root}assets/site/extra.css">'
+            f'<script src="{root}assets/site/plugin-api.js"></script><script src="{root}assets/site/plugin-starter.js" defer></script>')
+
+
 # ------------------------------------------------------------- Páginas ----
 GUIDE = [
     ("Start", "Comece", [
@@ -652,6 +916,8 @@ GUIDE = [
         ("themes", "Writing themes", "Escrevendo temas"),
         ("theme-gallery", "Built-in themes", "Temas embutidos"),
         ("plugins", "Lua plugins", "Plugins em Lua"),
+        ("plugin-directory", "Plugin directory", "Diretório de plugins"),
+        ("plugin-starter", "Plugin starter", "Gerador de plugin"),
         ("lsp", "Code diagnostics", "Erros no código"),
     ]),
     ("Internals", "Por dentro", [
@@ -804,12 +1070,15 @@ def gallery_md(lang, themes):
 
 def build_guide(lang, themes):
     index = []
+    plugin_api = load_plugin_api()
     for gi, (slug, ten, tpt) in enumerate(FLAT):
         path = page_url(lang, slug)
         alt = page_url("pt" if lang == "en" else "en", slug)
         title = ten if lang == "en" else tpt
         if slug == "theme-gallery":
             src = gallery_md(lang, themes)
+        elif slug == "plugin-directory":
+            src = plugins_md(lang, plugin_api)
         else:
             f = external_sources(slug, lang) or SITE / "guide" / lang / f"{slug}.md"
             if not f.exists():
@@ -817,6 +1086,19 @@ def build_guide(lang, themes):
             src = f.read_text(encoding="utf-8")
         # A linha de idioma dos .md não faz sentido aqui: o site tem a dele.
         src = re.sub(r"^(?:\*\*English\*\*|\[English\]\(.*?\)) · .*$", "", src, flags=re.M)
+        # Pedaços que saem do código do app: {{keys}}, {{keys:vim}} e o gerador de plugin.
+        embeds = []
+
+        def directive(m, lang=lang, path=path, embeds=embeds):
+            name = m.group(1)
+            if name in ("keys", "keys:vim"):
+                return keys_md(lang, "vim" if name == "keys:vim" else "all")
+            if name == "starter":
+                embeds.append(starter_embed(lang, path))
+                return f"@@embed-{len(embeds) - 1}@@"
+            raise SystemExit(f"{slug}: diretiva desconhecida {{{{{name}}}}}")
+
+        src = re.sub(r"^\{\{([\w:-]+)\}\}$", directive, src, flags=re.M)
         base_rw = rewriter(lang, slug, path)
 
         def rw(url, base_rw=base_rw, path=path):
@@ -836,6 +1118,9 @@ def build_guide(lang, themes):
         m = re.search(r"^#\s+.*$", src, re.M)
         body_md = src[m.end():] if m else src
         content, heads = markdown(body_md, rw)
+        for n, block in enumerate(embeds):
+            content = content.replace(f"<p>@@embed-{n}@@</p>", block)
+        content = content.replace("@@ROOT@@", root_of(path))
         side = []
         for gten, gpt, pages in GUIDE:
             links = "".join(
@@ -854,6 +1139,8 @@ def build_guide(lang, themes):
             pager += f'<a class="next" href="{rel(path, page_url(lang, next_[0]))}"><small>{t(lang, "Next", "Próximo")}</small>{next_[1] if lang == "en" else next_[2]}</a>'
         pager += "</nav>"
         edit = f"{REPO}/blob/main/" + str((external_sources(slug, lang) or SITE / "guide" / lang / f"{slug}.md").relative_to(ROOT)) if slug != "theme-gallery" else f"{REPO}/tree/main/themes"
+        if slug == "plugin-directory":
+            edit = f"{REPO}/tree/main/docs/plugins"
         body = f'''<div class="guide">
 <aside class="side" aria-label="{t(lang, 'Guide pages', 'Páginas do guia')}">
 <button type="button" class="side-search" data-open-palette>{t(lang, 'Search the guide', 'Buscar no guia')}<span><kbd>Ctrl</kbd><kbd>K</kbd></span></button>
@@ -941,6 +1228,8 @@ def main():
     write("assets/site/data.js", "window.LC_DATA=" + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + ";\n")
     write("assets/site/layouts.js", "window.LC_LAYOUTS=" + json.dumps({k: {"nodes": v["nodes"], "en": v["descEn"], "pt": v["desc"]} for k, v in themes.items()}, ensure_ascii=False, separators=(",", ":")) + ";\n")
     write("assets/site/presets.js", "window.LC_PRESETS=" + json.dumps({k: v["preset"] for k, v in themes.items()}, ensure_ascii=False) + ";\n")
+    # O gerador de plugin (plugin-starter.js) pega daqui as capacidades e os rótulos do app.
+    write("assets/site/plugin-api.js", "window.LC_PLUGIN_API=" + json.dumps(load_plugin_api(), ensure_ascii=False, separators=(",", ":")) + ";\n")
     for lang in LANGS:
         index = build_landing(lang, themes)
         index += build_guide(lang, themes)

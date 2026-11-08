@@ -326,18 +326,39 @@ const Page = struct {
         const ctx = p.ctx;
         p.markText(.{ .x = p.x, .y = p.y, .w = p.w, .h = 36 });
         d.text(p.dl, p.font(.medium), 15, p.x, p.y + 8, ctx.col(.text), action);
+        // Da direita para a esquerda: alternativas separadas por " / " e, em cada uma,
+        // as teclas unidas por "+" ("Ctrl +" é Ctrl com a tecla +), como o site mostra.
         var x = p.x + p.w;
-        var it = std.mem.splitBackwardsScalar(u8, keys, '+');
-        while (it.next()) |k| {
-            const kw = d.width(p.font(.semibold), 13, k) + 18;
-            x -= kw;
-            const kr: d.Rect = .{ .x = x, .y = p.y + 4, .w = kw, .h = 28 };
-            d.rect(p.dl, kr, ctx.col(.elevated), 6);
-            d.rect(p.dl, .{ .x = kr.x, .y = kr.bottom() - 3, .w = kr.w, .h = 3 }, d.Rgba.black.alpha(0.25), 3);
-            d.text(p.dl, p.font(.semibold), 13, kr.x + 9, kr.y + 5, ctx.col(.text), k);
-            x -= 6;
+        var alts = std.mem.splitBackwardsSequence(u8, keys, " / ");
+        var first = true;
+        while (alts.next()) |alt| {
+            if (!first) {
+                x -= d.width(p.font(.medium), 14, "/") + 8;
+                d.text(p.dl, p.font(.medium), 14, x, p.y + 9, ctx.col(.muted), "/");
+                x -= 8;
+            }
+            first = false;
+            const sp = std.mem.lastIndexOfScalar(u8, alt, ' ');
+            if (sp != null and alt.len - sp.? == 2) {
+                p.keyCap(&x, alt[sp.? + 1 ..]);
+                p.keyCap(&x, alt[0..sp.?]);
+                continue;
+            }
+            var it = std.mem.splitBackwardsScalar(u8, alt, '+');
+            while (it.next()) |k| p.keyCap(&x, k);
         }
         p.y += 44;
+    }
+
+    fn keyCap(p: *Page, x: *f32, k: []const u8) void {
+        const ctx = p.ctx;
+        const kw = d.width(p.font(.semibold), 13, k) + 18;
+        x.* -= kw;
+        const kr: d.Rect = .{ .x = x.*, .y = p.y + 4, .w = kw, .h = 28 };
+        d.rect(p.dl, kr, ctx.col(.elevated), 6);
+        d.rect(p.dl, .{ .x = kr.x, .y = kr.bottom() - 3, .w = kr.w, .h = 3 }, d.Rgba.black.alpha(0.25), 3);
+        d.text(p.dl, p.font(.semibold), 13, kr.x + 9, kr.y + 5, ctx.col(.text), k);
+        x.* -= 6;
     }
 };
 
@@ -843,31 +864,16 @@ fn page(p: *Page, previews: []const Preview) void {
             p.title(i18n.tr("Atalhos de teclado", "Keybinds"));
             p.toggle(i18n.tr("Navegação estilo vim", "Vim-style navigation"), i18n.tr("Com a caixa de texto sem foco (Esc sai dela), as teclas abaixo navegam.", "With the text box unfocused (Esc leaves it), the keys below navigate."), &s.vim_keys);
             p.divider();
-            p.keyRow(i18n.tr("Paleta de comandos", "Command palette"), "Ctrl+K");
-            p.keyRow(i18n.tr("Paleta com as ações primeiro", "Palette, actions first"), "Ctrl+Shift+P");
-            p.keyRow(i18n.tr("Buscar mensagens", "Search messages"), "Ctrl+F");
-            p.keyRow(i18n.tr("Configurações", "Settings"), "Ctrl+,");
-            p.keyRow(i18n.tr("Aumentar ou diminuir a interface", "Make the interface bigger or smaller"), "Ctrl + / Ctrl -");
-            p.keyRow(i18n.tr("Interface no tamanho normal", "Interface at normal size"), "Ctrl 0");
-            p.keyRow(i18n.tr("Tela cheia", "Fullscreen"), "F11 / Alt+Enter");
-            p.keyRow(i18n.tr("Próximo tema", "Next theme"), "F2");
-            p.keyRow(i18n.tr("Tema anterior", "Previous theme"), "Shift+F2");
-            p.keyRow(i18n.tr("Próxima aba", "Next tab"), "Ctrl+Tab");
-            p.keyRow(i18n.tr("Aba anterior", "Previous tab"), "Ctrl+Shift+Tab");
-            p.keyRow(i18n.tr("Ir para a aba N", "Go to tab N"), "Alt+1…9");
-            p.keyRow(i18n.tr("Fechar aba", "Close tab"), "Ctrl+W");
-            p.keyRow(i18n.tr("Caixa de entrada", "Inbox"), "Ctrl+I");
-            p.keyRow(i18n.tr("Mensagens salvas", "Saved messages"), "Ctrl+Shift+S");
-            p.keyRow(i18n.tr("Abrir canal em nova aba", "Open channel in a new tab"), i18n.tr("Ctrl+Clique", "Ctrl+Click"));
-            p.keyRow(i18n.tr("Fechar aba com o mouse", "Close tab with the mouse"), i18n.tr("Botão do meio", "Middle click"));
-            if (s.vim_keys) {
-                p.keyRow(i18n.tr("Rolar para baixo / para cima", "Scroll down / up"), "j / k");
-                p.keyRow(i18n.tr("Topo / fim da conversa", "Top / bottom of the conversation"), "gg / G");
-                p.keyRow(i18n.tr("Meia página para baixo / para cima", "Half page down / up"), "Ctrl+d / Ctrl+u");
-                p.keyRow(i18n.tr("Próximo / anterior canal", "Next / previous channel"), "J / K");
-                p.keyRow(i18n.tr("Voltar para a caixa de texto", "Back to the text box"), i18n.tr("i ou Enter", "i or Enter"));
-                p.keyRow(i18n.tr("Sair da caixa de texto", "Leave the text box"), "Esc");
-                p.keyRow(i18n.tr("Buscar (paleta)", "Search (palette)"), "/");
+            // A lista mora em ui/atalhos.zig, que também gera a página de atalhos do site.
+            const atalhos = @import("atalhos.zig");
+            var grupo: ?atalhos.Grupo = null;
+            for (atalhos.lista) |a| {
+                if (a.grupo == .vim and !s.vim_keys) continue;
+                if (grupo != a.grupo) {
+                    grupo = a.grupo;
+                    p.heading(atalhos.nome(a.grupo, i18n.en()));
+                }
+                p.keyRow(i18n.tr(a.pt, a.en), if (a.teclas_pt) |k| i18n.tr(k, a.teclas) else a.teclas);
             }
         },
         .idioma => {

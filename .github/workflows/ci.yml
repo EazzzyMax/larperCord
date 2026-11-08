@@ -11,6 +11,12 @@ jobs:
       # Os testes cobrem as partes puras (KDL, cores, layout, markdown, Store,
       # temas embutidos, protobuf, APNG, URLs de mídia) e não precisam de SDL.
       - run: zig build test
+      # O gerador de plugin do site contra a API do app: cabeçalho, capacidades, luac e
+      # cada plugin gerado rodando num larper de mentira com as regras do app.
+      - name: Gerador de plugin do site
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends lua5.4
+          node tools/test_plugin_starter.js
       # O mínimo comum, como na release: o supressor de ruído escolhe o caminho ao rodar.
       - name: Caminhos do supressor de ruído
         run: |
