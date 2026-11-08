@@ -44,12 +44,13 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
-      # O emsdk e as portas que o embuilder compila (SDL3, FreeType, zlib) de uma vez.
+      # O emsdk e as portas que o embuilder compila (SDL3, zlib, libpng e o FreeType com
+      # PNG de tools/web/freetype_png.py) de uma vez. A chave muda junto com esse arquivo.
       - continue-on-error: true
         uses: actions/cache@v4
         with:
           path: ${{ env.EM_CACHE_FOLDER }}
-          key: emsdk-${{ env.EM_VERSION }}-${{ runner.os }}-sdl3-freetype-zlib
+          key: emsdk-${{ env.EM_VERSION }}-${{ runner.os }}-sdl3-zlib-${{ hashFiles('tools/web/freetype_png.py') }}
       - id: emsdk
         continue-on-error: true
         uses: emscripten-core/setup-emsdk@v16
@@ -107,13 +108,14 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          # A raiz do emsdk e o sysroot que o emcc usa de fato (o EM_CACHE muda o lugar).
-          emsdk_root="${EMSDK:-$(cd "$(dirname "$(command -v emcc)")/../.." && pwd)}"
+          # A pasta do emcc (no emsdk, upstream/emscripten; num pacote do sistema, a dele)
+          # e o sysroot que o emcc usa de fato (o EM_CACHE muda o lugar).
+          em_dir="$(dirname "$(command -v emcc)")"
           sysroot="$(em-config CACHE)/sysroot"
           emcc --version
           # Otimizado para tamanho: Zig em small e o emcc com -Oz (e o wasm-opt dele).
           zig build web \
-            -Demsdk="$emsdk_root" \
+            -Demscripten="$em_dir" \
             -Dweb-sysroot="$sysroot" \
             -Dweb-host-include="$WEB_INCLUDE" \
             -Dweb-optimize=small
