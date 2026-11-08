@@ -26,6 +26,11 @@ const json = @import("json.zig");
 const rewrite = @import("rewrite.zig");
 const sync = @import("sync.zig");
 
+/// Navegador (src/web_main.zig): sem threads, o Lua roda na thread da página, uma leva
+/// por quadro (`Worker.pump`, que App.webFrame chama). Filas, limites e sandbox são os
+/// mesmos; só não há quem espere a condição da fila.
+pub const inline_mode = @hasDecl(@import("root"), "larper_web");
+
 pub const max_plugins = 64;
 pub const max_source = 256 * 1024;
 const max_commands = 32;
@@ -142,6 +147,8 @@ pub const Worker = struct {
     thread: ?sync.Thread = null,
     // Só da thread dos plugins:
     rts: std.ArrayList(*Rt) = .empty,
+    /// A leva em andamento quando não há thread (`pump`).
+    inline_batch: std.ArrayList(wire.Ev) = .empty,
     /// Eventos que ainda faltam neste lote.
     backlog: usize = 0,
 
@@ -152,6 +159,8 @@ pub const Worker = struct {
     }
 
     pub fn start(w: *Worker) bool {
+        // Sem thread: `pump` atende a fila a cada quadro.
+        if (inline_mode) return true;
         if (w.thread != null) return true;
         w.quit = false;
         w.exited.store(false, .release);
@@ -169,6 +178,14 @@ pub const Worker = struct {
 
     /// Espera a thread acabar. Com `closing`, até o que está rodando desiste.
     pub fn join(w: *Worker, closing: bool) void {
+        if (inline_mode) {
+            // O que está na fila (os pedidos de parar) e o fim de `threadMain`.
+            if (closing) w.closing.store(true, .release);
+            w.pump();
+            for (w.rts.items) |rt| rt.close();
+            w.reap();
+            return;
+        }
         if (w.thread == null) return;
         if (closing) w.closing.store(true, .release);
         w.retire();
@@ -183,6 +200,7 @@ pub const Worker = struct {
         for (w.out.items) |*cmd| freeCmd(w.gpa, cmd);
         w.out.deinit(w.gpa);
         w.rts.deinit(w.gpa);
+        w.inline_batch.deinit(w.gpa);
         w.lock.deinit();
         w.gpa.destroy(w);
     }
@@ -357,6 +375,41 @@ pub const Worker = struct {
         for (w.rts.items) |rt| if (!rt.dead and rt.store_dirty and rt.store_flush_at <= now) rt.flushStorage();
     }
 
+    /// Navegador: uma leva na thread da página, sem esperar. Nada na fila e nenhum
+    /// temporizador vencido: volta na hora.
+    pub fn pump(w: *Worker) void {
+        if (!inline_mode) return;
+        w.lock.lock();
+        const due = w.nextDue();
+        if (w.events.items.len == 0 and (due == null or due.? > sync.nowMs())) {
+            w.lock.unlock();
+            return;
+        }
+        w.busy = true;
+        std.mem.swap(std.ArrayList(wire.Ev), &w.events, &w.inline_batch);
+        w.lock.unlock();
+        w.runBatch(&w.inline_batch);
+        w.lock.lock();
+        w.busy = false;
+        w.lock.unlock();
+    }
+
+    /// Uma leva: os eventos que chegaram, os temporizadores vencidos e a faxina.
+    fn runBatch(w: *Worker, batch: *std.ArrayList(wire.Ev)) void {
+        _ = w.loops.fetchAdd(1, .monotonic);
+        for (batch.items, 0..) |*ev, i| {
+            w.backlog = batch.items.len - i - 1;
+            w.handle(ev);
+            w.kick();
+        }
+        w.backlog = 0;
+        batch.clearRetainingCapacity();
+        w.fireTimers();
+        w.flushDue();
+        w.reap();
+        w.kick();
+    }
+
     /// Tira da lista quem parou.
     fn reap(w: *Worker) void {
         var i: usize = 0;
@@ -394,19 +447,7 @@ fn threadMain(raw: ?*anyopaque) void {
         w.busy = true;
         std.mem.swap(std.ArrayList(wire.Ev), &w.events, &batch);
         w.lock.unlock();
-        _ = w.loops.fetchAdd(1, .monotonic);
-
-        for (batch.items, 0..) |*ev, i| {
-            w.backlog = batch.items.len - i - 1;
-            w.handle(ev);
-            w.kick();
-        }
-        w.backlog = 0;
-        batch.clearRetainingCapacity();
-        w.fireTimers();
-        w.flushDue();
-        w.reap();
-        w.kick();
+        w.runBatch(&batch);
     }
     // Saindo: o que estava escrito vai para o disco.
     for (w.rts.items) |rt| rt.close();

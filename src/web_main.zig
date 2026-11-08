@@ -70,6 +70,17 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
     const a = try App.create(std.heap.c_allocator, opts);
     app = a;
+    // O idioma e o claro/escuro da página só valem para abrir: daqui em diante quem manda
+    // são as Configurações (Aparência e Idioma), como no app instalado. Forçados, os dois
+    // botões ficavam marcados sem mudar nada.
+    if (a.opts.mode) |m| a.st.settings.color_mode = if (m == .light) 1 else 0;
+    if (a.opts.lang) |l| a.st.settings.language = switch (l) {
+        .pt => 1,
+        .en => 2,
+        .ja => 3,
+    };
+    a.opts.mode = null;
+    a.opts.lang = null;
     if (emscripten) {
         // 0 qps: um quadro por requestAnimationFrame. `main` volta e o runtime fica
         // (EXIT_RUNTIME=0); o app vive no heap.

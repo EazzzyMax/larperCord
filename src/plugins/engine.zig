@@ -724,6 +724,11 @@ pub const Engine = struct {
 
     // --- O que os plugins pediram --------------------------------------------------
 
+    /// Navegador: roda o Lua que está esperando (ver `runtime.inline_mode`).
+    pub fn pump(e: *Engine) void {
+        if (e.worker) |w| w.pump();
+    }
+
     /// Atende os pedidos que chegaram da thread dos plugins. Só na thread da
     /// interface e fora do quadro: troca árvores e listas que o desenho lê.
     pub fn drain(e: *Engine) void {

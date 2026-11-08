@@ -48,7 +48,11 @@ pub fn draw(p: anytype) void {
     const ctx = p.ctx;
     const e = engine.current orelse return;
     p.title("Plugins");
-    para(p, i18n.tr("Scripts Lua que somam funções ao app, sem recompilar. Cada um roda numa thread só dos plugins: um plugin lento ou travado não segura a interface.", "Lua scripts that add features to the app, no rebuild needed. They run on a thread of their own: a slow or stuck plugin can't hold up the interface."), .muted);
+    // No navegador não há thread dos plugins (ver runtime.inline_mode): quem segura é o limite.
+    if (@import("../plugins/runtime.zig").inline_mode)
+        para(p, i18n.tr("Scripts Lua que somam funções ao app, sem recompilar. Na demonstração do navegador eles rodam no mesmo ritmo da página: um plugin travado segura a tela até o limite de instruções parar ele.", "Lua scripts that add features to the app, no rebuild needed. In the browser demo they run alongside the page: a stuck plugin holds up the screen until the instruction limit stops it."), .muted)
+    else
+        para(p, i18n.tr("Scripts Lua que somam funções ao app, sem recompilar. Cada um roda numa thread só dos plugins: um plugin lento ou travado não segura a interface.", "Lua scripts that add features to the app, no rebuild needed. They run on a thread of their own: a slow or stuck plugin can't hold up the interface."), .muted);
     var buf: [600]u8 = undefined;
     para(p, i18n.fmt(&buf, "Pasta: {s}", "Folder: {s}", .{if (e.dir().len > 0) e.dir() else "—"}), .faint);
     p.y += 6;

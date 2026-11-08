@@ -2911,11 +2911,13 @@ pub const App = struct {
     /// bandeja, voz, LSP, Rich Presence, prints de verdade, QA e --stats. Falso: parar.
     pub fn webFrame(app: *App, wl: *WebLoop) bool {
         if (wl.last_ns == 0) wl.last_ns = c.SDL_GetTicksNS();
-        // Sem thread: a demonstração anda aqui (ver Gateway.pump).
+        // Sem thread: a demonstração anda aqui (ver Gateway.pump), e os plugins também
+        // (ver runtime.inline_mode); o que eles pedirem chega como o aviso .plugins.
         switch (app.net) {
             .fake => |*g| g.pump(),
             else => {},
         }
+        app.plugins.pump();
         var e: c.SDL_Event = undefined;
         var input = false;
         while (c.SDL_PollEvent(&e)) {
