@@ -16,9 +16,18 @@ pub fn valid(s: Socket) bool {
     return s != no_socket;
 }
 
+/// OpenSSL (libcrypto): opções de `OPENSSL_init_crypto` (openssl/crypto.h).
+extern fn OPENSSL_init_crypto(opts: u64, settings: ?*const anyopaque) c_int;
+const openssl_init_no_load_config: u64 = 0x80;
+
 /// Uma vez, antes de qualquer outra coisa.
 pub fn init() void {
     if (windows) {
+        // Antes de qualquer TLS (curl, DAVE): o OpenSSL não lê o openssl.cnf. No Windows ele
+        // procura em <pasta do .exe>\..\etc\ssl, uma pasta que outro usuário da máquina pode
+        // criar, e o arquivo carrega DLLs (provider, engine) no processo, onde está o token.
+        // A configuração é lida uma vez só: a primeira chamada decide.
+        _ = OPENSSL_init_crypto(openssl_init_no_load_config, null);
         var data: c.WSADATA = undefined;
         _ = c.WSAStartup(0x0202, &data);
     } else {
