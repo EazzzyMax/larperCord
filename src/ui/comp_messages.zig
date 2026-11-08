@@ -1680,9 +1680,20 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
     const was_active = vim.composer_active;
     var kept: @TypeOf(st.input) = undefined;
     if (keep) kept = st.input;
+    // Texto trocado por fora com a caixa perdendo o foco (o comando de um bot escolhido na
+    // lista esvazia a caixa e o formulário dele pega o foco): a caixa não fica ativa, a
+    // chamada abaixo não passa por `inputCallback`, e o ImGui devolveria o texto de antes
+    // ao soltá-la. O que foi pedido vale.
+    const synced = st.input_sync;
+    var wanted: @TypeOf(st.input) = undefined;
+    if (synced) wanted = st.input;
     if (c.ImGui_InputTextMultilineEx("##composer", &st.input, st.input.len, d.v(input_w, frame_h), flags, inputCallback, st))
         // Alt+Enter é tela cheia (ui/root.zig): não manda a mensagem.
         if (!ctx.io.*.KeyAlt) submit(ctx);
+    if (synced and st.input_sync and !c.ImGui_IsItemActive()) {
+        st.input = wanted;
+        st.input_sync = false;
+    }
     // Avisa o Discord quando o texto muda (o app limita a um a cada 8 s).
     if (c.ImGui_IsItemEdited() and st.input[0] != 0) ctx.act(.{ .typing = ch_id });
     const active = c.ImGui_IsItemActive();

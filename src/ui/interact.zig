@@ -798,7 +798,8 @@ fn fieldHeight(ctx: *d.Ctx, ms: *const ModalState, i: usize, wd: f32) f32 {
 
 fn hintZ(buf: []u8, s: []const u8) [*:0]const u8 {
     const t = d.utf8Prefix(s, buf.len - 1);
-    @memcpy(buf[0..t.len], t);
+    // O texto pode já estar no começo de buf (a faixa "mín – máx" de optionHint).
+    if (t.ptr != buf.ptr) @memcpy(buf[0..t.len], t);
     buf[t.len] = 0;
     return @ptrCast(buf.ptr);
 }
@@ -1284,7 +1285,11 @@ fn drawForm(ctx: *d.Ctx) void {
                             fs.ac_due = ctx.now_ms + (if (c.ImGui_IsItemEdited()) @as(i64, 300) else 0);
                             anim.at(fs.ac_due);
                         }
-                        if (c.ImGui_IsItemActive() and fs.ac_shown == i and fs.ac_list != null and fs.ac_list.?.choices.len > 0) ac_rect = cr;
+                        // O clique numa sugestão tira o foco do campo neste mesmo quadro, antes de a
+                        // lista ser desenhada: no quadro em que ele sai, ela ainda aparece para
+                        // receber o clique (fora dela, some no quadro seguinte).
+                        const focused = c.ImGui_IsItemActive() or (c.ImGui_IsItemDeactivated() and c.ImGui_IsMouseClicked(0));
+                        if (focused and fs.ac_shown == i and fs.ac_list != null and fs.ac_list.?.choices.len > 0) ac_rect = cr;
                     }
                 }
             },
