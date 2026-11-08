@@ -4,6 +4,7 @@
 //! (recebe `Command`, entrega `Event` no `Sink`) e o resto do app não muda.
 const std = @import("std");
 const timeline = @import("../platform/timeline.zig");
+const sys = @import("../platform/sys.zig");
 const c = @import("c");
 const types = @import("../core/types.zig");
 const ev = @import("../core/event.zig");
@@ -39,7 +40,7 @@ const entrada = @import("../core/entrada.zig");
 /// O que a demonstração "mandou para o Discord" (o QA confere; não há servidor
 /// para perguntar). Lido da thread da interface.
 pub const sent = struct {
-    const A = std.atomic.Value(u64);
+    const A = sys.Atomic(u64);
     pub var acks: A = .init(0);
     pub var ack_channel: A = .init(0);
     pub var ack_message: A = .init(0);
@@ -249,7 +250,14 @@ pub const Gateway = struct {
     vflags: std.AutoHashMapUnmanaged(Id, ev.VoiceFlags) = .empty,
 
     pub fn start(g: *Gateway) !void {
+        // Navegador: sem thread; a página chama `pump` a cada quadro.
+        if (sys.web) return g.begin();
         g.thread = c.SDL_CreateThread(threadMain, "gateway", g) orelse return error.SdlThread;
+    }
+
+    /// Navegador (App.webFrame): uma volta do laço da thread, sem esperar.
+    pub fn pump(g: *Gateway) void {
+        g.run() catch |err| std.log.err("gateway: {t}", .{err});
     }
 
     /// A call da demonstração: só o áudio local (net/voice.zig, `local`).
@@ -263,6 +271,8 @@ pub const Gateway = struct {
 
     fn startVoice(g: *Gateway, guild: Id, channel: Id, mute: bool, deaf: bool) void {
         g.stopVoice();
+        // Navegador: a call aparece, sem microfone nem som (o áudio local precisa de thread).
+        if (sys.web) return;
         const vc = alloc.create(voice_mod.Voice) catch return;
         vc.* = voice_mod.Voice.init(g.sink, guild, channel, me_id, "", "", "", mute, deaf);
         vc.local = true;
@@ -301,6 +311,11 @@ pub const Gateway = struct {
     pub fn stop(g: *Gateway) void {
         g.commands.push(.shutdown);
         if (g.thread) |t| c.SDL_WaitThread(t, null);
+        // Navegador: o que o fim da thread faria (ver `run`).
+        if (sys.web) {
+            g.stopVoice();
+            g.frecency.deinit(alloc);
+        }
         g.presence.deinit(alloc);
         g.conta.deinit();
     }
@@ -458,7 +473,8 @@ pub const Gateway = struct {
         return 0;
     }
 
-    fn run(g: *Gateway) !void {
+    /// A abertura: o READY e o resto que o gateway de verdade manda antes de ficar pronto.
+    fn begin(g: *Gateway) !void {
         timeline.mark(.gateway);
         g.epoch_ms = nowMs();
         g.emit(.{ .ready = try buildReady() });
@@ -497,14 +513,19 @@ pub const Gateway = struct {
             if (g.flood_per_s > 0) g.next_flood_ms = nowMs() + 500;
         }
         g.next_latency_ms = nowMs() + 1500;
+    }
 
+    /// O laço da thread. No navegador (sem thread), cada chamada de `pump` é uma volta
+    /// sem esperar, e o fim dela fica para `stop`.
+    fn run(g: *Gateway) !void {
+        if (!sys.web) try g.begin();
         var cmds: std.ArrayList(ev.Command) = .empty;
         defer cmds.deinit(alloc);
-        defer g.stopVoice();
-        defer g.frecency.deinit(alloc);
+        defer if (!sys.web) g.stopVoice();
+        defer if (!sys.web) g.frecency.deinit(alloc);
         while (true) {
             const now = nowMs();
-            const wait: i32 = @intCast(std.math.clamp(g.nextDeadline() - now, 1, 2000));
+            const wait: i32 = if (sys.web) 0 else @intCast(std.math.clamp(g.nextDeadline() - now, 1, 2000));
             g.commands.waitDrain(&cmds, wait);
             for (cmds.items) |cmd| switch (cmd) {
                 .shutdown => return,
@@ -678,7 +699,7 @@ pub const Gateway = struct {
                     // Sem ninguém na lista: a interface usa a do canal pai.
                     if (n == 0) continue;
                     const list = try alloc.alloc(Id, n);
-                    for (list, 0..) |*u, i| u.* = users[1 + (i + tid % 5) % 7].id;
+                    for (list, 0..) |*u, i| u.* = users[1 + (i + @as(usize, @intCast(tid % 5))) % 7].id;
                     g.emit(.{ .thread_members = .{ .thread = tid, .replace = true, .added = list } });
                 },
                 .typing => {},
@@ -943,6 +964,7 @@ pub const Gateway = struct {
             };
             cmds.clearRetainingCapacity();
             try g.tick(nowMs());
+            if (sys.web) return;
         }
     }
 
@@ -1789,7 +1811,7 @@ const ChannelSeed = struct { name: []const u8, kind: types.ChannelKind = .text, 
 
 /// O que a demonstração recebeu das threads (o QA confere o que iria ao Discord).
 pub const sent_threads = struct {
-    const A = std.atomic.Value(u64);
+    const A = sys.Atomic(u64);
     pub var edits: A = .init(0);
     pub var edit_len: A = .init(0);
     /// Corpo do último PATCH /channels/{thread}.

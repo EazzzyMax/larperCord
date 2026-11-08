@@ -175,7 +175,7 @@ pub fn visual(s: []const u8) ?[]const u8 {
     if (!hasRtl(s)) return null;
     if (s.len > cache_in) return convert(s);
     const h = std.hash.Wyhash.hash(0, s);
-    const e = &cache[h % cache.len];
+    const e = &cache[@intCast(h % cache.len)];
     if (e.in_len == s.len and e.hash == h and std.mem.eql(u8, e.in[0..s.len], s)) return e.out[0..e.out_len];
     const v = convert(s) orelse return null;
     if (v.len <= cache_out) {

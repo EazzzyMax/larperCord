@@ -248,6 +248,8 @@ pub const Manager = struct {
 
     /// Thread que espera o sistema avisar e chama `wake` quando um tema muda.
     pub fn watch(m: *Manager, wake: *const fn () void) void {
+        // Navegador: os temas são só os embutidos, ninguém edita arquivo.
+        if (sys.web) return;
         if (sys.windows) return m.watchWindows(wake);
         const fd = c.inotify_init1(c.IN_CLOEXEC);
         if (fd < 0) return;

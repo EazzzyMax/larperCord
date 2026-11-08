@@ -2202,7 +2202,7 @@ fn menuChoices(L: ?*lua.State, t: c_int, raw: *[max_choices]RawChoice) usize {
     }
     // A tabela fica na pilha: os textos lidos continuam vivos até o fim da chamada.
     const list = lua.lua_gettop(L);
-    const n = lua.lua_rawlen(L, list);
+    const n: usize = @intCast(lua.lua_rawlen(L, list));
     if (n > max_choices) raise(L, tr("larper.menu: no máximo 16 escolhas", "larper.menu: at most 16 choices"));
     for (raw[0..n], 1..) |*r, i| {
         if (lua.lua_rawgeti(L, list, @intCast(i)) != lua.TTABLE) raise(L, tr("larper.menu: cada escolha é uma tabela {value=, pt=, en=}", "larper.menu: each choice is a table {value=, pt=, en=}"));

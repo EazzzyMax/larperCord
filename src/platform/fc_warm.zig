@@ -9,7 +9,8 @@ pub const Warm = ?*c.SDL_Thread;
 
 pub fn start() Warm {
     // Sem thread (falhou ou Windows): a primeira busca prepara tudo, como antes.
-    return if (sys.windows) null else c.SDL_CreateThread(run, "fontes", null);
+    // No navegador não há fontconfig (ver ui/fonts.zig, `resolveWeb`).
+    return if (sys.windows or sys.web) null else c.SDL_CreateThread(run, "fontes", null);
 }
 
 fn run(_: ?*anyopaque) callconv(.c) c_int {

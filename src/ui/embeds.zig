@@ -346,7 +346,7 @@ fn cardHeight(ctx: *d.Ctx, e: *const types.Embed, spans: []const []const md.Span
     hash.update(std.mem.asBytes(&d.text_scale));
     hash.update(std.mem.asBytes(&ctx.st.theme_gen));
     const key = hash.final() | 1;
-    const slot = &height_cache[key % height_cache.len];
+    const slot = &height_cache[@intCast(key % height_cache.len)];
     if (slot.key == key) return slot.h;
     slot.* = .{ .key = key, .h = card(ctx, null, e, spans, 0, 0, w, 1, 0, 0, &none) };
     return slot.h;

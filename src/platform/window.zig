@@ -36,7 +36,8 @@ pub const Window = struct {
             return error.SdlInit;
         }
         errdefer c.SDL_Quit();
-        var flags = c.SDL_WINDOW_RESIZABLE | c.SDL_WINDOW_HIGH_PIXEL_DENSITY | c.SDL_WINDOW_TRANSPARENT;
+        // Navegador: o canvas fica opaco (transparente, apareceria a página por trás).
+        var flags = c.SDL_WINDOW_RESIZABLE | c.SDL_WINDOW_HIGH_PIXEL_DENSITY | (if (sys.web) 0 else c.SDL_WINDOW_TRANSPARENT);
         // LARPER_HIDDEN=1: janela escondida (medir desempenho com a GPU de verdade).
         if (c.SDL_getenv("LARPER_HIDDEN") != null) flags |= c.SDL_WINDOW_HIDDEN;
         const window = c.SDL_CreateWindow(title, w, h, flags) orelse return error.SdlWindow;

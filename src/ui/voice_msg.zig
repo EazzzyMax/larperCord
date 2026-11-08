@@ -20,6 +20,7 @@ const voz_audio = @import("../net/voz_audio.zig");
 
 const alloc = std.heap.c_allocator;
 const Atomic = std.atomic.Value;
+const sys = @import("../platform/sys.zig");
 
 /// Teto do download (uma mensagem de voz de vários minutos tem poucos MB).
 const max_download: usize = 8 << 20;
@@ -62,7 +63,7 @@ const Run = struct {
     dur_ms: Atomic(u32) = .init(0),
     state: Atomic(RunState) = .init(.loading),
     /// Pedido de busca (ms; -1 = nenhum).
-    seek_ms: Atomic(i64) = .init(-1),
+    seek_ms: sys.Atomic(i64) = .init(-1),
 
     fn release(r: *Run) void {
         if (r.refs.fetchSub(1, .acq_rel) != 1) return;

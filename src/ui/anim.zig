@@ -26,7 +26,7 @@ pub fn at(t: i64) void {
     next_wake_ms = @min(next_wake_ms, t);
 }
 
-pub fn id(comptime tag: []const u8, n: usize) u32 {
+pub fn id(comptime tag: []const u8, n: u64) u32 {
     return @truncate(std.hash.Wyhash.hash(n, tag));
 }
 

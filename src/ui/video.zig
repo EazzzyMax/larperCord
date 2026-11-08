@@ -163,7 +163,7 @@ fn playable(link: []const u8) bool {
 }
 
 /// Chave de um anexo/embed (mensagem + posição).
-pub fn keyOf(msg_id: u64, index: usize) u64 {
+pub fn keyOf(msg_id: u64, index: u64) u64 {
     return std.hash.Wyhash.hash(index, std.mem.asBytes(&msg_id));
 }
 

@@ -8,6 +8,7 @@
 //! app se conectar a outro servidor (o que vazaria o seu IP).
 const std = @import("std");
 const c = @import("c");
+const sys = @import("../platform/sys.zig");
 const Queue = @import("../net/queue.zig").Queue;
 const platform = @import("../platform/window.zig");
 const media_url = @import("../net/media_url.zig");
@@ -211,7 +212,8 @@ pub const Cache = struct {
     pub fn init(renderer: *c.SDL_Renderer, wake_type: u32) !Cache {
         if (curl_mutex == null) curl_mutex = c.SDL_CreateMutex() orelse return error.SdlMutex;
         if (recent_mutex == null) recent_mutex = c.SDL_CreateMutex() orelse return error.SdlMutex;
-        if (decode_slots == null) decode_slots = c.SDL_CreateSemaphore(2) orelse return error.SdlSemaphore;
+        // Navegador: sem threads, nem semáforo (o SDL de lá não cria um); decodifica no `pump`.
+        if (decode_slots == null and !sys.web) decode_slots = c.SDL_CreateSemaphore(2) orelse return error.SdlSemaphore;
         try gif_stream.init(wake_type);
         return .{
             .renderer = renderer,
@@ -223,7 +225,7 @@ pub const Cache = struct {
 
     /// Só com a primeira imagem pedida: a tela de login não usa nenhuma thread.
     fn startWorkers(cache: *Cache) void {
-        if (cache.threads[0] != null) return;
+        if (sys.web or cache.threads[0] != null) return;
         for (&cache.threads) |*t| {
             t.* = c.SDL_CreateThread(worker, "media", cache);
             if (t.* == null) std.log.warn("não consegui criar uma thread de imagens", .{});
@@ -383,6 +385,7 @@ pub const Cache = struct {
     /// (até 300 texturas) não trava o quadro: passou do orçamento, o resto fica
     /// para a próxima volta.
     pub fn pump(cache: *Cache) bool {
+        if (sys.web) cache.loadInline();
         var batch: std.ArrayList(Result) = .empty;
         defer batch.deinit(alloc);
         cache.results.drain(&batch);
@@ -543,6 +546,23 @@ pub const Cache = struct {
         alloc.free(jb.url);
     }
 
+    /// Navegador: o trabalho das threads de mídia na thread da página, uns poucos
+    /// pedidos por quadro (a demonstração gera as imagens, não baixa nada).
+    fn loadInline(cache: *Cache) void {
+        const t0 = c.SDL_GetTicksNS();
+        while (c.SDL_GetTicksNS() - t0 < upload_budget_ns) {
+            const jb = cache.jobs.waitPop(0) orelse return;
+            defer freeJob(jb);
+            var curl: ?*c.CURL = null;
+            const res = load(&curl, jb, &cache.stopping);
+            const key = alloc.dupe(u8, jb.key) catch {
+                res.deinit();
+                continue;
+            };
+            cache.results.push(.{ .key = key, .px = res });
+        }
+    }
+
     // --- Thread de mídia --------------------------------------------------------
 
     fn worker(data: ?*anyopaque) callconv(.c) c_int {
@@ -667,9 +687,9 @@ fn load(curl: *?*c.CURL, jb: Job, stop: *std.atomic.Value(bool)) Pixels {
         recentPut(jb.url, bytes.items);
     }
     // Vaga de decodificação (no máximo 2 ao mesmo tempo).
-    c.SDL_WaitSemaphore(decode_slots);
+    if (decode_slots) |sem| c.SDL_WaitSemaphore(sem);
     const px = decode(bytes.items, jb.max_w, jb.max_h, stop, allow_video);
-    c.SDL_SignalSemaphore(decode_slots);
+    if (decode_slots) |sem| c.SDL_SignalSemaphore(sem);
     if (px.frames.len == 0) logFail(jb.url, "não decodificou ({d} bytes, começa com {x})", .{ bytes.items.len, bytes.items[0..@min(4, bytes.items.len)] });
     return px;
 }
