@@ -259,16 +259,14 @@ fn subsSince() u64 {
 fn switchTo(app: *App, ci: usize) void {
     app.actions.append(app.gpa, .{ .select_channel = gw.channelId(0, ci) }) catch {};
 }
-fn switchA(app: *App) void {
+/// Quatro trocas no mesmo quadro: uma rajada em qualquer máquina. Com um quadro
+/// entre elas, o intervalo seria 40 ms mais o quadro, e onde o quadro é lento
+/// (CI sem GPU, mais de 100 ms com um canal novo) cada troca pareceria vir depois
+/// de uma pausa.
+fn switchBurst(app: *App) void {
     switchTo(app, 5);
-}
-fn switchB(app: *App) void {
     switchTo(app, 6);
-}
-fn switchC(app: *App) void {
     switchTo(app, 7);
-}
-fn switchD(app: *App) void {
     switchTo(app, 10);
 }
 fn switchQuiet(app: *App) void {
@@ -382,13 +380,7 @@ pub const ops = [_]Op{
     s("limites: op 14 só do canal que ficou"),
     .{ .wait = 400 },
     .{ .run = markSubs },
-    .{ .run = switchA },
-    .{ .wait = 40 },
-    .{ .run = switchB },
-    .{ .wait = 40 },
-    .{ .run = switchC },
-    .{ .wait = 40 },
-    .{ .run = switchD },
+    .{ .run = switchBurst },
     .{ .wait = 50 },
     expect("trocando rápido, só o primeiro canal pediu a lista de membros", onlyFirstYet),
     slow("parou: o canal que ficou pede a lista de membros", firstAndLast, 2000),
