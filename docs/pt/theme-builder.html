@@ -57,19 +57,13 @@
   <button type="button" class="tbx-ib" data-redo aria-keyshortcuts="Control+Shift+Z" title="Refazer (Ctrl+Shift+Z)"><i data-ic="redo"></i><span class="sr-only">Refazer</span></button>
   <span class="tbx-sep" aria-hidden="true"></span>
   <div class="tbx-seg tbx-views" role="radiogroup" aria-label="Modo da prévia">
-    <button type="button" role="radio" data-view="dark" aria-checked="true" title="Modo escuro (M)"><i data-ic="moon"></i><span>Escuro</span></button>
-    <button type="button" role="radio" data-view="light" aria-checked="false" tabindex="-1" title="Modo claro (M)"><i data-ic="sun"></i><span>Claro</span></button>
-    <button type="button" role="radio" data-view="split" aria-checked="false" tabindex="-1" title="Escuro e claro lado a lado (B)"><i data-ic="split"></i><span>Os dois</span></button>
+    <button type="button" role="radio" data-view="dark" aria-checked="true" title="Modo escuro (M)"><i data-ic="moon"></i><span class="tbx-bl">Escuro</span></button>
+    <button type="button" role="radio" data-view="light" aria-checked="false" tabindex="-1" title="Modo claro (M)"><i data-ic="sun"></i><span class="tbx-bl">Claro</span></button>
+    <button type="button" role="radio" data-view="split" aria-checked="false" tabindex="-1" title="Escuro e claro lado a lado (B)"><i data-ic="split"></i><span class="tbx-bl">Os dois</span></button>
   </div>
-  <div class="tbx-seg tbx-zooms" role="radiogroup" aria-label="Zoom">
-    <button type="button" role="radio" data-zoom="fit" aria-checked="true" title="Caber na janela (0)"><i data-ic="fit"></i><span>Ajustar</span></button>
-    <button type="button" role="radio" data-zoom="1" aria-checked="false" tabindex="-1" title="Tamanho real (1)">100%</button>
-    <button type="button" role="radio" data-zoom="1.5" aria-checked="false" tabindex="-1" title="150% (2)">150%</button>
-  </div>
-  <button type="button" class="tbx-ib" data-fullscreen aria-keyshortcuts="F" title="Tela cheia (F)"><i data-ic="expand"></i><span class="sr-only">Tela cheia</span></button>
   <span class="tbx-grow"></span>
   <div class="tbx-mwrap">
-    <button type="button" class="tbx-b" data-menu-btn aria-haspopup="true" aria-expanded="false" aria-controls="tbx-open"><i data-ic="folder"></i><span>Abrir</span><i data-ic="caret"></i></button>
+    <button type="button" class="tbx-b" data-menu-btn aria-haspopup="true" aria-expanded="false" aria-controls="tbx-open" title="Abrir um tema, um arquivo, CSS do Discord ou uma imagem"><i data-ic="folder"></i><span class="tbx-bl">Abrir</span><i data-ic="caret"></i></button>
     <div class="tbx-menu" id="tbx-open" data-menu hidden>
       <p class="tbx-mh">Começar de um tema embutido</p>
       <div class="tbx-starts" data-starts></div>
@@ -82,8 +76,8 @@
       </div>
     </div>
   </div>
-  <button type="button" class="tbx-b" data-share title="Copiar um link que guarda o tema inteiro"><i data-ic="link"></i><span>Compartilhar</span></button>
-  <button type="button" class="tbx-b primary" data-export-open aria-controls="tbx-export" aria-keyshortcuts="E" title="Baixar, copiar e instalar (E)"><i data-ic="download"></i><span>Exportar</span></button>
+  <button type="button" class="tbx-b" data-share title="Copiar um link que guarda o tema inteiro"><i data-ic="link"></i><span class="tbx-bl">Compartilhar</span></button>
+  <button type="button" class="tbx-b primary" data-export-open aria-controls="tbx-export" aria-keyshortcuts="E" title="Baixar, copiar e instalar (E)"><i data-ic="download"></i><span class="tbx-bl">Exportar</span></button>
 </header>
 
 <div class="tbx-body" data-body>
@@ -91,12 +85,12 @@
 <aside class="tbx-side" id="tbx-side" aria-label="Painel de edição" data-side data-sheet="peek">
   <button type="button" class="tbx-handle" data-sheet-handle aria-label="Mudar o tamanho do painel" aria-controls="tbx-side"><i></i></button>
   <div class="tbx-rail" role="tablist" aria-label="O que editar" aria-orientation="vertical">
-    <button type="button" role="tab" id="tbx-t-colors" aria-controls="tbx-p-colors" aria-selected="true"><i data-ic="drop"></i><span>Cores</span></button>
-    <button type="button" role="tab" id="tbx-t-gen" aria-controls="tbx-p-gen" aria-selected="false" tabindex="-1"><i data-ic="wand"></i><span>Gerar</span></button>
-    <button type="button" role="tab" id="tbx-t-layout" aria-controls="tbx-p-layout" aria-selected="false" tabindex="-1"><i data-ic="layout"></i><span>Layout</span></button>
-    <button type="button" role="tab" id="tbx-t-type" aria-controls="tbx-p-type" aria-selected="false" tabindex="-1"><i data-ic="type"></i><span>Letra</span></button>
-    <button type="button" role="tab" id="tbx-t-code" aria-controls="tbx-p-code" aria-selected="false" tabindex="-1"><i data-ic="code"></i><span>Código</span></button>
-    <button type="button" role="tab" id="tbx-t-file" aria-controls="tbx-p-file" aria-selected="false" tabindex="-1"><i data-ic="tag"></i><span>Arquivo</span></button>
+    <button type="button" role="tab" id="tbx-t-colors" aria-controls="tbx-p-colors" aria-selected="true"><i data-ic="drop"></i><span class="tbx-tl">Cores</span></button>
+    <button type="button" role="tab" id="tbx-t-gen" aria-controls="tbx-p-gen" aria-selected="false" tabindex="-1"><i data-ic="wand"></i><span class="tbx-tl">Gerar</span></button>
+    <button type="button" role="tab" id="tbx-t-layout" aria-controls="tbx-p-layout" aria-selected="false" tabindex="-1"><i data-ic="layout"></i><span class="tbx-tl">Layout</span></button>
+    <button type="button" role="tab" id="tbx-t-type" aria-controls="tbx-p-type" aria-selected="false" tabindex="-1"><i data-ic="type"></i><span class="tbx-tl">Letra</span></button>
+    <button type="button" role="tab" id="tbx-t-code" aria-controls="tbx-p-code" aria-selected="false" tabindex="-1"><i data-ic="code"></i><span class="tbx-tl">Código</span></button>
+    <button type="button" role="tab" id="tbx-t-file" aria-controls="tbx-p-file" aria-selected="false" tabindex="-1"><i data-ic="tag"></i><span class="tbx-tl">Arquivo</span></button>
   </div>
   <div class="tbx-panel" data-panel>
     <label class="tbx-search"><i data-ic="search"></i><input type="search" data-search spellcheck="false" autocomplete="off" aria-keyshortcuts="/" placeholder="Buscar cores e ajustes"><kbd>/</kbd></label>
@@ -284,13 +278,27 @@
     <div class="tbx-dropzone" data-dropzone hidden><span><i data-ic="image"></i>Solte a imagem para fazer uma paleta dela</span></div>
   </div>
   <p class="tbx-error" data-error role="alert" hidden></p>
+  <div class="tbx-note" data-empty-note role="status" hidden>
+    <i data-ic="eyeoff"></i>
+    <p>Este layout não desenha as mensagens: no app, a janela mostraria só o fundo.</p>
+    <button type="button" class="tbx-b sm" data-empty-undo>Desfazer</button>
+    <button type="button" class="tbx-b sm" data-empty-layers>Camadas</button>
+  </div>
   <div class="tbx-status">
     <button type="button" class="tbx-chip" data-contrast-chip><i class="tbx-dot" aria-hidden="true"></i><span data-contrast-chip-t></span></button>
     <span class="tbx-hover" data-hover-info aria-live="off"></span>
     <span class="tbx-grow"></span>
-    <span class="tbx-zoomlbl" data-zoom-label></span>
+    <span class="tbx-site" role="group" aria-label="Tema desta página">
+      <button type="button" class="tbx-sb" data-next-theme title="Próximo tema desta página (F2)"><i class="tbx-sbdot" aria-hidden="true"></i><span data-theme-name>larper</span></button>
+      <button type="button" class="tbx-sb" data-toggle-mode title="Página clara ou escura"><span data-mode-name>dark</span></button>
+    </span>
+    <div class="tbx-zoom" role="group" aria-label="Zoom">
+      <button type="button" class="tbx-ib sm" data-zoom-out aria-keyshortcuts="-" title="Diminuir (−)"><i data-ic="minus"></i><span class="sr-only">Diminuir</span></button>
+      <button type="button" class="tbx-zv" data-zoom-toggle aria-keyshortcuts="0 1"><span data-zoom-label>100%</span></button>
+      <button type="button" class="tbx-ib sm" data-zoom-in aria-keyshortcuts="+" title="Aumentar (+)"><i data-ic="plus"></i><span class="sr-only">Aumentar</span></button>
+    </div>
     <button type="button" class="tbx-ib sm" data-shortcuts aria-keyshortcuts="Shift+?" title="Atalhos de teclado (?)"><i data-ic="keys"></i><span class="sr-only">Atalhos de teclado</span></button>
-    <button type="button" class="tbx-ib sm" data-fullscreen title="Tela cheia (F)"><i data-ic="expand"></i><span class="sr-only">Tela cheia</span></button>
+    <button type="button" class="tbx-ib sm" data-fullscreen aria-keyshortcuts="F" title="Tela cheia (F)"><i data-ic="expand"></i><span class="sr-only">Tela cheia</span></button>
   </div>
 
   <div class="tbx-cpop" data-cpop role="dialog" aria-labelledby="tbx-cpop-h" hidden>
@@ -379,6 +387,7 @@
       <div><dt><kbd>M</kbd></dt><dd>Trocar entre escuro e claro</dd></div>
       <div><dt><kbd>B</kbd></dt><dd>Os dois modos lado a lado</dd></div>
       <div><dt><kbd>0</kbd> <kbd>1</kbd> <kbd>2</kbd></dt><dd>Zoom: ajustar, 100%, 150%</dd></div>
+      <div><dt><kbd>+</kbd> <kbd>−</kbd></dt><dd>Aumentar e diminuir (também Ctrl + roda, ou pinça numa tela de toque)</dd></div>
       <div><dt><kbd>F</kbd></dt><dd>Prévia em tela cheia</dd></div>
       <div><dt><kbd>\</kbd></dt><dd>Mostrar ou esconder o painel</dd></div>
       <div><dt><kbd>/</kbd></dt><dd>Buscar cores e ajustes</dd></div>

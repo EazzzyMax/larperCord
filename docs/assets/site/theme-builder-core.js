@@ -898,6 +898,23 @@
     return out;
   }
 
+  // As partes sem as quais o app vira só o fundo: se uma delas está no nó `start` ou embaixo dele
+  // (e ainda à mostra), esconder o nó leva ela junto. `list` é o que outline() devolve.
+  var ESSENTIAL = ["messages", "composer", "channel-list"];
+  function essentialInside(list, start) {
+    var by = {}, found = {};
+    list.forEach(function (o) { by[o.start] = o; });
+    list.forEach(function (o) {
+      if (ESSENTIAL.indexOf(o.name) < 0) return;
+      var shut = false;
+      for (var x = o, n = 0; x && n < 200; x = x.parent === null ? null : by[x.parent], n++) {
+        if (x.start === start) { if (!shut) found[o.name] = true; return; }
+        if (x.show === false) shut = true;
+      }
+    });
+    return ESSENTIAL.filter(function (k) { return own(found, k); });
+  }
+
   // Troca um nó de lugar com o irmão de antes (dir -1) ou de depois (+1): a ordem no arquivo é a
   // ordem na tela (e, num `stack`, a ordem de desenho). Só os dois pedaços de texto mudam.
   function findParent(nodes, start) {
@@ -991,6 +1008,8 @@
         if (!f.ok) row.stuck = true;
         else if (!g) row.fix = { tok: w.tok, value: f.value };
       }
+      // "auto": o app já clareia ao carregar, e o que aparece passa; "bad": nem clareando chega.
+      row.level = !fails.length ? "ok" : row.stuck ? "bad" : "auto";
       rows.push(row);
     });
     // O resto não é regra do app: é o mínimo da WCAG para texto (AA), medido como a cor
@@ -1008,7 +1027,9 @@
         if (r < min) fails.push(b);
       });
       var g = gate(fg);
-      rows.push({ id: fg, fg: fg, backs: backs, min: min, ratio: worst, fails: fails, app: false, gated: g, fix: fails.length && !g ? fixer() : null, lift: null, stuck: false });
+      // "low": abaixo do AA para texto pequeno, mas acima de 3:1 (o AA para texto grande e ícones).
+      rows.push({ id: fg, fg: fg, backs: backs, min: min, ratio: worst, fails: fails, app: false, gated: g, fix: fails.length && !g ? fixer() : null, lift: null, stuck: false,
+        level: !fails.length ? "ok" : worst >= 3 ? "low" : "bad" });
     }
     function towards(tok, backs, min) {
       var base = toks[tok], avg = backs.reduce(function (a, b) { return a + luminance(seen(tok, b)[1]); }, 0) / backs.length;
@@ -1963,7 +1984,7 @@
     evalColor: evalColor, splitColors: splitColors, defaults: defaults, defaultRoles: defaultRoles, legibleText: legibleText,
     loadTheme: loadTheme, fromSource: fromSource, toKdl: toKdl, slug: slug, quote: q,
     setProp: setProp, listTweaks: listTweaks, structureOptions: structureOptions, findNode: findNode,
-    outline: outline, moveNode: moveNode, RANGES: RANGES, range: range,
+    outline: outline, essentialInside: essentialInside, moveNode: moveNode, RANGES: RANGES, range: range,
     HARMONY: HARMONY, seedFromBase: seedFromBase, applyGenerated: applyGenerated, onColor: onColor,
     flipL: flipL, invertMode: invertMode, toOklab: toOklab, fromOklab: fromOklab,
     contrastReport: contrastReport, layoutColorBlocks: layoutColorBlocks, effectiveColors: effectiveColors, oklch: oklch, toOklch: toOklch, rng: rng,

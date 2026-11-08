@@ -1237,6 +1237,120 @@ tasks.push(test("click-to-edit map: only real tokens, only the preview's own cla
   assert.deepStrictEqual(box, { toks: [], literal: true });
   assert.deepStrictEqual(P.boxTokens(th, TB.parseKdl("column bg=rail")[0]).toks, ["rail"]);
 }));
+// O tamanho da prévia: a janela imitada nunca fica menor que 1200×720 nem sai de 1,25:1 a 2:1,
+// e a prévia cabe no espaço dado (nada de barra de rolagem no "ajustar").
+tasks.push(test("preview size: fits the space, never below 1200×720, between 1.25:1 and 2:1", () => {
+  const P = PREVIEW(TB, "en");
+  for (let aw = 120; aw <= 3200; aw += 37) {
+    for (let ah = 90; ah <= 2000; ah += 41) {
+      const g = P.frameFit(aw, ah), tag = aw + "×" + ah + " → " + JSON.stringify(g);
+      assert.ok(g.k > 0 && g.k <= 2, tag);
+      assert.ok(g.w >= P.MIN_W && g.h >= P.MIN_H && g.w <= P.MAX_W && g.h <= P.MAX_H, tag);
+      assert.ok(Math.floor(g.w * g.k) <= aw && Math.floor(g.h * g.k) <= ah, tag + " overflows");
+      assert.ok(g.w / g.h >= 1.25 - 0.01 && g.w / g.h <= 2 + 0.01, tag + " aspect");
+      // Até a janela passar de 1920×1200, a escala não passa de 100%.
+      if (aw / P.MAX_W < 1 || ah / P.MAX_H < 1) assert.ok(g.k <= 1, tag + " upscaled");
+    }
+  }
+  // O espaço do palco num notebook de 1366×768 com o painel aberto: a prévia passa de 80%
+  // (antes, com 1280×800 fixo e as barras do site, ficava em 63%).
+  assert.ok(P.frameFit(989, 603).k >= 0.8, JSON.stringify(P.frameFit(989, 603)));
+  // Com o painel escondido, o espaço a mais vira janela mais larga, não barras vazias.
+  const open = P.frameFit(989, 603), closed = P.frameFit(1273, 603);
+  assert.ok(closed.w > open.w && closed.k >= open.k, JSON.stringify([open, closed]));
+}));
+tasks.push(test("preview follows the simulated window: hide-below uses its size", () => {
+  const P = PREVIEW(TB, "en");
+  // bolhas: member-list hide-below=1150; editorial: a manchete só com 900 ou mais de altura.
+  const has = (src, size, node) => {
+    const doc = fakeDocument(), frame = doc.createElement("div");
+    P.mount(frame, TB.loadTheme(src, { mode: "dark" }), size);
+    return doc.made.some((e) => e.className === "pv-b" && e.dataset.node === node);
+  };
+  assert.ok(!has(sources.bolhas, { w: 1100, h: 800 }, "member-list"), "hidden below 1150");
+  assert.ok(has(sources.bolhas, { w: 1200, h: 800 }, "member-list"), "shown at 1200");
+  assert.ok(has(sources.bolhas, undefined, "member-list"), "default 1280×800");
+  // Sem tamanho, a prévia continua 1280×800 (as miniaturas e a galeria dependem disso).
+  const th = TB.loadTheme(sources.editorial, { mode: "dark" });
+  const lines = (size) => {
+    const doc = fakeDocument(), frame = doc.createElement("div");
+    P.mount(frame, th, size);
+    assert.strictEqual(frame.kids.length, 1, "editorial draws at " + JSON.stringify(size));
+    return doc.made.filter((e) => e.className === "pv-b").map((e) => e.dataset.line).join(",");
+  };
+  // A manchete do editorial troca de forma em 900 px de altura, como no app.
+  assert.notStrictEqual(lines({ w: 1200, h: 720 }), lines({ w: 1600, h: 1000 }), "editorial headline follows the height");
+  assert.strictEqual(lines(undefined), lines({ w: 1280, h: 800 }), "no size is 1280×800");
+  // O minimo da prévia mostra a lista de membros de todos os temas embutidos.
+  for (const t of THEMES) assert.ok(has(sources[t], { w: P.MIN_W, h: P.MIN_H }, "member-list") || !/member-list/.test(sources[t]), t + " member list at the minimum size");
+}));
+// Contraste em níveis: o que o app clareia sozinho não é erro; abaixo de 4,5 e acima de 3 é revisão.
+tasks.push(test("contrast levels: what the app lifts is not an error", () => {
+  for (const t of THEMES) {
+    const s = TB.fromSource(sources[t], { base: t, name: t });
+    for (const m of MODES) {
+      for (const r of TB.contrastReport(s, m)) {
+        assert.ok(["ok", "auto", "low", "bad"].includes(r.level), t + " " + m + " " + r.id);
+        if (!r.fails.length) assert.strictEqual(r.level, "ok", t + " " + m + " " + r.id);
+        else if (r.app) assert.strictEqual(r.level, r.stuck ? "bad" : "auto", t + " " + m + " " + r.id);
+        else assert.strictEqual(r.level, r.ratio >= 3 ? "low" : "bad", t + " " + m + " " + r.id + " " + r.ratio);
+      }
+    }
+  }
+  const lv = (t, m, id) => TB.contrastReport(TB.fromSource(sources[t], { base: t, name: t }), m).find((r) => r.id === id).level;
+  assert.strictEqual(lv("orbital", "dark", "faint"), "auto");
+  assert.strictEqual(lv("cupertino", "dark", "accent-text"), "low");
+  assert.strictEqual(lv("escritorio", "light", "text"), "bad");
+  // orbital no modo escuro (o começo padrão do criador): nada vermelho nem âmbar.
+  assert.ok(!TB.contrastReport(TB.fromSource(sources.orbital, { base: "orbital", name: "o" }), "dark").some((r) => r.level === "bad" || r.level === "low"));
+}));
+tasks.push(test("hiding a layer reports when messages, composer or channels go with it", () => {
+  for (const t of THEMES) {
+    const out = TB.outline(TB.fromSource(sources[t], { base: t, name: t }).structure);
+    const msgs = out.find((o) => o.name === "messages");
+    assert.ok(msgs, t + " has messages");
+    assert.deepStrictEqual(TB.essentialInside(out, msgs.start), ["messages"], t);
+    // Cada ancestral das mensagens leva elas junto.
+    const by = Object.fromEntries(out.map((o) => [o.start, o]));
+    for (let p = msgs.parent; p !== null; p = by[p].parent) assert.ok(TB.essentialInside(out, p).includes("messages"), t + " ancestor " + by[p].name);
+    const members = out.find((o) => o.name === "member-list");
+    if (members) assert.deepStrictEqual(TB.essentialInside(out, members.start), [], t + " member list");
+  }
+  // Um ramo que já está escondido não conta de novo.
+  const s = TB.fromSource(sources.bolhas, { base: "bolhas", name: "b" });
+  const out = TB.outline(s.structure), comp = out.find((o) => o.name === "composer");
+  const hid = TB.outline(TB.setProp(s.structure, comp.start, "show", false));
+  const root = hid.find((o) => o.parent === null && o.container);
+  assert.ok(!TB.essentialInside(hid, root.start).includes("composer"));
+  assert.ok(TB.essentialInside(hid, root.start).includes("messages"));
+  // Nomes do arquivo nunca saem daqui: só os três da lista.
+  assert.deepStrictEqual(TB.essentialInside([{ start: 1, parent: null, name: "__proto__", show: null }], 1), []);
+}));
+// O criador na página: a folha de exportar e o fundo escuro dela na mesma camada (no <body>, o
+// fundo ficava por cima e engolia os cliques), rótulos que somem só da vista, e o zoom à mão.
+tasks.push(test("builder page: export overlay in the sheet's layer, labels stay names, zoom at every width", () => {
+  const js = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder.js"), "utf8");
+  const cssText = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder.css"), "utf8");
+  assert.ok(js.includes("sheet.parentNode.insertBefore(scrim, sheet)") && !/body\.appendChild\(scrim\)/.test(js), "overlay next to the sheet");
+  const z = (sel) => +new RegExp(sel.replace(/[.]/g, "\\.") + "\\{[^}]*z-index:(\\d+)").exec(cssText)[1];
+  assert.ok(z(".tbx-scrim") < z(".tbx-sheet"), "overlay under the sheet");
+  // Os rótulos da barra e das abas nunca levam display:none (sairiam do nome do botão).
+  for (const m of cssText.matchAll(/([^{}]+)\{([^}]*)\}/g)) if (/\.tbx-(bl|tl)\b/.test(m[1])) assert.ok(!/display:none/.test(m[2]), m[1] + " hides a label with display:none");
+  for (const file of ["docs/theme-builder.html", "docs/pt/theme-builder.html"]) {
+    const page = fs.readFileSync(path.join(ROOT, file), "utf8");
+    const bar = page.slice(page.indexOf('<header class="tbx-top"'), page.indexOf("</header>", page.indexOf('<header class="tbx-top"')));
+    for (const b of bar.match(/<button[\s\S]*?<\/button>/g)) {
+      const named = /aria-label="[^"]+"/.test(b) || /class="(sr-only|tbx-bl)">[^<]+</.test(b) || /<span data-fname>/.test(b) || /<b>[^<]+<\/b>/.test(b);
+      assert.ok(named, file + " toolbar button without a name: " + b.slice(0, 90));
+    }
+    for (const b of page.match(/<button type="button" role="tab" id="tbx-t-[\s\S]*?<\/button>/g)) assert.ok(/class="tbx-tl">[^<]+</.test(b), file + " tab label");
+    for (const k of ["data-zoom-in", "data-zoom-out", "data-zoom-toggle"]) assert.ok(page.includes(k), file + " " + k);
+    // O zoom fica na barra de baixo do palco, que não esconde nada em tela estreita.
+    assert.ok(page.indexOf("data-zoom-in") > page.indexOf('class="tbx-status"'), file + " zoom in the stage bar");
+    assert.ok(page.includes("data-next-theme") && page.includes("data-toggle-mode"), file + " page theme still reachable");
+  }
+  assert.ok(!/\.tbx-zoom[^{]*\{[^}]*display:none/.test(cssText), "zoom never hidden");
+}));
 // O topo do site: grupos com menu, que sem JavaScript são links, e a demonstração só com o build dela.
 tasks.push(test("site header: grouped menus, plain links without JS, try link only with the demo build", () => {
   for (const [file, lang] of [["docs/index.html", "en"], ["docs/pt/index.html", "pt"], ["docs/guide/shortcuts.html", "en"], ["docs/pt/theme-builder.html", "pt"]]) {
@@ -1255,6 +1369,13 @@ tasks.push(test("site header: grouped menus, plain links without JS, try link on
     "b = g.topnav('pt', 'pt/index.html', 'index.html', 'landing', None)", "print('nav-try' in a, 'nav-try' in b, 'Testar no navegador' in b)"].join("\n");
   const r = spawnSync("python3", ["-I", "-B", "-c", py, path.join(ROOT, "tools")], { encoding: "utf8" });
   assert.strictEqual(r.stdout.trim(), "False True True", r.stdout + r.stderr);
+  // Na gaveta (abaixo de 1100 px) a .nav sai do fluxo: os botões vão para a direita sozinhos.
+  const siteCss = fs.readFileSync(path.join(ROOT, "docs/assets/site/site.css"), "utf8");
+  const drawer = siteCss.slice(siteCss.indexOf("@media (max-width:1099.98px){"));
+  assert.ok(/\.nav-actions\{margin-left:auto\}/.test(drawer.slice(0, drawer.indexOf("\n}"))), "nav actions pushed right in drawer mode");
+  // A gaveta prende o Tab e deixa o resto da página inerte.
+  const siteJs = fs.readFileSync(path.join(ROOT, "docs/assets/site/site.js"), "utf8");
+  assert.ok(siteJs.includes('setAttribute("inert", "")') && siteJs.includes('removeAttribute("inert")'), "drawer makes the page inert");
 }));
 // A página do criador: a mesma CSP estrita, nada de fora, e as instruções de instalar na página.
 tasks.push(test("builder page keeps the strict CSP and the install instructions", () => {

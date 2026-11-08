@@ -488,10 +488,18 @@
 
     // A gaveta das telas estreitas.
     function drawerOpen() { return html.classList.contains("nav-open"); }
+    // Com a gaveta aberta, o resto da página fica inerte: nem o Tab nem um leitor de tela entram nele.
+    function setInert(on) {
+      [].forEach.call(document.body.children, function (el) {
+        if (el === topnav || el === scrim || el.tagName === "SCRIPT") return;
+        if (on) el.setAttribute("inert", ""); else el.removeAttribute("inert");
+      });
+    }
     function setDrawer(open, focusBack) {
       html.classList.toggle("nav-open", open);
       burger.setAttribute("aria-expanded", open ? "true" : "false");
       if (scrim) scrim.hidden = !open;
+      setInert(open);
       if (open) {
         var first = navBox.querySelector("a");
         if (first) first.focus({ preventScroll: true });
@@ -509,11 +517,15 @@
         else if (groups.some(function (o) { return o.g.classList.contains("open"); })) { e.preventDefault(); closeAll(true); }
         return;
       }
+      // A ordem da gaveta é botão → links → botão, seja qual for a ordem no HTML (o botão vem
+      // depois dos links): o Tab é todo daqui, e nunca sai para a página de trás.
       if (e.key !== "Tab" || !drawerOpen()) return;
       var f = [burger].concat([].slice.call(navBox.querySelectorAll("a"))).filter(function (x) { return x.offsetParent !== null; });
+      if (!f.length) return;
+      e.preventDefault();
       var i = f.indexOf(document.activeElement);
-      if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
-      else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+      if (i < 0) f[e.shiftKey ? f.length - 1 : 0].focus();
+      else f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
     });
     var onMQ = function () { if (!drawerMQ.matches && drawerOpen()) setDrawer(false, false); closeAll(false); };
     if (drawerMQ.addEventListener) drawerMQ.addEventListener("change", onMQ); else drawerMQ.addListener(onMQ);

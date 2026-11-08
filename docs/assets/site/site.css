@@ -889,6 +889,8 @@ html[data-fx=zine] .nav-try-dot{display:none}
 
 @media (max-width:1099.98px){
   :root{--nav-h:56px}
+  /* A gaveta (.nav) sai do fluxo (position:fixed): sem isto os botões ficariam colados na marca. */
+  .nav-actions{margin-left:auto}
   .nav-burger{display:inline-flex}
   html.nav-open .nav-open-ic{display:none!important}
   html.nav-open .nav-close-ic{display:block!important}

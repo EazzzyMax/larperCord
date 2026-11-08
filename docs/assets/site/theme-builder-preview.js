@@ -11,7 +11,7 @@
   else root.LC_TB_PREVIEW = factory;
 })(typeof self !== "undefined" ? self : this, function (TB, lang) {
   "use strict";
-  var W = 1280, H = 800, own = TB.own;
+  var W = 1280, H = 800, own = TB.own, sizeNow = null;
   lang = lang === "pt" ? "pt" : "en";
 
   function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
@@ -86,12 +86,14 @@
     if (typeof v === "number") return v !== 0;
     return def;
   }
-  function visible(th, nd) {
-    var p = function (k) { return TB.pv(nd, k); };
+  // `size` é a janela que a prévia imita ({ w, h }); sem ela, 1280×800.
+  function visible(th, nd, size) {
+    size = size || sizeNow;
+    var p = function (k) { return TB.pv(nd, k); }, ww = size ? size.w : W, wh = size ? size.h : H;
     if (TB.flag(nd, "show") === false) return false;
-    if (typeof p("hide-below") === "number" && W < p("hide-below")) return false;
-    if (typeof p("hide-below-height") === "number" && H < p("hide-below-height")) return false;
-    if (typeof p("only-below-height") === "number" && H >= p("only-below-height")) return false;
+    if (typeof p("hide-below") === "number" && ww < p("hide-below")) return false;
+    if (typeof p("hide-below-height") === "number" && wh < p("hide-below-height")) return false;
+    if (typeof p("only-below-height") === "number" && wh >= p("only-below-height")) return false;
     var w = TB.str(nd, "when"), u = TB.str(nd, "unless");
     if (w !== null && !th.values[w]) return false;
     if (u !== null && th.values[u]) return false;
@@ -677,8 +679,15 @@
     return { el: hit || frame, tokens: toks, comp: comp, over: over, literal: lit };
   }
 
-  // Desenha o tema `th` (de TB.loadTheme) dentro de `frame`, que tem 1280×800 e a classe tb-frame.
-  function mount(frame, th) {
+  // Desenha o tema `th` (de TB.loadTheme) dentro de `frame`, que tem a classe tb-frame e o
+  // tamanho `size` ({ w, h }, a janela que a prévia imita; sem ele, 1280×800). O que some abaixo
+  // de uma largura ou altura (hide-below…) segue esse tamanho, como no app.
+  function mount(frame, th, size) {
+    var prev = sizeNow;
+    sizeNow = size && size.w > 0 && size.h > 0 ? { w: Math.round(size.w), h: Math.round(size.h) } : null;
+    try { draw(frame, th); } finally { sizeNow = prev; }
+  }
+  function draw(frame, th) {
     var doc = frame.ownerDocument, f = frame;
     f.textContent = "";
     TB.TOKENS.forEach(function (k) { f.style.setProperty("--t-" + k, TB.cssColor(th.tokens[k])); });
@@ -697,6 +706,22 @@
     f.appendChild(tree);
   }
 
-  return { W: W, H: H, esc: esc, fontOf: fontOf, flagOpt: flagOpt, visible: visible, paintBox: paintBox, component: component, mount: mount, names: Object.keys(C),
+  // A janela que a prévia imita e a escala para caber em aw×ah (pixels da página), no "ajustar".
+  // A janela nunca fica menor que 1200×720 (abaixo disso os layouts embutidos começam a esconder
+  // a lista de membros), nem maior que 1920×1200, e fica entre 1,25:1 e 2:1. A escala não passa
+  // de 100% enquanto a janela couber nesse limite: numa tela grande a prévia é o app em tamanho real.
+  var MIN_W = 1200, MIN_H = 720, MAX_W = 1920, MAX_H = 1200;
+  function frameFit(aw, ah) {
+    aw = Math.max(1, aw);
+    ah = Math.max(1, ah);
+    var k = Math.min(1, aw / MIN_W, ah / MIN_H);
+    k = Math.max(k, Math.min(aw / MAX_W, ah / MAX_H, 2));
+    var w = Math.min(MAX_W, Math.max(MIN_W, aw / k)), h = Math.min(MAX_H, Math.max(MIN_H, ah / k));
+    w = Math.min(w, h * 2);
+    h = Math.min(h, w / 1.25);
+    return { k: k, w: Math.floor(w), h: Math.floor(h) };
+  }
+
+  return { W: W, H: H, MIN_W: MIN_W, MIN_H: MIN_H, MAX_W: MAX_W, MAX_H: MAX_H, frameFit: frameFit, esc: esc, fontOf: fontOf, flagOpt: flagOpt, visible: visible, paintBox: paintBox, component: component, mount: mount, names: Object.keys(C),
     INSPECT: INSPECT, tokensAt: tokensAt, refTokens: refTokens, boxTokens: boxTokens };
 });

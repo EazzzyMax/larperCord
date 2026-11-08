@@ -25,8 +25,12 @@
     advOk: "ok: o layout é válido", kept: "a prévia anterior continua", errAt: "Erro no arquivo, linha ",
     custom: "personalizado", layoutNow: "Layout: ", noOptions: "Este layout não tem opções.", noProps: "Nada para ajustar nesta camada além de esconder e mover.",
     hide: "Esconder", show: "Mostrar", up: "Subir", down: "Descer", reset: "Voltar ao padrão",
-    contrastOk: "Tudo legível neste modo.", issues: function (n) { return n === 1 ? "1 ponto para olhar neste modo." : n + " pontos para olhar neste modo."; },
+    contrastOk: "Tudo legível neste modo.",
+    issues: function (b, l) { var p = []; if (b) p.push(b === 1 ? "1 problema" : b + " problemas"); if (l) p.push(l + " abaixo do AA para texto pequeno"); return p.join(", ") + " neste modo."; },
     chipOk: "Contraste ok", chipBad: function (n) { return n === 1 ? "1 problema de contraste" : n + " problemas de contraste"; },
+    chipLow: function (n) { return n === 1 ? "1 cor para revisar" : n + " cores para revisar"; },
+    lowNote: "Serve para texto grande e ícones (3:1); texto pequeno pede 4,5:1.", autoMark: "o app ajusta", lowMark: "abaixo do AA",
+    shownAs: function (v) { return "Aparece como " + v + ": o app clareia ao carregar."; }, keepLift: function (v) { return "Escrever " + v + " no arquivo"; },
     showAll: "Mostrar todas as checagens", hideOk: "Mostrar só os problemas",
     on_: " sobre ", needs: "o app pede ", wcag: "mínimo AA ", lifts: "O app clareia esta cor para ", liftsEnd: " ao carregar o tema.", use: "Usar ", fix: "Consertar",
     otherIssues: function (m, n) { return n ? "No modo " + m + ": " + n + (n === 1 ? " ponto." : " pontos.") : "No modo " + m + ": tudo legível."; },
@@ -56,6 +60,9 @@
     lines: function (n, kb) { return n + " linhas · " + kb + " KB · gerado nesta página"; },
     defaultName: "meu-", importFallback: "tema", community: "Tema da comunidade: ", noCommunity: "Ainda não há temas na galeria da comunidade.", seeGallery: "Ver a galeria",
     preview: "Prévia do tema no modo ", zoomFit: "ajustado",
+    zoomInfo: function (w, h, p) { return "A prévia desenha o app numa janela de " + w + "×" + h + ", em " + p; }, zoomTo100: "Tamanho real", zoomToFit: "Caber no espaço",
+    hidEssential: function (n, list) { return "“" + n + "” ficou escondida, e com ela " + list.join(", ") + ": no app, isso some da janela."; }, undo: "Desfazer",
+    lifted: function (n) { return n === 1 ? "O app clareia 1 cor ao carregar." : "O app clareia " + n + " cores ao carregar."; },
     ready: { name: "Nome", author: "Autor", description: "Descrição", license: "Licença" },
     readyBad: {
       name: function (c) { return c.builtin ? c.file + " é o nome de um tema embutido: escolha outro nome" : "falta o nome, de até 48 caracteres"; },
@@ -90,8 +97,12 @@
     advOk: "ok: the layout is valid", kept: "the previous preview stays", errAt: "Error in the file, line ",
     custom: "custom", layoutNow: "Layout: ", noOptions: "This layout has no options.", noProps: "Nothing to tweak on this layer besides hiding and moving it.",
     hide: "Hide", show: "Show", up: "Move up", down: "Move down", reset: "Back to the default",
-    contrastOk: "Everything is readable in this mode.", issues: function (n) { return n === 1 ? "1 thing to look at in this mode." : n + " things to look at in this mode."; },
-    chipOk: "Contrast ok", chipBad: function (n) { return n === 1 ? "1 contrast issue" : n + " contrast issues"; },
+    contrastOk: "Everything is readable in this mode.",
+    issues: function (b, l) { var p = []; if (b) p.push(b === 1 ? "1 problem" : b + " problems"); if (l) p.push(l + " below AA for small text"); return p.join(", ") + " in this mode."; },
+    chipOk: "Contrast ok", chipBad: function (n) { return n === 1 ? "1 contrast problem" : n + " contrast problems"; },
+    chipLow: function (n) { return n === 1 ? "1 color to review" : n + " colors to review"; },
+    lowNote: "Fine for large text and icons (3:1); small text needs 4.5:1.", autoMark: "the app adjusts it", lowMark: "below AA",
+    shownAs: function (v) { return "Shows as " + v + ": the app lifts it on load."; }, keepLift: function (v) { return "Write " + v + " in the file"; },
     showAll: "Show every check", hideOk: "Show only the problems",
     on_: " on ", needs: "the app needs ", wcag: "AA minimum ", lifts: "The app lifts this color to ", liftsEnd: " when it loads the theme.", use: "Use ", fix: "Fix",
     otherIssues: function (m, n) { return n ? "In " + m + " mode: " + n + (n === 1 ? " thing." : " things.") : "In " + m + " mode: all readable."; },
@@ -121,6 +132,9 @@
     lines: function (n, kb) { return n + " lines · " + kb + " KB · made in this page"; },
     defaultName: "my-", importFallback: "theme", community: "Community theme: ", noCommunity: "No themes in the community gallery yet.", seeGallery: "See the gallery",
     preview: "Theme preview in ", zoomFit: "fit",
+    zoomInfo: function (w, h, p) { return "The preview draws the app in a " + w + "×" + h + " window, at " + p; }, zoomTo100: "Actual size", zoomToFit: "Fit to the space",
+    hidEssential: function (n, list) { return "“" + n + "” is hidden, and " + list.join(", ") + " with it: in the app, that goes missing from the window."; }, undo: "Undo",
+    lifted: function (n) { return n === 1 ? "The app lifts 1 color when it loads." : "The app lifts " + n + " colors when it loads."; },
     ready: { name: "Name", author: "Author", description: "Description", license: "License" },
     readyBad: {
       name: function (c) { return c.builtin ? c.file + " is the name of a built-in theme: pick another name" : "missing, up to 48 characters"; },
@@ -173,7 +187,7 @@
     eye: "M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
     eyeoff: "M3 3l18 18M10.6 5.6A9 9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-3 3.6M6.6 6.9C4 8.6 2.5 12 2.5 12s3.5 6.5 9.5 6.5a9 9 0 0 0 4.9-1.4M9.9 9.9a3 3 0 0 0 4.2 4.2",
     up: "m6 15 6-6 6 6", down: "m6 9 6 6 6-6", chev: "m9 6 6 6-6 6", row: "M3 6h18v12H3zM9 6v12M15 6v12", column: "M5 3h14v18H5zM5 9h14M5 15h14", stack: "M12 3 3 8l9 5 9-5zM3 13l9 5 9-5",
-    comp: "M4 7h16v10H4zM8 11h8", check: "m5 12 5 5 9-10", reset: "M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4",
+    comp: "M4 7h16v10H4zM8 11h8", check: "m5 12 5 5 9-10", reset: "M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4", minus: "M6 12h12", plus: "M12 6v12M6 12h12",
   };
   var SVGNS = "http://www.w3.org/2000/svg";
   function icon(name) {
@@ -306,16 +320,24 @@
   }
 
   // ------------------------------------------------------------- Aviso ----
+  // `action` ({ label, run }): um botão no aviso, que fica mais tempo na tela.
   var toast = null, toastTimer = 0;
-  function say(text) {
+  function say(text, action) {
     if (!toast) {
       toast = h("div", { "class": "toast tb-toast", role: "status" });
       document.body.appendChild(toast);
     }
-    toast.textContent = text;
+    toast.textContent = "";
+    toast.appendChild(h("span", { text: text }));
+    toast.classList.toggle("act", !!action);
+    if (action) {
+      var b = h("button", { type: "button", "class": "tbx-b sm", text: action.label });
+      b.addEventListener("click", function () { toast.classList.remove("on"); action.run(); });
+      toast.appendChild(b);
+    }
     toast.classList.add("on");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toast.classList.remove("on"); }, 2400);
+    toastTimer = setTimeout(function () { toast.classList.remove("on"); }, action ? 7000 : 2400);
   }
 
   // ------------------------------------------- Cores por identificador ----
@@ -349,67 +371,158 @@
   }
 
   // ------------------------------------------------------ A prévia ----
-  var stage = $("[data-stage]"), canvas = $("[data-canvas]"), screensBox = $("[data-screens]"), errBox = $("[data-error]");
+  var stage = $("[data-stage]"), canvas = $("[data-canvas]"), screensBox = $("[data-screens]"), errBox = $("[data-error]"), emptyNote = $("[data-empty-note]");
   var screens = $$("[data-screen]").map(function (sc) { return { el: sc, fbox: $("[data-fbox]", sc), frame: $("[data-frame]", sc), cap: $("[data-cap]", sc), mode: "dark", k: 1 }; });
+  // A janela que a prévia imita (fit() escolhe pelo espaço do palco) e a escala de agora.
+  var frameSize = { w: W, h: H }, curK = 1, fitK = 1, stacked = false, pinch = null;
   function screenModes() { return view === "split" ? ["dark", "light"] : [mode]; }
   function renderPreviews() {
-    var modes = screenModes();
+    var modes = screenModes(), noMessages = false;
     screens.forEach(function (sc, i) {
       var m = modes[i];
       sc.el.hidden = !m;
       if (!m) return;
       sc.mode = m;
       var th = lastGood[m];
-      if (th) P.mount(sc.frame, th);
+      sc.frame.style.width = frameSize.w + "px";
+      sc.frame.style.height = frameSize.h + "px";
+      if (th) {
+        P.mount(sc.frame, th, frameSize);
+        if (!sc.frame.querySelector(".pv-msgs")) noMessages = true;
+      }
       sc.cap.textContent = S.cap[m] + " · " + TB.slug(state.meta.name) + ".kdl";
       if (sc.capMode !== m) { var ci = sc.el.querySelector(".tbx-cap svg"); if (ci) ci.replaceWith(icon(m === "dark" ? "moon" : "sun")); sc.capMode = m; }
       sc.el.classList.toggle("edit", m === mode);
       sc.fbox.style.setProperty("--pv-bg", th ? TB.cssColor(th.tokens.bg) : "#111");
     });
-    stage.classList.toggle("tbx-split", view === "split");
+    emptyNote.hidden = !noMessages;
     stage.setAttribute("aria-label", S.preview + modes.map(function (m) { return S.mode[m]; }).join(" + ") + " · " + TB.slug(state.meta.name) + ".kdl");
   }
-  // O tamanho da prévia: caber (escolhe lado a lado ou um embaixo do outro, o que der maior), 100% ou 150%.
-  function fit() {
-    var cw = canvas.clientWidth, ch = canvas.clientHeight;
-    if (!cw || !ch) return;
-    var n = view === "split" ? 2 : 1, padX = cw < 700 ? 32 : 66, padY = cw < 700 ? 60 : 92, gap = cw < 700 ? 14 : 28, k, col = false;
-    if (zoom === "fit") {
-      var side = Math.min((cw - padX - gap * (n - 1)) / n / W, (ch - padY) / H);
-      var stacked = n === 2 ? Math.min((cw - padX) / W, (ch - padY - gap - 24) / 2 / H) : 0;
-      col = stacked > side;
-      k = Math.max(0.12, Math.min(col ? stacked : side, 2));
-    } else k = +zoom;
-    screensBox.style.flexDirection = col ? "column" : "row";
+  // Quanto espaço o palco dá: lê o espaçamento de verdade do CSS (nada fixo aqui) e, com os dois
+  // modos, escolhe lado a lado ou um embaixo do outro, o que der a prévia maior. Devolve true
+  // quando a janela imitada mudou de tamanho (a prévia precisa ser desenhada de novo).
+  function measure() {
+    stage.classList.toggle("tbx-split", view === "split");
+    // offsetWidth/Height contam a barra de rolagem: com zoom ela aparece, e a janela imitada não
+    // deve mudar por isso (nem a prévia ser refeita no meio de uma pinça).
+    var cw = canvas.offsetWidth, ch = canvas.offsetHeight;
+    if (!cw || !ch) return false;
+    var cs = getComputedStyle(screensBox), two = view === "split";
+    var padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0), padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    var gap = parseFloat(cs.columnGap) || parseFloat(cs.gap) || 0, capH = 0;
+    if (two) {
+      var fig = screens[0].el, cap = fig.querySelector(".tbx-cap");
+      capH = (cap ? cap.offsetHeight : 0) + (parseFloat(getComputedStyle(fig).rowGap) || 0);
+    }
+    // Um pixel de folga contra o arredondamento.
+    var aw = cw - padX - 1, ah = ch - padY - 1;
+    var row = P.frameFit(two ? (aw - gap) / 2 : aw, ah - capH), col = two ? P.frameFit(aw, (ah - gap) / 2 - capH) : null;
+    var g = col && col.k > row.k + 0.001 ? col : row;
+    stacked = g === col;
+    fitK = g.k;
+    var changedSize = !pinch && (g.w !== frameSize.w || g.h !== frameSize.h);
+    if (!pinch) frameSize = { w: g.w, h: g.h };
+    curK = zoom === "fit" ? fitK : clamp(+zoom, 0.1, 3);
+    return changedSize;
+  }
+  function applyScale() {
+    var k = curK, fw = Math.floor(frameSize.w * k), fh = Math.floor(frameSize.h * k);
+    screensBox.style.flexDirection = stacked ? "column" : "row";
     screens.forEach(function (sc) {
       sc.k = k;
-      sc.fbox.style.width = Math.round(W * k) + "px";
-      sc.fbox.style.height = Math.round(H * k) + "px";
+      sc.el.style.width = fw + "px";
+      sc.fbox.style.width = fw + "px";
+      sc.fbox.style.height = fh + "px";
       sc.frame.style.transform = "scale(" + k + ")";
     });
-    $("[data-zoom-label]").textContent = Math.round(k * 100) + "%" + (zoom === "fit" ? " · " + S.zoomFit : "");
+    canvas.classList.toggle("fits", zoom === "fit");
+    var pct = Math.round(k * 100) + "%", lbl = $("[data-zoom-label]"), tg = $("[data-zoom-toggle]");
+    lbl.textContent = pct;
+    if (zoom === "fit") lbl.appendChild(h("small", { text: S.zoomFit }));
+    tg.classList.toggle("fit", zoom === "fit");
+    var info = S.zoomInfo(frameSize.w, frameSize.h, pct);
+    tg.title = info + " · " + (zoom === "fit" ? S.zoomTo100 + " (1)" : S.zoomToFit + " (0)");
+    tg.setAttribute("aria-label", info + ". " + (zoom === "fit" ? S.zoomTo100 : S.zoomToFit));
     hideHl();
   }
-  if (window.ResizeObserver) new ResizeObserver(function () { fit(); }).observe(canvas);
-  else addEventListener("resize", fit);
+  function fit() {
+    if (measure() && state) renderPreviews();
+    applyScale();
+  }
+  // O palco mudou de tamanho: refaz no próximo quadro, e só se mudou mesmo (assim o observador
+  // não dispara de novo dentro dele mesmo).
+  var lastCanvas = "", fitQueued = false;
+  function fitSoon() {
+    if (fitQueued) return;
+    fitQueued = true;
+    requestAnimationFrame(function () {
+      fitQueued = false;
+      var sz = canvas.offsetWidth + "x" + canvas.offsetHeight;
+      if (sz === lastCanvas) return;
+      lastCanvas = sz;
+      fit();
+    });
+  }
+  if (window.ResizeObserver) new ResizeObserver(fitSoon).observe(canvas);
+  else addEventListener("resize", fitSoon);
   // A barra de cima: esconde rótulos aos poucos (c1, c2…) até caber, seja qual for o idioma ou a fonte.
-  var topBar = $(".tbx-top");
+  var topBar = $(".tbx-top"), lastBar = -1, barQueued = false;
   function fitToolbar() {
+    lastBar = topBar.clientWidth;
     for (var i = 1; i <= 5; i++) topBar.classList.remove("c" + i);
     for (var lv = 1; lv <= 5 && topBar.scrollWidth > topBar.clientWidth + 1; lv++) topBar.classList.add("c" + lv);
   }
-  if (window.ResizeObserver) new ResizeObserver(fitToolbar).observe(topBar);
-  else addEventListener("resize", fitToolbar);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitToolbar);
-  function setZoom(z) {
-    zoom = z;
-    $$("[data-zoom]").forEach(function (b) { var on = b.dataset.zoom === z; b.setAttribute("aria-checked", on ? "true" : "false"); b.tabIndex = on ? 0 : -1; });
-    fit();
-    requestAnimationFrame(function () {
-      canvas.scrollLeft = (canvas.scrollWidth - canvas.clientWidth) / 2;
-      canvas.scrollTop = (canvas.scrollHeight - canvas.clientHeight) / 2;
-    });
+  function fitToolbarSoon() {
+    if (barQueued) return;
+    barQueued = true;
+    requestAnimationFrame(function () { barQueued = false; if (topBar.clientWidth !== lastBar) fitToolbar(); });
   }
+  if (window.ResizeObserver) new ResizeObserver(fitToolbarSoon).observe(topBar);
+  else addEventListener("resize", fitToolbarSoon);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitToolbar);
+  // Zoom: "fit" ou um número. `at` (um ponto da tela) fica parado embaixo do ponteiro ou dos dedos.
+  var ZOOMS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3];
+  function setZoom(z, at) {
+    var oldK = curK, r = canvas.getBoundingClientRect();
+    var ax = at ? at.x - r.left : canvas.clientWidth / 2, ay = at ? at.y - r.top : canvas.clientHeight / 2;
+    var px = canvas.scrollLeft + ax, py = canvas.scrollTop + ay;
+    zoom = z === "fit" ? "fit" : String(clamp(+z, 0.1, 3));
+    fit();
+    if (zoom === "fit") return;
+    var q = curK / oldK;
+    canvas.scrollLeft = px * q - ax;
+    canvas.scrollTop = py * q - ay;
+  }
+  function zoomStep(dir) {
+    var k = curK, next = null;
+    if (dir > 0) { for (var i = 0; i < ZOOMS.length; i++) if (ZOOMS[i] > k + 0.005) { next = ZOOMS[i]; break; } }
+    else for (var j = ZOOMS.length - 1; j >= 0; j--) if (ZOOMS[j] < k - 0.005) { next = ZOOMS[j]; break; }
+    if (next !== null) setZoom(next);
+  }
+  $("[data-zoom-in]").addEventListener("click", function () { zoomStep(1); });
+  $("[data-zoom-out]").addEventListener("click", function () { zoomStep(-1); });
+  $("[data-zoom-toggle]").addEventListener("click", function () { setZoom(zoom === "fit" ? 1 : "fit"); });
+  // Ctrl + roda (e a pinça do touchpad, que chega assim) e a pinça na tela de toque.
+  canvas.addEventListener("wheel", function (e) {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    setZoom(curK * Math.exp(-clamp(e.deltaY, -60, 60) * 0.006), { x: e.clientX, y: e.clientY });
+  }, { passive: false });
+  function touchInfo(e) {
+    var a = e.touches[0], b = e.touches[1];
+    return { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+  }
+  canvas.addEventListener("touchstart", function (e) {
+    if (e.touches.length === 2) { pinch = touchInfo(e); pinch.k = curK; hideHl(); }
+  }, { passive: true });
+  canvas.addEventListener("touchmove", function (e) {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    var t = touchInfo(e);
+    setZoom(pinch.k * t.d / pinch.d, t);
+  }, { passive: false });
+  canvas.addEventListener("touchend", function (e) { if (e.touches.length < 2) pinch = null; });
+  canvas.addEventListener("touchcancel", function () { pinch = null; });
   function setView(v) {
     view = v;
     if (v !== "split") mode = v;
@@ -424,7 +537,8 @@
     changed();
   }
   radioKeys($$("[data-view]"), function (b) { setView(b.dataset.view); });
-  radioKeys($$("[data-zoom]"), function (b) { setZoom(b.dataset.zoom); });
+  $("[data-empty-undo]").addEventListener("click", function () { undo(); });
+  $("[data-empty-layers]").addEventListener("click", function () { selectTab("tbx-t-layout"); });
   // Grupo de rádio: clique, setas e Home/End.
   function radioKeys(list, pick) {
     list.forEach(function (b, i) {
@@ -664,14 +778,15 @@
     if (idKind(p.id) !== "tok") return;
     var rows = TB.contrastReport(state, p.mode).filter(function (r) { return r.fg === p.id || r.backs.indexOf(p.id) >= 0; });
     rows.forEach(function (r) {
-      var ok = !r.fails.length;
-      var li = h("div", { "class": "tbx-cc " + (ok ? "ok" : "bad") }, [
-        h("span", { "class": "tbx-badge " + (ok ? "ok" : "bad"), text: (ok ? "✓ " : "! ") + fmtRatio(r.ratio) }),
+      var ok = !r.fails.length, lv = r.level || (ok ? "ok" : "bad");
+      var li = h("div", { "class": "tbx-cc " + lv }, [
+        h("span", { "class": "tbx-badge " + lv, text: ({ ok: "✓ ", auto: "↑ ", low: "~ ", bad: "! " })[lv] + fmtRatio(r.ratio) }),
         h("span", {}, [h("code", { text: r.fg }), S.on_ + (ok ? r.backs : r.fails).join(", ")]),
         h("span", { "class": "tbx-tok-v", text: (r.app ? S.needs : S.wcag) + r.min + ":1" }),
       ]);
       if (!ok && r.fix) {
-        var b = h("button", { type: "button", "class": "tbx-b sm" }, [h("i", { "class": "tb-dot", style: "background:" + r.fix.value }), (r.app ? S.use : S.fix + " · ") + r.fix.value]);
+        var b = lv === "auto" ? h("button", { type: "button", "class": "tbx-link", text: S.keepLift(r.fix.value) })
+          : h("button", { type: "button", "class": "tbx-b sm" }, [h("i", { "class": "tb-dot", style: "background:" + r.fix.value }), (r.app ? S.use : S.fix + " · ") + r.fix.value]);
         b.addEventListener("click", function () { set(function (s) { s.colors[p.mode][r.fix.tok] = r.fix.value; }); if (r.fix.tok === p.id) { loadModel(r.fix.value); } });
         li.appendChild(b);
       }
@@ -726,7 +841,10 @@
   }
   function placePop(anchor) {
     if (matchMedia("(max-width: 899.98px)").matches) { pop.style.left = ""; pop.style.top = ""; return; }
-    var w = pop.offsetWidth || 316, hh = pop.offsetHeight || 480, vw = innerWidth, vh = innerHeight, x, y;
+    // Fica acima da barra de baixo do palco (o zoom e o contraste continuam à vista), não só dentro da janela.
+    var cb = canvas.getBoundingClientRect().bottom, vw = innerWidth, vh = Math.min(innerHeight, cb), x, y;
+    pop.style.maxHeight = Math.max(240, vh - 20) + "px";
+    var w = pop.offsetWidth || 316, hh = pop.offsetHeight || 480;
     if (anchor.width !== undefined) {
       x = anchor.right + 10;
       if (x + w > vw - 10) x = anchor.left - w - 10;
@@ -739,7 +857,9 @@
     pop.style.left = clamp(x, 10, vw - w - 10) + "px";
     pop.style.top = clamp(y, 10, Math.max(10, vh - hh - 10)) + "px";
   }
-  function openPop(ids, id, m, anchor, info, opener) {
+  // `kbd`: aberto pelo teclado (Enter ou Espaço numa cor do painel): o foco vai para o campo hex.
+  // Pelo mouse ou pelo toque o foco fica onde está (num celular, focar o campo abriria o teclado).
+  function openPop(ids, id, m, anchor, info, opener, kbd) {
     var orig = popState && popState.mode === m ? popState.orig : {};
     popState = { ids: ids, id: id, mode: m, info: info || null, orig: orig, opener: opener || null };
     ids.forEach(function (x) { if (!orig[x + "@" + m]) orig[x + "@" + m] = colorOf(x, m); });
@@ -748,7 +868,17 @@
     syncPop(false);
     placePop(anchor);
     hideHl();
+    if (kbd) { cp.hex.focus(); cp.hex.select(); }
   }
+  // Enquanto o foco está no editor, o Tab dá a volta dentro dele; Esc fecha e devolve o foco.
+  pop.addEventListener("keydown", function (e) {
+    if (e.key !== "Tab") return;
+    var f = [].slice.call(pop.querySelectorAll("button,input,[tabindex='0']")).filter(function (x) { return !x.disabled && x.tabIndex >= 0 && x.offsetParent !== null; });
+    if (!f.length) return;
+    var i = f.indexOf(document.activeElement);
+    if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && (i === f.length - 1 || i < 0)) { e.preventDefault(); f[0].focus(); }
+  });
   function closePop(focusBack) {
     if (!popState) return;
     if (focusBack && popState.opener && popState.opener.isConnected) popState.opener.focus();
@@ -843,9 +973,9 @@
           h("span", { "class": "tbx-tok-sw" }, [swi]), h("span", { "class": "tbx-tok-n" }, [tok, gtag]), h("span", { "class": "tbx-tok-m" }, [badge, val]),
           h("span", { "class": "tbx-tok-d", text: S.tok[tok] }),
         ]);
-        row.addEventListener("click", function () {
-          if (popState && popState.id === tok && popState.mode === mode && !pop.hidden) return closePop();
-          openPop([tok], tok, mode, row.getBoundingClientRect(), null, row);
+        row.addEventListener("click", function (e) {
+          if (popState && popState.id === tok && popState.mode === mode && !pop.hidden) return closePop(e.detail === 0);
+          openPop([tok], tok, mode, row.getBoundingClientRect(), null, row, e.detail === 0);
         });
         row.addEventListener("pointerenter", function () { flashToken(tok); });
         row.addEventListener("pointerleave", function () { if (!popState) hideHl(); });
@@ -863,7 +993,7 @@
   }
   function idSwatch(id, small) {
     var i = h("i"), b = h("button", { type: "button", "class": "tbx-sw", "data-sw": id, "data-pop-src": "", "aria-label": idLabel(id) }, [i, small ? h("small", { text: small }) : null]);
-    b.addEventListener("click", function () { openPop([id], id, mode, b.getBoundingClientRect(), null, b); });
+    b.addEventListener("click", function (e) { openPop([id], id, mode, b.getBoundingClientRect(), null, b, e.detail === 0); });
     return b;
   }
   // Passar o mouse numa cor do painel acende onde ela aparece na prévia.
@@ -901,11 +1031,11 @@
       r.gtag.hidden = !gatedToks[tok];
       var cr = report[tok];
       if (cr && TEXT_TOKS.indexOf(tok) >= 0) {
-        var ok = !cr.fails.length;
+        var lv = cr.level || (cr.fails.length ? "bad" : "ok");
         r.badge.hidden = false;
-        r.badge.className = "tbx-badge " + (ok ? "ok" : "bad");
-        r.badge.textContent = (ok ? "" : "! ") + fmtRatio(cr.ratio);
-        r.badge.title = (r.app ? S.needs : S.wcag) + cr.min + ":1";
+        r.badge.className = "tbx-badge " + lv;
+        r.badge.textContent = ({ ok: "", auto: "↑ ", low: "~ ", bad: "! " })[lv] + fmtRatio(cr.ratio);
+        r.badge.title = (cr.app ? S.needs : S.wcag) + cr.min + ":1" + (lv === "auto" ? " · " + S.autoMark : lv === "low" ? " · " + S.lowMark : "");
       } else r.badge.hidden = true;
       r.lock.setAttribute("aria-pressed", locks[tok] ? "true" : "false");
       r.lock.replaceChild(icon(locks[tok] ? "lock" : "unlock"), r.lock.firstChild);
@@ -942,41 +1072,49 @@
   var allBtn = h("button", { type: "button", "class": "tbx-link" });
   allBtn.addEventListener("click", function () { showAllChecks = !showAllChecks; renderContrast(); });
   $("[data-contrast-box]").insertBefore(allBtn, $(".tbx-more", $("[data-contrast-box]")));
+  // Três níveis além do "ok": o que o app ajusta sozinho (neutro), o que só passa para texto
+  // grande (âmbar) e o que vai aparecer mesmo (vermelho). O chip e o resumo só alarmam pelo último.
+  function needsLook(r) { return r.level === "bad" || r.level === "low"; }
   function renderContrast() {
-    var rows = TB.contrastReport(state, mode), bad = rows.filter(function (r) { return r.fails.length; });
-    var other = mode === "dark" ? "light" : "dark", otherBad = TB.contrastReport(state, other).filter(function (r) { return r.fails.length; }).length;
-    contrastSum.textContent = (bad.length ? S.issues(bad.length) : S.contrastOk) + " " + S.otherIssues(S.mode[other], otherBad);
+    var rows = TB.contrastReport(state, mode), bad = rows.filter(function (r) { return r.level === "bad"; }), low = rows.filter(function (r) { return r.level === "low"; });
+    var auto = rows.filter(function (r) { return r.level === "auto"; }).length;
+    var other = mode === "dark" ? "light" : "dark", otherBad = TB.contrastReport(state, other).filter(needsLook).length;
+    contrastSum.textContent = (bad.length || low.length ? S.issues(bad.length, low.length) : S.contrastOk) + (auto ? " " + S.lifted(auto) : "") + " " + S.otherIssues(S.mode[other], otherBad);
     contrastList.textContent = "";
     contrastList.classList.toggle("all", showAllChecks);
     allBtn.textContent = showAllChecks ? S.hideOk : S.showAll;
-    var seen = TB.effectiveColors(state, mode).toks;
-    rows.forEach(function (r) {
-      var ok = !r.fails.length;
-      var li = h("li", { "class": ok ? "ok" : "bad" }, [
-        h("span", { "class": "tbx-mark" }, [h("span", { "aria-hidden": "true", text: ok ? "✓" : "!" }), h("span", { "class": "tbx-sr", text: ok ? S.passes : S.fails })]),
+    var seen = TB.effectiveColors(state, mode).toks, order = { bad: 0, low: 1, auto: 2, ok: 3 };
+    // O que pede atenção primeiro; o que o app ajusta sozinho depois, numa linha curta.
+    rows.slice().sort(function (a, b) { return order[a.level || "ok"] - order[b.level || "ok"]; }).forEach(function (r) {
+      var ok = !r.fails.length, lv = r.level || (ok ? "ok" : "bad");
+      var li = h("li", { "class": lv }, [
+        h("span", { "class": "tbx-mark" }, [h("span", { "aria-hidden": "true", text: { ok: "✓", auto: "↑", low: "~", bad: "!" }[lv] }), h("span", { "class": "tbx-sr", text: { ok: S.passes, auto: S.autoMark, low: S.lowMark, bad: S.fails }[lv] })]),
         h("span", { "class": "tbx-pair" }, [h("i", { "class": "tb-dot", style: "background:" + TB.cssColor(seen[r.fg]) }), h("code", { text: r.fg }), S.on_ + (ok ? r.backs : r.fails).join(", "), h("small", { text: (r.app ? S.needs : S.wcag) + r.min + ":1" })]),
         h("span", { "class": "tbx-ratio" }, [h("strong", { text: fmtRatio(r.ratio) })]),
       ]);
       if (!ok) {
-        if (r.app && r.lift) li.appendChild(h("p", { "class": "tbx-lift", text: S.lifts + r.lift + S.liftsEnd }));
+        if (lv === "low") li.appendChild(h("p", { "class": "tbx-lift", text: S.lowNote }));
+        if (r.app && r.lift) li.appendChild(h("p", { "class": "tbx-lift", text: lv === "auto" ? S.shownAs(r.lift) : S.lifts + r.lift + S.liftsEnd }));
         if (r.gated) li.appendChild(h("p", { "class": "tbx-lift", text: S.fromLayout(r.gated.line) }));
         else if (r.stuck) li.appendChild(h("p", { "class": "tbx-lift", text: S.stuck }));
       }
       if (!ok && r.fix) {
-        var b = h("button", { type: "button", "class": "tbx-b sm tbx-fix" }, [h("i", { "class": "tb-dot", style: "background:" + r.fix.value }), (r.app ? S.use + r.fix.value : S.fix + " · " + r.fix.value)]);
+        var b = lv === "auto" ? h("button", { type: "button", "class": "tbx-link tbx-fix", text: S.keepLift(r.fix.value) })
+          : h("button", { type: "button", "class": "tbx-b sm tbx-fix" }, [h("i", { "class": "tb-dot", style: "background:" + r.fix.value }), (r.app ? S.use + r.fix.value : S.fix + " · " + r.fix.value)]);
         b.addEventListener("click", function () { set(function (s) { s.colors[mode][r.fix.tok] = r.fix.value; }); });
         li.appendChild(b);
       }
       contrastList.appendChild(li);
     });
-    $("[data-fixall]").hidden = !rows.some(function (r) { return r.fix; });
+    $("[data-fixall]").hidden = !rows.some(function (r) { return r.fix && needsLook(r); });
     chip.classList.toggle("bad", bad.length > 0);
-    $("[data-contrast-chip-t]").textContent = bad.length ? S.chipBad(bad.length) : S.chipOk;
+    chip.classList.toggle("low", !bad.length && low.length > 0);
+    $("[data-contrast-chip-t]").textContent = bad.length ? S.chipBad(bad.length) : low.length ? S.chipLow(low.length) : S.chipOk;
   }
   $("[data-fixall]").addEventListener("click", function () {
     set(function (s) {
       for (var round = 0; round < 4; round++) {
-        var fixes = TB.contrastReport(s, mode).filter(function (r) { return r.fails.length && r.fix; });
+        var fixes = TB.contrastReport(s, mode).filter(function (r) { return r.fix && needsLook(r); });
         if (!fixes.length) break;
         fixes.forEach(function (r) { s.colors[mode][r.fix.tok] = r.fix.value; });
       }
@@ -998,33 +1136,37 @@
   genLive.addEventListener("change", function () { store("lc-tb-genlive", genLive.checked ? "on" : "off"); });
   var harmButtons = {};
   Object.keys(TB.HARMONY).forEach(function (k) {
-    var svg = document.createElementNS(SVGNS, "svg");
-    svg.setAttribute("viewBox", "0 0 40 40");
-    svg.setAttribute("aria-hidden", "true");
-    var b = h("button", { type: "button", role: "radio", "aria-checked": "false", "data-h": k }, [svg, S.harmonies[k]]);
+    var wheel = h("span", { "class": "tbx-wheel", "aria-hidden": "true" });
+    var b = h("button", { type: "button", role: "radio", "aria-checked": "false", "data-h": k }, [wheel, S.harmonies[k]]);
     harmBox.appendChild(b);
-    harmButtons[k] = { b: b, svg: svg };
+    harmButtons[k] = { b: b, wheel: wheel };
   });
   radioKeys(Object.keys(harmButtons).map(function (k) { return harmButtons[k].b; }), function (b) { gen.scheme = b.dataset.h; fillGen(); genChanged(); });
-  function drawWheels() {
-    var base = TB.toOklch(TB.hexRgba(gen.base)), A = base[2];
+  // Cada roda: o anel com os matizes (OKLCH, de 30 em 30 graus, 0° no alto) e um ponto em cada
+  // matiz que a harmonia vai usar a partir da cor base (destaque, menção e link). Na escolhida,
+  // os pontos têm as cores que o gerador vai pôr no modo escuro.
+  var ringCss = (function () {
+    var st = [];
+    for (var d = 0; d <= 360; d += 30) st.push(TB.toHex(TB.oklch(0.74, 0.13, d)).slice(0, 7) + " " + d + "deg");
+    return "conic-gradient(" + st.join(",") + ")";
+  })();
+  function drawWheels(g) {
+    var A = TB.toOklch(TB.hexRgba(gen.base))[2];
     Object.keys(harmButtons).forEach(function (k) {
-      var svg = harmButtons[k].svg, off = TB.HARMONY[k];
-      svg.textContent = "";
-      var ring = document.createElementNS(SVGNS, "circle");
-      ring.setAttribute("cx", "20"); ring.setAttribute("cy", "20"); ring.setAttribute("r", "15");
-      ring.setAttribute("fill", "none"); ring.setAttribute("stroke", "currentColor"); ring.setAttribute("stroke-opacity", ".25"); ring.setAttribute("stroke-width", "1.5");
-      svg.appendChild(ring);
-      [[0, 5.5], [off[0], 4], [off[1], 4]].forEach(function (d, i) {
-        if (k === "mono" && i) d = [0, i === 1 ? 3.6 : 2.6];
-        var a = (A + d[0] - 90) * Math.PI / 180, rr = k === "mono" && i ? 15 - i * 5 : 15;
-        var c = document.createElementNS(SVGNS, "circle");
-        c.setAttribute("cx", (20 + rr * Math.cos(a)).toFixed(2));
-        c.setAttribute("cy", (20 + rr * Math.sin(a)).toFixed(2));
-        c.setAttribute("r", String(d[1]));
-        c.setAttribute("fill", TB.toHex(TB.oklch(k === "mono" ? 0.55 + i * 0.15 : 0.72, Math.max(0.1, base[1]), A + d[0])));
-        c.setAttribute("stroke", "rgba(0,0,0,.35)");
-        svg.appendChild(c);
+      var w = harmButtons[k].wheel, off = TB.HARMONY[k], mono = k === "mono";
+      w.textContent = "";
+      w.style.setProperty("--ring", ringCss);
+      w.appendChild(h("i"));
+      if (!mono) { var u = h("u"); u.style.setProperty("--c", gen.base); w.appendChild(u); }
+      var real = k === gen.scheme && g ? [g.colors.dark.accent, g.colors.dark.mention, g.colors.dark.link] : null;
+      [0, off[0], off[1]].forEach(function (d, i) {
+        var hue = ((A + d) % 360 + 360) % 360, rad = hue * Math.PI / 180, r = mono ? [41, 28, 15][i] : 41;
+        var c = real ? real[i] : TB.toHex(TB.oklch(clamp(gen.lightness - (mono ? i * 0.14 : 0), 0.3, 0.95), Math.max(0.07, gen.chroma), hue));
+        var b = h("b");
+        b.style.left = (50 + r * Math.sin(rad)).toFixed(2) + "%";
+        b.style.top = (50 - r * Math.cos(rad)).toFixed(2) + "%";
+        b.style.setProperty("--c", TB.normHex(c).slice(0, 7));
+        w.appendChild(b);
       });
     });
   }
@@ -1037,8 +1179,8 @@
       if (document.activeElement !== genSliders[k]) genSliders[k].value = gen[k];
       genOuts[k].textContent = k === "lightness" ? Math.round(gen[k] * 100) + "%" : gen[k].toFixed(3);
     });
-    drawWheels();
     var g = TB.generate(genSeed()), strip = $("[data-gen-strip]");
+    drawWheels(g);
     strip.textContent = "";
     [g.colors.dark.bg, g.colors.dark.surface, g.colors.dark.text, g.colors.dark.accent, g.colors.dark.mention, g.colors.dark.link, g.colors.light.bg, g.colors.light.accent].forEach(function (c) {
       var i = h("i"); swatch(i, c); strip.appendChild(i);
@@ -1070,7 +1212,7 @@
     if (fromPop) { cp.swi.style.background = css(gen.base); paintSliders(); }
     genChanged();
   }
-  genBase.addEventListener("click", function () { openPop(["base"], "base", mode, genBase.getBoundingClientRect(), null, genBase); });
+  genBase.addEventListener("click", function (e) { openPop(["base"], "base", mode, genBase.getBoundingClientRect(), null, genBase, e.detail === 0); });
   genBase.setAttribute("data-pop-src", "");
   genHex.addEventListener("input", function () {
     var v = readHex(genHex.value);
@@ -1297,7 +1439,14 @@
       ]);
       name.addEventListener("click", function () { openPath = openPath === o.path ? null : o.path; buildLayers(outlineNow); });
       var eye = h("button", { type: "button", "class": "tbx-ib", "aria-pressed": hidden ? "true" : "false", title: hidden ? S.show : S.hide, "aria-label": (hidden ? S.show : S.hide) + ": " + o.name }, [icon(hidden ? "eyeoff" : "eye")]);
-      eye.addEventListener("click", function () { editNode(o.path, function (t, st) { return TB.setProp(t, st, "show", hidden ? null : false); }); });
+      eye.addEventListener("click", function () {
+        editNode(o.path, function (t, st) { return TB.setProp(t, st, "show", hidden ? null : false); });
+        // Esconder uma camada que tem as mensagens, a caixa de mensagem ou os canais: avisa, com Desfazer.
+        if (!hidden) {
+          var lost = TB.essentialInside(outlineNow, o.start);
+          if (lost.length) say(S.hidEssential(o.name, lost), { label: S.undo, run: undo });
+        }
+      });
       var up = h("button", { type: "button", "class": "tbx-ib", title: S.up, "aria-label": S.up + ": " + o.name, disabled: o.index <= 0 }, [icon("up")]);
       var down = h("button", { type: "button", "class": "tbx-ib", title: S.down, "aria-label": S.down + ": " + o.name, disabled: o.index >= o.count - 1 }, [icon("down")]);
       function move(dir) {
@@ -1552,8 +1701,9 @@
       advStatus.className = "tbx-adv-status";
       advStatus.textContent = S.advOk;
     }
+    measure();
     renderPreviews();
-    fit();
+    applyScale();
     fillColors();
     renderContrast();
     fillType();
@@ -1644,7 +1794,9 @@
       scrim = h("div", { "class": "tbx-scrim" });
       scrim.addEventListener("click", closeExport);
     }
-    document.body.appendChild(scrim);
+    // Na mesma camada da folha (dentro de <main>, que tem o seu próprio z-index): no <body>, o
+    // fundo escuro ficaria por cima da folha e engoliria os cliques.
+    sheet.parentNode.insertBefore(scrim, sheet);
     setTimeout(function () { var b = sheet.querySelector("[data-download]"); if (b) b.focus(); }, 40);
   }
   function closeExport() {
@@ -1791,7 +1943,7 @@
     }
     var broken = Object.keys(res.notes).reduce(function (a, k) { return a + res.notes[k]; }, 0);
     if (broken) bx.appendChild(h("p", { "class": "tb-lift", text: cs.notes(broken) }));
-    var bad = function (m) { return TB.contrastReport(state, m).filter(function (r) { return r.fails.length; }).length; };
+    var bad = function (m) { return TB.contrastReport(state, m).filter(needsLook).length; };
     bx.appendChild(h("p", { "class": "tb-css-sum", text: cs.contrast(bad("dark"), bad("light")) }));
     bx.hidden = false;
   }
@@ -1809,6 +1961,7 @@
   // Sem a API de tela cheia (ou se o navegador recusar), a prévia ocupa a janela inteira.
   function maximize(on) {
     box.classList.toggle("max", on);
+    html.classList.toggle("tbx-max", on);
     $$("[data-fullscreen]").forEach(function (b) { b.replaceChild(icon(on ? "compress" : "expand"), b.querySelector("svg")); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     setTimeout(fit, 30);
   }
@@ -1857,8 +2010,10 @@
     if (key === "m" || key === "M") { if (view === "split") setEditMode(mode === "dark" ? "light" : "dark"); else setView(mode === "dark" ? "light" : "dark"); }
     else if (key === "b" || key === "B") setView(view === "split" ? mode : "split");
     else if (key === "0") setZoom("fit");
-    else if (key === "1") setZoom("1");
-    else if (key === "2") setZoom("1.5");
+    else if (key === "1") setZoom(1);
+    else if (key === "2") setZoom(1.5);
+    else if (key === "+" || key === "=") zoomStep(1);
+    else if (key === "-" || key === "_") zoomStep(-1);
     else if (key === "f" || key === "F") toggleFull();
     else if (key === "\\") { if (!matchMedia("(max-width: 899.98px)").matches) setPanel(box.classList.contains("panel-off")); }
     else if (key === "/") { setPanel(true); if (sheetIs("peek")) setSheet("half"); search.focus(); search.select(); }
@@ -1908,7 +2063,9 @@
     var t = store("lc-tb-tab");
     selectTab(t && document.getElementById(t) && /^tbx-t-/.test(t) ? t : "tbx-t-colors", true);
     if (store("lc-tb-panel") === "off" && !matchMedia("(max-width: 899.98px)").matches) setPanel(false);
-    setSheet("peek");
+    // Em pé (celular, tablet), a folha já abre pela metade: a prévia fica com a largura toda e o
+    // painel aparece embaixo, em vez de um espaço vazio.
+    setSheet(innerHeight > innerWidth && innerHeight >= 560 ? "half" : "peek");
     setView(view);
     if (!fromHash(location.hash.slice(1))) { state = startFrom(first); ready(); }
     // Um link que só troca o #… nesta mesma página (#base=, #community=, #t=) também abre o tema,

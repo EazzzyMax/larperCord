@@ -57,19 +57,13 @@
   <button type="button" class="tbx-ib" data-redo aria-keyshortcuts="Control+Shift+Z" title="Redo (Ctrl+Shift+Z)"><i data-ic="redo"></i><span class="sr-only">Redo</span></button>
   <span class="tbx-sep" aria-hidden="true"></span>
   <div class="tbx-seg tbx-views" role="radiogroup" aria-label="Preview mode">
-    <button type="button" role="radio" data-view="dark" aria-checked="true" title="Dark mode (M)"><i data-ic="moon"></i><span>Dark</span></button>
-    <button type="button" role="radio" data-view="light" aria-checked="false" tabindex="-1" title="Light mode (M)"><i data-ic="sun"></i><span>Light</span></button>
-    <button type="button" role="radio" data-view="split" aria-checked="false" tabindex="-1" title="Dark and light side by side (B)"><i data-ic="split"></i><span>Both</span></button>
+    <button type="button" role="radio" data-view="dark" aria-checked="true" title="Dark mode (M)"><i data-ic="moon"></i><span class="tbx-bl">Dark</span></button>
+    <button type="button" role="radio" data-view="light" aria-checked="false" tabindex="-1" title="Light mode (M)"><i data-ic="sun"></i><span class="tbx-bl">Light</span></button>
+    <button type="button" role="radio" data-view="split" aria-checked="false" tabindex="-1" title="Dark and light side by side (B)"><i data-ic="split"></i><span class="tbx-bl">Both</span></button>
   </div>
-  <div class="tbx-seg tbx-zooms" role="radiogroup" aria-label="Zoom">
-    <button type="button" role="radio" data-zoom="fit" aria-checked="true" title="Fit to the window (0)"><i data-ic="fit"></i><span>Fit</span></button>
-    <button type="button" role="radio" data-zoom="1" aria-checked="false" tabindex="-1" title="Actual size (1)">100%</button>
-    <button type="button" role="radio" data-zoom="1.5" aria-checked="false" tabindex="-1" title="150% (2)">150%</button>
-  </div>
-  <button type="button" class="tbx-ib" data-fullscreen aria-keyshortcuts="F" title="Full screen (F)"><i data-ic="expand"></i><span class="sr-only">Full screen</span></button>
   <span class="tbx-grow"></span>
   <div class="tbx-mwrap">
-    <button type="button" class="tbx-b" data-menu-btn aria-haspopup="true" aria-expanded="false" aria-controls="tbx-open"><i data-ic="folder"></i><span>Open</span><i data-ic="caret"></i></button>
+    <button type="button" class="tbx-b" data-menu-btn aria-haspopup="true" aria-expanded="false" aria-controls="tbx-open" title="Open a theme, a file, Discord CSS or an image"><i data-ic="folder"></i><span class="tbx-bl">Open</span><i data-ic="caret"></i></button>
     <div class="tbx-menu" id="tbx-open" data-menu hidden>
       <p class="tbx-mh">Start from a built-in theme</p>
       <div class="tbx-starts" data-starts></div>
@@ -82,8 +76,8 @@
       </div>
     </div>
   </div>
-  <button type="button" class="tbx-b" data-share title="Copy a link that holds the whole theme"><i data-ic="link"></i><span>Share</span></button>
-  <button type="button" class="tbx-b primary" data-export-open aria-controls="tbx-export" aria-keyshortcuts="E" title="Download, copy and install (E)"><i data-ic="download"></i><span>Export</span></button>
+  <button type="button" class="tbx-b" data-share title="Copy a link that holds the whole theme"><i data-ic="link"></i><span class="tbx-bl">Share</span></button>
+  <button type="button" class="tbx-b primary" data-export-open aria-controls="tbx-export" aria-keyshortcuts="E" title="Download, copy and install (E)"><i data-ic="download"></i><span class="tbx-bl">Export</span></button>
 </header>
 
 <div class="tbx-body" data-body>
@@ -91,12 +85,12 @@
 <aside class="tbx-side" id="tbx-side" aria-label="Editing panel" data-side data-sheet="peek">
   <button type="button" class="tbx-handle" data-sheet-handle aria-label="Resize the panel" aria-controls="tbx-side"><i></i></button>
   <div class="tbx-rail" role="tablist" aria-label="What to edit" aria-orientation="vertical">
-    <button type="button" role="tab" id="tbx-t-colors" aria-controls="tbx-p-colors" aria-selected="true"><i data-ic="drop"></i><span>Colors</span></button>
-    <button type="button" role="tab" id="tbx-t-gen" aria-controls="tbx-p-gen" aria-selected="false" tabindex="-1"><i data-ic="wand"></i><span>Generate</span></button>
-    <button type="button" role="tab" id="tbx-t-layout" aria-controls="tbx-p-layout" aria-selected="false" tabindex="-1"><i data-ic="layout"></i><span>Layout</span></button>
-    <button type="button" role="tab" id="tbx-t-type" aria-controls="tbx-p-type" aria-selected="false" tabindex="-1"><i data-ic="type"></i><span>Type</span></button>
-    <button type="button" role="tab" id="tbx-t-code" aria-controls="tbx-p-code" aria-selected="false" tabindex="-1"><i data-ic="code"></i><span>Code</span></button>
-    <button type="button" role="tab" id="tbx-t-file" aria-controls="tbx-p-file" aria-selected="false" tabindex="-1"><i data-ic="tag"></i><span>File</span></button>
+    <button type="button" role="tab" id="tbx-t-colors" aria-controls="tbx-p-colors" aria-selected="true"><i data-ic="drop"></i><span class="tbx-tl">Colors</span></button>
+    <button type="button" role="tab" id="tbx-t-gen" aria-controls="tbx-p-gen" aria-selected="false" tabindex="-1"><i data-ic="wand"></i><span class="tbx-tl">Generate</span></button>
+    <button type="button" role="tab" id="tbx-t-layout" aria-controls="tbx-p-layout" aria-selected="false" tabindex="-1"><i data-ic="layout"></i><span class="tbx-tl">Layout</span></button>
+    <button type="button" role="tab" id="tbx-t-type" aria-controls="tbx-p-type" aria-selected="false" tabindex="-1"><i data-ic="type"></i><span class="tbx-tl">Type</span></button>
+    <button type="button" role="tab" id="tbx-t-code" aria-controls="tbx-p-code" aria-selected="false" tabindex="-1"><i data-ic="code"></i><span class="tbx-tl">Code</span></button>
+    <button type="button" role="tab" id="tbx-t-file" aria-controls="tbx-p-file" aria-selected="false" tabindex="-1"><i data-ic="tag"></i><span class="tbx-tl">File</span></button>
   </div>
   <div class="tbx-panel" data-panel>
     <label class="tbx-search"><i data-ic="search"></i><input type="search" data-search spellcheck="false" autocomplete="off" aria-keyshortcuts="/" placeholder="Search colors and settings"><kbd>/</kbd></label>
@@ -284,13 +278,27 @@
     <div class="tbx-dropzone" data-dropzone hidden><span><i data-ic="image"></i>Drop the image to make a palette from it</span></div>
   </div>
   <p class="tbx-error" data-error role="alert" hidden></p>
+  <div class="tbx-note" data-empty-note role="status" hidden>
+    <i data-ic="eyeoff"></i>
+    <p>This layout draws no messages: in the app, the window would show only the background.</p>
+    <button type="button" class="tbx-b sm" data-empty-undo>Undo</button>
+    <button type="button" class="tbx-b sm" data-empty-layers>Layers</button>
+  </div>
   <div class="tbx-status">
     <button type="button" class="tbx-chip" data-contrast-chip><i class="tbx-dot" aria-hidden="true"></i><span data-contrast-chip-t></span></button>
     <span class="tbx-hover" data-hover-info aria-live="off"></span>
     <span class="tbx-grow"></span>
-    <span class="tbx-zoomlbl" data-zoom-label></span>
+    <span class="tbx-site" role="group" aria-label="This page's theme">
+      <button type="button" class="tbx-sb" data-next-theme title="Next theme for this page (F2)"><i class="tbx-sbdot" aria-hidden="true"></i><span data-theme-name>larper</span></button>
+      <button type="button" class="tbx-sb" data-toggle-mode title="Light or dark page"><span data-mode-name>dark</span></button>
+    </span>
+    <div class="tbx-zoom" role="group" aria-label="Zoom">
+      <button type="button" class="tbx-ib sm" data-zoom-out aria-keyshortcuts="-" title="Zoom out (−)"><i data-ic="minus"></i><span class="sr-only">Zoom out</span></button>
+      <button type="button" class="tbx-zv" data-zoom-toggle aria-keyshortcuts="0 1"><span data-zoom-label>100%</span></button>
+      <button type="button" class="tbx-ib sm" data-zoom-in aria-keyshortcuts="+" title="Zoom in (+)"><i data-ic="plus"></i><span class="sr-only">Zoom in</span></button>
+    </div>
     <button type="button" class="tbx-ib sm" data-shortcuts aria-keyshortcuts="Shift+?" title="Keyboard shortcuts (?)"><i data-ic="keys"></i><span class="sr-only">Keyboard shortcuts</span></button>
-    <button type="button" class="tbx-ib sm" data-fullscreen title="Full screen (F)"><i data-ic="expand"></i><span class="sr-only">Full screen</span></button>
+    <button type="button" class="tbx-ib sm" data-fullscreen aria-keyshortcuts="F" title="Full screen (F)"><i data-ic="expand"></i><span class="sr-only">Full screen</span></button>
   </div>
 
   <div class="tbx-cpop" data-cpop role="dialog" aria-labelledby="tbx-cpop-h" hidden>
@@ -379,6 +387,7 @@
       <div><dt><kbd>M</kbd></dt><dd>Switch between dark and light</dd></div>
       <div><dt><kbd>B</kbd></dt><dd>Both modes side by side</dd></div>
       <div><dt><kbd>0</kbd> <kbd>1</kbd> <kbd>2</kbd></dt><dd>Zoom: fit, 100%, 150%</dd></div>
+      <div><dt><kbd>+</kbd> <kbd>−</kbd></dt><dd>Zoom in and out (also Ctrl + wheel, or pinch on a touch screen)</dd></div>
       <div><dt><kbd>F</kbd></dt><dd>Full screen preview</dd></div>
       <div><dt><kbd>\</kbd></dt><dd>Show or hide the panel</dd></div>
       <div><dt><kbd>/</kbd></dt><dd>Search colors and settings</dd></div>

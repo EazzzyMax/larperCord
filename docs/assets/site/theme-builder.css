@@ -63,9 +63,20 @@
 @media (max-width:620px){.tb-line{grid-template-columns:minmax(0,1fr)}}
 
 /* ------------------------------------------------------------ O editor ---- */
-html[data-page=builder]{scroll-padding-top:0;overflow:hidden}
+/* Nesta página a prévia é o que importa: o topo do site fica fino e a barra de status do site
+   sai (o tema da página continua na barra de baixo do editor e no Ctrl K). */
+html[data-page=builder]{--nav-h:46px;--bar:0px;scroll-padding-top:0;overflow:hidden}
 html[data-page=builder] body{overflow:hidden}
-html[data-page=builder] .buddy{display:none}
+html[data-page=builder] .buddy,html[data-page=builder] .statusbar{display:none}
+html[data-page=builder] .topnav{padding:0 16px}
+html[data-page=builder] .brand{font-size:16px;gap:8px}
+html[data-page=builder] .brand .ma{width:32px;height:24px}
+html[data-page=builder] :is(.nav-trig,.nav-link,.nav-ic,.nav-lang,.nav-burger){height:32px}
+html[data-page=builder] .nav-try{height:30px}
+html[data-page=builder] .nav-menu{top:calc(100% + 6px)}
+html[data-page=builder] .toast{bottom:52px}
+/* A prévia ocupando a janela (sem a API de tela cheia): acima do topo do site. */
+html.tbx-max main{z-index:90}
 .tbx{--side-w:344px;--rail-w:60px;--r:calc(var(--radius) + 6px);--tb-check:repeating-conic-gradient(#8885 0 25%,#fff3 0 50%) 0 0/10px 10px;
   --ctl:color-mix(in srgb,var(--elevated) 70%,var(--surface));position:relative;font-size:13px}
 .tbx [hidden]{display:none!important}
@@ -97,7 +108,7 @@ html:not(.js)[data-page=builder],html:not(.js)[data-page=builder] body{overflow:
 .tbx-ib.sm{width:28px;height:28px}
 .tbx-ib.sm svg{width:16px;height:16px}
 .tbx-ib[aria-pressed=true],.tbx-ib[aria-expanded=true]{color:var(--accent)}
-.tbx-b{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--ctl);color:var(--text);font:400 12px/1 var(--mono);white-space:nowrap;transition:border-color .15s,background-color .15s,transform .12s,box-shadow .15s}
+.tbx-b{position:relative;display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--ctl);color:var(--text);font:400 12px/1 var(--mono);white-space:nowrap;transition:border-color .15s,background-color .15s,transform .12s,box-shadow .15s}
 .tbx-b svg{width:16px;height:16px}
 .tbx-b:hover:not(:disabled){border-color:var(--accent)}
 .tbx-b:active:not(:disabled){transform:translateY(1px)}
@@ -106,22 +117,21 @@ html:not(.js)[data-page=builder],html:not(.js)[data-page=builder] body{overflow:
 .tbx-b.primary:hover{box-shadow:0 8px 26px -8px var(--accent)}
 .tbx-b.sm{height:28px;padding:0 10px;font-size:11.5px}
 .tbx-seg{display:inline-flex;align-items:center;gap:2px;height:34px;padding:2px;border:1px solid var(--border);border-radius:calc(var(--radius) + 3px);background:var(--bg)}
-.tbx-seg button{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:var(--radius);color:var(--muted);font:400 12px/1 var(--mono);white-space:nowrap;transition:color .12s,background-color .15s,box-shadow .15s}
+.tbx-seg button{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:var(--radius);color:var(--muted);font:400 12px/1 var(--mono);white-space:nowrap;transition:color .12s,background-color .15s,box-shadow .15s}
 .tbx-seg button svg{width:15px;height:15px}
-.tbx-seg button:hover{color:var(--text)}
-.tbx-seg button[aria-checked=true]{background:var(--elevated);color:var(--text);box-shadow:0 1px 0 color-mix(in srgb,var(--text) 6%,transparent),0 0 0 1px var(--border)}
+/* Escolhido: fundo do destaque e texto forte; o hover do resto fica bem mais fraco. */
+.tbx-seg button:hover:not([aria-checked=true]){color:var(--text);background:color-mix(in srgb,var(--text) 5%,transparent)}
+.tbx-seg button[aria-checked=true]{background:color-mix(in srgb,var(--accent) 24%,var(--elevated));color:var(--text);font-weight:500;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 70%,transparent),0 2px 8px -4px var(--accent)}
 .tbx-seg button[aria-checked=true] svg{color:var(--accent)}
 .tbx-seg.sm{height:28px}
 .tbx-seg.sm button{height:22px;padding:0 8px;font-size:11px}
-/* Quando a barra não cabe, theme-builder.js põe c1, c2… (cumulativas) até caber, em qualquer idioma. */
-.tbx-top.c1 .tbx-title h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.tbx-top.c1 .tbx-zooms button span{display:none}
-.tbx-top.c2 .tbx-b:not(.primary) span{display:none}
+/* Quando a barra não cabe, theme-builder.js põe c1, c2… (cumulativas) até caber, em qualquer idioma.
+   Os rótulos somem só da vista: continuam sendo o nome do botão para quem usa leitor de tela. */
+.tbx-top.c1 .tbx-title h1,.tbx-top.c2 .tbx-b:not(.primary) .tbx-bl,.tbx-top.c3 .tbx-views .tbx-bl,.tbx-top.c4 .tbx-b.primary .tbx-bl{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .tbx-top.c2 .tbx-b:not(.primary){padding:0 9px}
-.tbx-top.c3 .tbx-views button span{display:none}
-.tbx-top.c4 .tbx-zooms,.tbx-top.c4 .tbx-b.primary span{display:none}
+.tbx-top.c3 .tbx-views button{padding:0 8px}
 .tbx-top.c4 .tbx-b.primary{padding:0 9px}
-.tbx-top.c5 .tbx-file,.tbx-top.c5>.tbx-sep,.tbx-top.c5>[data-fullscreen],.tbx-top.c5 .tbx-mwrap .tbx-b svg:last-child{display:none}
+.tbx-top.c5 .tbx-file,.tbx-top.c5>.tbx-sep,.tbx-top.c5 .tbx-mwrap .tbx-b svg:last-child{display:none}
 .tbx-top.c5{gap:4px;padding:0 8px}
 
 /* Menu Abrir */
@@ -152,7 +162,7 @@ html:not(.js)[data-page=builder],html:not(.js)[data-page=builder] body{overflow:
 .tbx.panel-off .tbx-panel{display:none}
 .tbx-handle{display:none}
 .tbx-rail{flex:none;display:flex;flex-direction:column;gap:4px;width:var(--rail-w);padding:8px 6px;border-right:1px solid var(--border);background:color-mix(in srgb,var(--rail) 60%,var(--surface))}
-.tbx-rail [role=tab]{display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 2px 7px;border-radius:var(--r);color:var(--muted);font:400 9.5px/1 var(--mono);letter-spacing:.02em;transition:color .12s,background-color .15s}
+.tbx-rail [role=tab]{position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 2px 7px;border-radius:var(--r);color:var(--muted);font:400 9.5px/1 var(--mono);letter-spacing:.02em;transition:color .12s,background-color .15s}
 .tbx-rail [role=tab] svg{width:19px;height:19px}
 .tbx-rail [role=tab]:hover{color:var(--text);background:var(--hover)}
 .tbx-rail [role=tab][aria-selected=true]{color:var(--accent-text);background:var(--accent)}
@@ -216,6 +226,8 @@ html:not(.js)[data-page=builder],html:not(.js)[data-page=builder] body{overflow:
 .tbx-badge{display:inline-flex;align-items:center;gap:3px;padding:2px 5px;border-radius:4px;font:600 10px/1 var(--mono);white-space:nowrap}
 .tbx-badge.ok{color:var(--text);background:color-mix(in srgb,var(--online) 18%,transparent)}
 .tbx-badge.bad{color:var(--text);background:color-mix(in srgb,var(--danger) 22%,transparent);box-shadow:inset 0 0 0 1px var(--danger)}
+.tbx-badge.low{color:var(--text);background:color-mix(in srgb,var(--idle) 20%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--idle) 70%,transparent)}
+.tbx-badge.auto{color:var(--muted);background:var(--bg);box-shadow:inset 0 0 0 1px var(--border)}
 .tbx-lock{grid-row:span 2;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:var(--radius);color:var(--faint);opacity:.0;transition:opacity .12s,color .12s,background-color .12s}
 .tbx-lock svg{width:15px;height:15px}
 .tbx-tok:hover .tbx-lock,.tbx-tok:focus-within .tbx-lock,.tbx-lock[aria-pressed=true],.tbx-lock:focus-visible{opacity:1}
@@ -245,6 +257,13 @@ html:not(.js)[data-page=builder],html:not(.js)[data-page=builder] body{overflow:
 .tbx-mark{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font:700 10px/1 var(--mono);color:var(--text)}
 .ok>.tbx-mark{box-shadow:inset 0 0 0 1px var(--border);background:color-mix(in srgb,var(--online) 18%,transparent)}
 .bad>.tbx-mark{border-radius:4px;box-shadow:inset 0 0 0 1.5px var(--danger);background:color-mix(in srgb,var(--danger) 18%,transparent)}
+.low>.tbx-mark{border-radius:4px;box-shadow:inset 0 0 0 1.5px var(--idle);background:color-mix(in srgb,var(--idle) 16%,transparent)}
+.auto>.tbx-mark{box-shadow:inset 0 0 0 1px var(--border);background:var(--elevated);color:var(--muted)}
+.tbx-checks li.auto{background:color-mix(in srgb,var(--bg) 55%,transparent);padding-top:4px;padding-bottom:4px}
+.tbx-checks li.auto .tbx-pair small{display:none}
+.tbx-checks li.auto .tbx-lift{margin:0;font-size:11px}
+.tbx-checks li.auto .tbx-fix{margin:0;padding:2px 0;font-size:11px}
+.tbx-checks li.auto .tbx-ratio strong{color:var(--muted);font-weight:400}
 .tbx-pair{min-width:0;overflow-wrap:anywhere;color:var(--muted)}
 .tbx-pair small{display:block;margin-top:1px;font:400 10.5px/1.3 var(--mono);color:var(--faint)}
 .tbx-pair code{color:var(--text)}
@@ -265,7 +284,13 @@ html:not(.js)[data-page=builder],html:not(.js)[data-page=builder] body{overflow:
 .tbx-harm button{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px 8px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg);font:400 11px/1.15 var(--mono);color:var(--muted);text-align:center;transition:border-color .12s,color .12s,transform .15s}
 .tbx-harm button:hover{color:var(--text);transform:translateY(-1px)}
 .tbx-harm button[aria-checked=true]{border-color:var(--accent);color:var(--text);box-shadow:0 0 0 1px var(--accent) inset}
-.tbx-harm svg{width:40px;height:40px;stroke:none}
+.tbx-harm button[aria-checked=true] .tbx-wheel{transform:scale(1.06)}
+/* A roda de cada harmonia: o anel de matizes (OKLCH) e os pontos nos matizes que ela vai usar. */
+.tbx-wheel{position:relative;flex:none;width:46px;height:46px;border-radius:50%;transition:transform .2s cubic-bezier(.3,1.5,.5,1)}
+.tbx-wheel>i{position:absolute;inset:0;border-radius:50%;background:var(--ring);-webkit-mask:radial-gradient(closest-side,transparent 62%,#000 64%);mask:radial-gradient(closest-side,transparent 62%,#000 64%)}
+.tbx-wheel>u{position:absolute;inset:31%;border-radius:50%;background:var(--c);box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}
+.tbx-wheel>b{position:absolute;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;border-radius:50%;background:var(--c);box-shadow:0 0 0 2px var(--bg),0 0 0 3px color-mix(in srgb,var(--text) 30%,transparent)}
+.tbx-wheel>b:first-of-type{width:13px;height:13px;margin:-6.5px 0 0 -6.5px}
 .tbx-slider{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr) 52px;gap:8px;align-items:center;margin:6px 0}
 .tbx-slider label{font:400 12px/1.3 var(--sans);color:var(--text)}
 .tbx-slider label code{display:block;color:var(--faint);font-size:10.5px}
@@ -315,7 +340,8 @@ html:not(.js)[data-page=builder],html:not(.js)[data-page=builder] body{overflow:
 .tbx-lname svg{width:14px;height:14px;color:var(--muted)}
 .tbx-lname .tbx-chev{width:12px;height:12px;transition:transform .2s;opacity:.6}
 .tbx-layer.open .tbx-chev{transform:rotate(90deg)}
-.tbx-lname span{flex:none;white-space:nowrap}
+.tbx-lname span{flex:0 1 auto;min-width:3ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbx-lname em{flex:0 1 auto}
 .tbx-lname em{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal;color:var(--muted);font-size:11px}
 .tbx-lname .tbx-cond{padding:1px 5px;border-radius:3px;background:color-mix(in srgb,var(--idle) 16%,transparent);color:var(--text);font-size:10px}
 .tbx-lctl{display:flex;gap:1px;opacity:0;transition:opacity .12s}
@@ -381,10 +407,15 @@ html:not(.js)[data-page=builder],html:not(.js)[data-page=builder] body{overflow:
 .tbx-stage{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--rail) 55%,var(--bg))}
 .tbx-stage:fullscreen{background:var(--rail)}
 .tbx.max .tbx-stage{position:fixed;inset:0;z-index:80;background:var(--rail)}
-.tbx-canvas{position:relative;flex:1;min-height:0;overflow:auto;background-image:radial-gradient(color-mix(in srgb,var(--text) 13%,transparent) 1px,transparent 1.3px);background-size:22px 22px;scrollbar-width:thin}
-.tbx-screens{display:flex;align-items:center;justify-content:center;gap:28px;min-width:100%;min-height:100%;width:max-content;padding:34px 28px 26px;margin:0 auto}
-.tbx-screen{margin:0;display:flex;flex-direction:column;gap:9px}
-.tbx-cap{display:flex;align-items:center;gap:7px;font:400 11px/1 var(--mono);color:var(--muted)}
+.tbx-canvas{position:relative;flex:1;min-height:0;overflow:auto;touch-action:pan-x pan-y;background-image:radial-gradient(color-mix(in srgb,var(--text) 13%,transparent) 1px,transparent 1.3px);background-size:22px 22px;scrollbar-width:thin}
+/* Em "ajustar" tudo cabe (fit() garante): sem barra de rolagem que apareça e suma. */
+.tbx-canvas.fits{overflow:hidden}
+.tbx-screens{display:flex;align-items:center;justify-content:center;gap:16px;min-width:100%;min-height:100%;width:max-content;padding:16px;margin:0 auto}
+.tbx-screen{margin:0;display:flex;flex-direction:column;gap:7px}
+.tbx-cap{display:flex;align-items:center;gap:7px;height:12px;min-width:0;font:400 11px/1 var(--mono);color:var(--muted)}
+.tbx-cap span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+/* Um modo só: o modo já aparece na barra de cima, a legenda sai e a prévia ganha a altura. */
+.tbx-stage:not(.tbx-split) .tbx-cap{display:none}
 .tbx-cap svg{width:13px;height:13px}
 .tbx-fbox{position:relative;overflow:hidden;border-radius:12px;background:var(--pv-bg,#111);box-shadow:0 0 0 1px color-mix(in srgb,var(--text) 12%,transparent),0 34px 90px -34px rgba(0,0,0,.7);transition:box-shadow .2s;cursor:crosshair}
 .tbx-split .tbx-screen.edit .tbx-fbox{box-shadow:0 0 0 2px var(--accent),0 34px 90px -34px rgba(0,0,0,.7)}
@@ -403,10 +434,30 @@ html:not(.js)[data-page=builder],html:not(.js)[data-page=builder] body{overflow:
 .tbx-chip:hover{box-shadow:inset 0 0 0 1px var(--accent)}
 .tbx-dot{width:8px;height:8px;border-radius:50%;background:var(--online);flex:none}
 .tbx-chip.bad .tbx-dot{background:var(--danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 25%,transparent)}
+.tbx-chip.low .tbx-dot{background:var(--idle);box-shadow:0 0 0 3px color-mix(in srgb,var(--idle) 22%,transparent)}
 .tbx-hover{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .tbx-hover i{width:11px;height:11px;border-radius:3px;flex:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text) 25%,transparent)}
 .tbx-hover b{color:var(--text);font-weight:500}
-.tbx-zoomlbl{font-variant-numeric:tabular-nums;white-space:nowrap}
+.tbx-site{display:inline-flex;align-items:center;gap:2px;padding-right:8px;margin-right:2px;border-right:1px solid var(--border)}
+.tbx-sb{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 7px;border-radius:var(--radius);font:inherit;color:var(--muted);white-space:nowrap}
+.tbx-sb:hover{color:var(--text);background:var(--hover)}
+.tbx-sb [data-theme-name]{color:var(--accent)}
+.tbx-sbdot{width:7px;height:7px;border-radius:50%;background:var(--online);box-shadow:0 0 6px var(--online)}
+.tbx-zoom{flex:none;display:inline-flex;align-items:center;gap:1px;height:30px;padding:1px;border-radius:calc(var(--radius) + 3px);background:var(--bg);box-shadow:inset 0 0 0 1px var(--border)}
+.tbx-zoom .tbx-ib.sm{width:26px;height:26px}
+.tbx-zoom .tbx-ib.sm svg{width:15px;height:15px}
+.tbx-zv{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:62px;height:26px;padding:0 8px;border-radius:var(--radius);font:500 11.5px/1 var(--mono);color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tbx-zv:hover{background:var(--hover)}
+.tbx-zv small{margin-left:5px;font-weight:400;color:var(--muted)}
+.tbx-zv.fit small{color:var(--accent)}
+/* Aviso quando o layout não desenha as mensagens (uma camada escondida, por exemplo). */
+.tbx-note{position:absolute;left:50%;top:14px;z-index:6;display:flex;align-items:center;gap:10px;width:max-content;max-width:min(580px,calc(100% - 24px));padding:8px 8px 8px 12px;transform:translateX(-50%);border:1px solid var(--border);border-left:3px solid var(--idle);border-radius:var(--r);background:var(--overlay);box-shadow:0 18px 40px -16px var(--shadow);font:400 12px/1.45 var(--sans);color:var(--text);animation:tbxfadein .2s ease-out}
+.tbx-note>svg{width:18px;height:18px;color:var(--idle)}
+.tbx-note p{flex:1;margin:0}
+@keyframes tbxfadein{from{opacity:0}}
+.tb-toast.act{display:flex;align-items:center;gap:12px;pointer-events:auto}
+.tb-toast.act:not(.on){pointer-events:none}
+.tb-toast .tbx-b{height:26px;flex:none}
 
 /* O editor de cor (abre no clique da prévia ou de uma cor do painel) */
 .tbx-cpop{position:fixed;left:0;top:0;z-index:64;width:316px;max-height:calc(100svh - 24px);overflow:auto;padding:12px;border:1px solid var(--border);border-radius:calc(var(--r) + 6px);background:var(--overlay);color:var(--text);
@@ -441,7 +492,8 @@ html:not(.js)[data-page=builder],html:not(.js)[data-page=builder] body{overflow:
 .tbx-cc{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 8px;border-radius:var(--r);background:var(--bg);font-size:11.5px}
 .tbx-cc span{min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tbx-cc span code{color:var(--text)}
-.tbx-cc .tbx-b{grid-column:1/-1;justify-self:start}
+.tbx-cc .tbx-b,.tbx-cc .tbx-link{grid-column:1/-1;justify-self:start}
+.tbx-cc .tbx-link{padding:0;font-size:11px}
 .tbx-cpop-lbl{margin:12px 0 6px;font:400 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
 .tbx-swgrid{display:grid;grid-template-columns:repeat(10,1fr);gap:4px}
 .tbx-swgrid .tbx-sw{width:auto;height:auto;aspect-ratio:1;border-radius:6px}
@@ -501,15 +553,19 @@ html:not(.js) [data-export-close],html:not(.js) .tbx-sheet .tbx-btns,html:not(.j
   .tbx-panel{border-top:1px solid var(--border)}
   .tbx-search{top:-12px}
   [data-panel-toggle]{display:none!important}
-  .tbx-screens{padding:16px 12px 12px;gap:14px;align-items:flex-start}
-  .tbx-split .tbx-screens{align-items:center;justify-content:flex-start}
-  .tbx-cpop{left:0!important;right:0;top:auto!important;bottom:var(--bar);width:auto;max-height:68svh;border-radius:18px 18px 0 0;animation:tbxsheet .24s cubic-bezier(.2,.8,.2,1)}
+  .tbx-screens{padding:8px;gap:10px}
+  .tbx-cpop{left:0!important;right:0;top:auto!important;bottom:var(--bar);width:auto;max-height:68svh!important;border-radius:18px 18px 0 0;animation:tbxsheet .24s cubic-bezier(.2,.8,.2,1)}
+  .tbx-swgrid{grid-template-columns:repeat(auto-fill,34px)}
   .tbx-sheet{top:auto;left:0;width:auto;height:calc(100svh - var(--nav-h) - var(--bar));border-left:0;border-top:1px solid var(--border);border-radius:18px 18px 0 0;transform:translateY(102%)}
   .tbx-status{gap:6px}
   .tbx-hover{display:none}
   .tbx-thumbs{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
 }
-@media (max-width:479.98px){.tbx-rail [role=tab]:not([aria-selected=true]) span{display:none}.tbx-rail [role=tab]{padding:8px}}
+@media (max-width:479.98px){
+  .tbx-rail [role=tab]:not([aria-selected=true]) .tbx-tl{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  .tbx-rail [role=tab]{padding:8px}
+  .tbx-site{display:none}
+}
 @keyframes tbxsheet{from{transform:translateY(40px);opacity:0}}
 @media (prefers-reduced-motion:reduce){.tbx *{animation:none!important;transition:none!important}}
 
