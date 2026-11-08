@@ -3484,8 +3484,10 @@ pub const Runner = struct {
             },
             // Espera a tela assentar (largura ou rolagem ainda mudando).
             1 => if (sw.frames >= 4 and (!@import("ui/anim.zig").active or sw.frames >= 60)) {
-                const rect = qa.find(kname) orelse {
-                    // Some depois de restaurar (estava em outra tela): pula.
+                // Só a parte que aparece: a linha pela metade embaixo de outro painel (a
+                // lista de canais encostando no painel do usuário) recebe o clique em cima.
+                const rect = qa.visiblePart(kname) orelse {
+                    // Some depois de restaurar (estava em outra tela) ou está toda escondida: pula.
                     sw.i += 1;
                     sw.phase = 0;
                     return;

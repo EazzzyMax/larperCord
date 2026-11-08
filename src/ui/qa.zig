@@ -19,7 +19,10 @@ pub fn enable() void {
     enabled_now = compiled;
 }
 
-const Mark = struct { key: [56]u8, len: u8, rect: layout.Rect };
+/// `clip`: o recorte da janela do ImGui onde a marcação foi feita. Uma linha da lista de
+/// canais pela metade embaixo do painel do usuário tem `rect` inteiro, mas só a parte de
+/// dentro do recorte recebe o clique.
+const Mark = struct { key: [56]u8, len: u8, rect: layout.Rect, clip: layout.Rect };
 
 // Com a tela dividida, até três conversas marcam ao mesmo tempo.
 var marks: [if (compiled) 2048 else 0]Mark = undefined;
@@ -47,7 +50,11 @@ pub fn setScope(comptime fmt: []const u8, args: anytype) void {
 
 pub fn mark(r: layout.Rect, comptime fmt: []const u8, args: anytype) void {
     if (!on() or count >= marks.len) return;
-    var m: Mark = .{ .key = undefined, .len = 0, .rect = r };
+    const C = @import("c");
+    const dl = C.ImGui_GetWindowDrawList();
+    const lo = C.ImDrawList_GetClipRectMin(dl);
+    const hi = C.ImDrawList_GetClipRectMax(dl);
+    var m: Mark = .{ .key = undefined, .len = 0, .rect = r, .clip = .{ .x = lo.x, .y = lo.y, .w = hi.x - lo.x, .h = hi.y - lo.y } };
     @memcpy(m.key[0..scope_len], scope_buf[0..scope_len]);
     const s = std.fmt.bufPrint(m.key[scope_len..], fmt, args) catch return;
     m.len = @intCast(scope_len + s.len);
@@ -61,6 +68,24 @@ pub fn find(key: []const u8) ?layout.Rect {
     while (i > 0) {
         i -= 1;
         if (std.mem.eql(u8, prev[i].key[0..prev[i].len], key)) return prev[i].rect;
+    }
+    return null;
+}
+
+/// A parte da marcação que aparece de verdade (dentro do recorte da janela dela), ou
+/// null quando ela está toda escondida.
+pub fn visiblePart(key: []const u8) ?layout.Rect {
+    var i = prev_count;
+    while (i > 0) {
+        i -= 1;
+        const m = &prev[i];
+        if (!std.mem.eql(u8, m.key[0..m.len], key)) continue;
+        const x0 = @max(m.rect.x, m.clip.x);
+        const y0 = @max(m.rect.y, m.clip.y);
+        const x1 = @min(m.rect.right(), m.clip.right());
+        const y1 = @min(m.rect.bottom(), m.clip.bottom());
+        if (x1 - x0 < 1 or y1 - y0 < 1) return null;
+        return .{ .x = x0, .y = y0, .w = x1 - x0, .h = y1 - y0 };
     }
     return null;
 }
