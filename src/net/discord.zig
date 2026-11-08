@@ -138,6 +138,9 @@ pub const Gateway = struct {
     global_until: i64 = 0,
     /// `X-Audit-Log-Reason` do próximo pedido (moderação), já em URL.
     audit_reason: ?[:0]const u8 = null,
+    /// `X-Context-Properties` do próximo pedido: de onde foi o clique numa
+    /// relação (core/conta.zig `Origin.header`; net/conta_net.zig `context`).
+    context_props: ?[:0]const u8 = null,
     /// Comandos que chegaram enquanto o gateway estava reconectando ou
     /// esperando rate limit. São enviados quando a conexão volta.
     pending: std.ArrayList(ev.Command) = .empty,
@@ -2963,9 +2966,11 @@ pub const Gateway = struct {
 
     /// `mime`: corpo multipart (envio de arquivos) no lugar do JSON.
     fn requestEx(g: *Gateway, method: [:0]const u8, path: []const u8, body: ?[]const u8, mime: ?*c.curl_mime) ?Response {
-        // O motivo é só deste pedido: um pedido feito durante uma espera não o herda.
+        // O motivo e o lugar são só deste pedido: um pedido feito durante uma espera não os herda.
         const audit = g.audit_reason;
         g.audit_reason = null;
+        const context = g.context_props;
+        g.context_props = null;
         const h = g.rest orelse return null;
         if (!validToken(g.token)) {
             g.notice("token inválido", "invalid token", .{});
@@ -3031,6 +3036,7 @@ pub const Gateway = struct {
                 } else |_| {}
             }
             if (audit) |line| headers = c.curl_slist_append(headers, line.ptr);
+            if (context) |line| headers = c.curl_slist_append(headers, line.ptr);
             if (attempt > 0) {
                 if (std.fmt.bufPrintSentinel(&failed_buf, "X-Failed-Requests: {d}", .{attempt}, 0)) |line| {
                     headers = c.curl_slist_append(headers, line.ptr);
@@ -3949,6 +3955,8 @@ pub const Gateway = struct {
             },
             .relationship => |r| {
                 const path = std.fmt.bufPrint(&path_buf, "/users/@me/relationships/{d}", .{r.user}) catch return;
+                // De onde foi o clique, como o cliente oficial manda.
+                conta_net.context(g, r.from);
                 var resp = g.request(if (r.accept) "PUT" else "DELETE", path, if (r.accept) "{}" else null) orelse return;
                 defer resp.body.deinit(alloc);
                 if (resp.status >= 300) g.noticeHttp(i18n.tr("não deu para mudar a amizade", "couldn't update the friendship"), &resp);

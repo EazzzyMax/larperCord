@@ -344,7 +344,8 @@ pub const Command = union(enum) {
     /// pede também a lista de quem está nela.
     subscribe_guild: struct { guild: Id, channel: Id, thread: Id = 0 },
     /// Aceita um pedido de amizade (true) ou remove/recusa/cancela (false).
-    relationship: struct { user: Id, accept: bool },
+    /// `from`: de onde foi o clique (o `X-Context-Properties`, core/conta.zig).
+    relationship: struct { user: Id, accept: bool, from: @import("conta.zig").Origin },
     /// Abre (ou acha) a DM com alguém; chega como CHANNEL_CREATE.
     create_dm: Id,
     /// Perfil completo (banner, bio…) ao abrir o cartão de alguém.
@@ -554,9 +555,10 @@ pub const Action = union(enum) {
     /// Muda uma configuração (índice em settings_state.fields(); booleano
     /// 0/1 ou byte) e salva. Usado pela paleta de comandos.
     set_setting: struct { index: usize, value: u8 },
-    accept_friend: Id,
-    /// Recusa um pedido, cancela o nosso ou desbloqueia.
-    remove_relationship: Id,
+    /// `from`: de onde foi o clique (o `X-Context-Properties`, core/conta.zig).
+    accept_friend: struct { user: Id, from: @import("conta.zig").Origin },
+    /// Recusa um pedido, cancela o nosso, desfaz a amizade ou desbloqueia.
+    remove_relationship: struct { user: Id, from: @import("conta.zig").Origin },
     /// Perfil grande (o cartão com abas); `tab`: 0 atividade, 1 amigos, 2 servidores.
     open_full_profile: struct { user: Id, tab: u8 = 0 },
     set_note: struct { user: Id, text: []const u8 },

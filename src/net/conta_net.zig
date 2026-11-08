@@ -182,6 +182,14 @@ pub fn onProtoUpdate(g: anytype, b64: []const u8, partial: bool) void {
     if (g.ws_ready) sendPresence(g);
 }
 
+/// O próximo pedido leva o `X-Context-Properties` de `o`: de onde foi o
+/// clique, como o cliente oficial manda em todo PUT/DELETE de
+/// /users/@me/relationships. O pedido de amizade pelo nome de usuário (POST)
+/// usa `.add_friend`.
+pub fn context(g: anytype, o: conta.Origin) void {
+    g.context_props = o.header();
+}
+
 fn userPath(buf: []u8, comptime fmt: []const u8, id: Id) ?[]const u8 {
     return std.fmt.bufPrint(buf, fmt, .{id}) catch null;
 }
@@ -190,8 +198,10 @@ fn userPath(buf: []u8, comptime fmt: []const u8, id: Id) ?[]const u8 {
 pub fn execute(g: anytype, cmd: conta.Cmd) void {
     var pb: [160]u8 = undefined;
     switch (cmd) {
-        .block => |uid| {
+        .block => |b| {
+            const uid = b.user;
             const path = userPath(&pb, "/users/@me/relationships/{d}", uid) orelse return;
+            context(g, b.from);
             var resp = g.request("PUT", path, conta.block_body) orelse return;
             defer resp.body.deinit(alloc);
             if (resp.status >= 300) return g.noticeHttp(i18n.tr("não deu para bloquear", "couldn't block"), &resp);
@@ -205,11 +215,13 @@ pub fn execute(g: anytype, cmd: conta.Cmd) void {
             if (resp.status >= 300) return g.noticeHttp(if (ig.on) i18n.tr("não deu para ignorar", "couldn't ignore") else i18n.tr("não deu para deixar de ignorar", "couldn't unignore"), &resp);
             emit(g, .{ .ignored = .{ .user = ig.user, .on = ig.on } });
         },
-        .friend_request => |uid| {
+        .friend_request => |fr| {
+            const uid = fr.user;
             const path = userPath(&pb, "/users/@me/relationships/{d}", uid) orelse return;
             // Um pedido só: nem o rate limit faz repetir sozinho.
             g.no_retry = true;
             defer g.no_retry = false;
+            context(g, fr.from);
             var resp = g.request("PUT", path, conta.friend_body) orelse return emit(g, .{ .friend_request = .{ .user = uid, .status = .failed } });
             defer resp.body.deinit(alloc);
             const status: conta.FriendStatus = if (resp.status < 300) .sent else if (resp.status == 429) .rate_limited else if (hasCaptcha(resp.body.items)) .captcha else .failed;

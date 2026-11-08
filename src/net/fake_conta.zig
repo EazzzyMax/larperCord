@@ -22,6 +22,11 @@ pub const sent = struct {
     pub var block_user: A = .init(0);
     pub var ignores: A = .init(0);
     pub var friend_requests: A = .init(0);
+    /// O último PUT/DELETE de /users/@me/relationships: quantos, com quem e de
+    /// onde foi o clique (o `X-Context-Properties`, core/conta.zig `Origin`).
+    pub var relationships: A = .init(0);
+    pub var rel_user: A = .init(0);
+    pub var rel_from: A = .init(0);
     pub var settings_patches: A = .init(0);
     pub var settings_guild: A = .init(0);
     pub var statuses: A = .init(0);
@@ -84,6 +89,18 @@ pub fn remoteStatus(b64: []const u8) ?ev.Event {
     return .{ .conta = .{ .status = .{ .status = st, .expires_ms = if (st == .online) 0 else ss.expires_ms } } };
 }
 
+/// Anota o pedido de relação que iria para o Discord (o QA confere o lugar).
+pub fn noteRelationship(user: Id, from: conta.Origin) void {
+    sent.rel_user.store(user, .monotonic);
+    sent.rel_from.store(@intFromEnum(from), .monotonic);
+    _ = sent.relationships.fetchAdd(1, .release);
+}
+
+/// De onde foi o último pedido de relação.
+pub fn lastFrom() conta.Origin {
+    return @enumFromInt(sent.rel_from.load(.acquire));
+}
+
 fn keep(b: []const u8) void {
     const n = @min(b.len, sent.last_body.len);
     @memcpy(sent.last_body[0..n], b[0..n]);
@@ -93,16 +110,19 @@ fn keep(b: []const u8) void {
 pub fn execute(g: anytype, cmd: conta.Cmd) void {
     defer cmd.deinit(alloc);
     switch (cmd) {
-        .block => |uid| {
-            sent.block_user.store(uid, .monotonic);
+        .block => |b| {
+            noteRelationship(b.user, b.from);
+            sent.block_user.store(b.user, .monotonic);
             _ = sent.blocks.fetchAdd(1, .release);
-            g.emit(.{ .relationship = .{ .user = uid, .kind = .blocked } });
+            g.emit(.{ .relationship = .{ .user = b.user, .kind = .blocked } });
         },
         .ignore => |ig| {
             _ = sent.ignores.fetchAdd(1, .release);
             g.emit(.{ .conta = .{ .ignored = .{ .user = ig.user, .on = ig.on } } });
         },
-        .friend_request => |uid| {
+        .friend_request => |fr| {
+            const uid = fr.user;
+            noteRelationship(uid, fr.from);
             _ = sent.friend_requests.fetchAdd(1, .release);
             if (uid == captcha_user) return g.emit(.{ .conta = .{ .friend_request = .{ .user = uid, .status = .captcha } } });
             g.emit(.{ .relationship = .{ .user = uid, .kind = .outgoing } });

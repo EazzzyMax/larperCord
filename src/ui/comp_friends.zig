@@ -203,7 +203,7 @@ pub fn page(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
                 nb = 2;
             },
             .outgoing => {
-                btns[0] = .{ .glyph = "x", .tip = i18n.tr("Cancelar pedido", "Cancel"), .act = .remove, .danger = true };
+                btns[0] = .{ .glyph = "x", .tip = i18n.tr("Cancelar pedido", "Cancel Request"), .act = .remove, .danger = true };
                 nb = 1;
             },
             .blocked => {
@@ -233,10 +233,11 @@ pub fn page(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
             } else {
                 icons.message(dl, cx, cy, ink.u());
             }
+            // Aceitar, recusar, cancelar e desbloquear vão com o lugar "Friends".
             if (bh.clicked) switch (b.act) {
                 .message => ctx.act(.{ .open_dm = uid }),
-                .accept => ctx.act(.{ .accept_friend = uid }),
-                .remove => ctx.act(.{ .remove_relationship = uid }),
+                .accept => ctx.act(.{ .accept_friend = .{ .user = uid, .from = .friends } }),
+                .remove => ctx.act(.{ .remove_relationship = .{ .user = uid, .from = .friends } }),
             };
             bx -= 46;
         }

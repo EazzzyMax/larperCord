@@ -1418,9 +1418,9 @@ pub const App = struct {
                 st.friends = true;
             },
             .set_setting => |ss| if (settings_state.setByte(&st.settings, ss.index, ss.value)) app.saveSettings(),
-            .accept_friend => |u| app.cmd(.{ .relationship = .{ .user = u, .accept = true } }),
+            .accept_friend => |rel| app.cmd(.{ .relationship = .{ .user = rel.user, .accept = true, .from = rel.from } }),
             .conta => |ca| @import("app_conta.zig").handle(app, ca),
-            .remove_relationship => |u| app.cmd(.{ .relationship = .{ .user = u, .accept = false } }),
+            .remove_relationship => |rel| app.cmd(.{ .relationship = .{ .user = rel.user, .accept = false, .from = rel.from } }),
             .select_channel => |ch| {
                 if (app.opts.qa and c.SDL_getenv("QA_DEBUG") != null) std.debug.print("[ação] select_channel ctrl={}\n", .{app.io.*.KeyCtrl});
                 if (app.store.channel(ch)) |cs| if (!app.store.canAccess(&cs.info)) {

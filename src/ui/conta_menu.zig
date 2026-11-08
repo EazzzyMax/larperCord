@@ -33,6 +33,14 @@ const status_clear = 92;
 
 /// Texto do botão de confirmar o bloqueio (leva o nome).
 var block_buf: [128]u8 = undefined;
+/// De onde veio o "Bloquear…" que abriu a confirmação (o perfil ou o menu).
+var block_from: conta.Origin = .context_menu;
+
+/// Abre a confirmação do bloqueio em (x, y); `from`: de onde foi o clique.
+pub fn askBlock(ctx: *d.Ctx, uid: Id, x: f32, y: f32, from: conta.Origin) void {
+    block_from = from;
+    ctx.popup(.{ .menu = .{ .kind = .block_confirm, .id = uid, .x = x, .y = y } });
+}
 
 const List = struct {
     items: []Item,
@@ -160,16 +168,16 @@ fn level(item: u8) conta.Level {
 pub fn choose(ctx: *d.Ctx, kind: state.MenuKind, id: Id, item: u8, r: d.Rect) bool {
     const st = ctx.st;
     switch (item) {
-        add_friend => ctx.act(.{ .conta = .{ .friend_request = id } }),
+        add_friend => ctx.act(.{ .conta = .{ .friend_request = .{ .user = id, .from = .context_menu } } }),
         dm_mute => {
             const dm = dmWith(ctx, id);
             if (dm == 0) return true;
             ctx.act(.{ .conta = .{ .notif = .{ .target = dm, .change = .{ .channel_mute = .{ .channel = dm, .on = !st.conta.channelMuted(0, dm, ctx.now_ms) } } } } });
         },
         ignore => ctx.act(.{ .conta = .{ .ignore = .{ .user = id, .on = !st.filtros.isIgnored(id) } } }),
-        block => st.popup = .{ .menu = .{ .kind = .block_confirm, .id = id, .x = r.x, .y = r.y } },
-        block_yes => ctx.act(.{ .conta = .{ .block = id } }),
-        unblock => ctx.act(.{ .remove_relationship = id }),
+        block => askBlock(ctx, id, r.x, r.y, .context_menu),
+        block_yes => ctx.act(.{ .conta = .{ .block = .{ .user = id, .from = block_from } } }),
+        unblock => ctx.act(.{ .remove_relationship = .{ .user = id, .from = .context_menu } }),
         guild_mute => ctx.act(.{ .conta = .{ .notif = .{ .target = id, .change = .{ .mute = !st.conta.guildMuted(id, ctx.now_ms) } } } }),
         guild_notif, channel_notif => st.popup = .{ .menu = .{ .kind = .notif, .id = id, .x = r.x, .y = r.y } },
         channel_mute => {

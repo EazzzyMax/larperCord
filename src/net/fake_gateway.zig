@@ -697,7 +697,10 @@ pub const Gateway = struct {
                     sent.sub_channel.store(sg.channel, .monotonic);
                     try g.memberList(sg.guild);
                 },
-                .relationship => |r| g.emit(.{ .relationship = .{ .user = r.user, .kind = if (r.accept) .friend else .none } }),
+                .relationship => |r| {
+                    @import("fake_conta.zig").noteRelationship(r.user, r.from);
+                    g.emit(.{ .relationship = .{ .user = r.user, .kind = if (r.accept) .friend else .none } });
+                },
                 .fetch_profile => |fp| {
                     const seed = for (users) |x| {
                         if (x.id == fp.user) break x;

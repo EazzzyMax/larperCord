@@ -67,10 +67,12 @@ fn confirmOpen(app: *App) bool {
     return app.st.popup == .menu and app.st.popup.menu.kind == .block_confirm and load(&fc.sent.blocks) == 0;
 }
 fn mariBlocked(app: *App) bool {
-    return app.store.relationship(mari) == .blocked and load(&fc.sent.blocks) == 1 and load(&fc.sent.block_user) == mari and app.st.popup == .none;
+    // Pelo menu de contexto: o X-Context-Properties diz "ContextMenu".
+    return app.store.relationship(mari) == .blocked and load(&fc.sent.blocks) == 1 and load(&fc.sent.block_user) == mari and app.st.popup == .none and
+        fc.lastFrom() == .context_menu;
 }
 fn mariFree(app: *App) bool {
-    return app.store.relationship(mari) == .none and load(&fc.sent.blocks) == 1;
+    return app.store.relationship(mari) == .none and load(&fc.sent.blocks) == 1 and load(&fc.sent.rel_user) == mari and fc.lastFrom() == .context_menu;
 }
 fn fullBruno(app: *App) void {
     app.handle(.{ .open_full_profile = .{ .user = bruno } });
@@ -108,7 +110,7 @@ fn luluBack(app: *App) bool {
 // --- Amizade ----------------------------------------------------------------------
 
 fn unfriendGustavo(app: *App) void {
-    app.handle(.{ .remove_relationship = gustavo });
+    app.handle(.{ .remove_relationship = .{ .user = gustavo, .from = .context_menu } });
 }
 fn gustavoNone(app: *App) bool {
     return app.store.relationship(gustavo) == .none;
@@ -120,19 +122,41 @@ fn addShown(_: *App) bool {
     return qa.find("profile-btn:add") != null;
 }
 fn requestSent(app: *App) bool {
-    return load(&fc.sent.friend_requests) == 1 and app.store.relationship(gustavo) == .outgoing and qa.find("profile-btn:sent") != null and qa.find("profile-btn:add") == null;
+    // Pelo perfil: o lugar vai como "user profile modal v2".
+    return load(&fc.sent.friend_requests) == 1 and app.store.relationship(gustavo) == .outgoing and qa.find("profile-btn:sent") != null and qa.find("profile-btn:add") == null and
+        load(&fc.sent.rel_user) == gustavo and fc.lastFrom() == .profile;
 }
 fn stillOne(_: *App) bool {
     return load(&fc.sent.friend_requests) == 1;
 }
 fn unfriendPedro(app: *App) void {
-    app.handle(.{ .remove_relationship = fc.captcha_user });
+    app.handle(.{ .remove_relationship = .{ .user = fc.captcha_user, .from = .context_menu } });
 }
 fn pedroNone(app: *App) bool {
     return app.store.relationship(fc.captcha_user) == .none;
 }
 fn fullPedro(app: *App) void {
     app.handle(.{ .open_full_profile = .{ .user = fc.captcha_user } });
+}
+var rels0: u64 = 0;
+var tab0: u8 = 0;
+fn toFriends(app: *App) void {
+    rels0 = load(&fc.sent.relationships);
+    tab0 = app.st.friends_tab;
+    app.handle(.open_friends);
+    app.st.friends_tab = 2;
+}
+/// A aba de antes: o resto da bateria geral espera os amigos na página.
+fn restoreTab(app: *App) void {
+    app.st.friends_tab = tab0;
+}
+fn gustavoPending(_: *App) bool {
+    return qa.find("friend-remove:1008") != null;
+}
+fn gustavoCancelled(app: *App) bool {
+    // Cancelar na aba Pendentes: um DELETE, com o lugar "Friends".
+    return app.store.relationship(gustavo) == .none and load(&fc.sent.relationships) == rels0 + 1 and load(&fc.sent.rel_user) == gustavo and
+        fc.lastFrom() == .friends and qa.find("friend-remove:1008") == null;
 }
 fn captchaExplained(app: *App) bool {
     const st = app.st.conta.friends.get(fc.captcha_user) orelse return false;
@@ -395,6 +419,14 @@ pub const ops = [_]Op{
     click("profile-btn:add"),
     expect("captcha é explicado, sem repetir sozinho", captchaExplained),
     click("profile-full-close"),
+
+    s("conta: cancelar pedido de amizade"),
+    run(toFriends),
+    expect("o pedido enviado aparece em Pendentes", gustavoPending),
+    .{ .shot = "conta-pendentes" },
+    click("friend-remove:1008"),
+    expect("cancelar tira o pedido, com o lugar da página Amigos", gustavoCancelled),
+    run(restoreTab),
 
     s("conta: silenciar e notificações"),
     run(toGeral),

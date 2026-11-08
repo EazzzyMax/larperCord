@@ -20,9 +20,9 @@ fn userName(app: *App, uid: Id) []const u8 {
 pub fn handle(app: *App, a: conta.Action) void {
     const st = &app.st;
     switch (a) {
-        .block => |uid| {
-            if (uid == app.store.me) return;
-            app.cmd(.{ .conta = .{ .block = uid } });
+        .block => |b| {
+            if (b.user == app.store.me) return;
+            app.cmd(.{ .conta = .{ .block = .{ .user = b.user, .from = b.from } } });
         },
         .ignore => |ig| {
             if (ig.user == app.store.me) return;
@@ -35,12 +35,13 @@ pub fn handle(app: *App, a: conta.Action) void {
             }
             if (st.filtros.account.contains(ig.user)) app.cmd(.{ .conta = .{ .ignore = .{ .user = ig.user, .on = false } } });
         },
-        .friend_request => |uid| {
+        .friend_request => |fr| {
+            const uid = fr.user;
             if (uid == app.store.me) return;
             // Um clique, um pedido: enquanto vai (ou depois de ir), nada sai de novo.
             if (st.conta.friends.get(uid)) |fs| if (fs == .sending or fs == .sent) return;
             st.conta.friends.put(ca, uid, .sending) catch return;
-            app.cmd(.{ .conta = .{ .friend_request = uid } });
+            app.cmd(.{ .conta = .{ .friend_request = .{ .user = uid, .from = fr.from } } });
         },
         .notif => |n| notif(app, n.target, n.change),
         .custom_status => |cs| {
