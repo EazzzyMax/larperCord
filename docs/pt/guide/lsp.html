@@ -53,8 +53,19 @@
 <div class="table-wrap"><table><thead><tr><th>Etiqueta do bloco</th><th>Linha</th></tr></thead><tbody><tr><td><code>zig</code></td><td>Zig</td></tr><tr><td><code>python</code>, <code>py</code>, <code>py3</code></td><td>Python</td></tr><tr><td><code>rust</code>, <code>rs</code></td><td>Rust</td></tr><tr><td><code>c</code>, <code>h</code>, <code>cpp</code>, <code>c++</code>, <code>cc</code>, <code>cxx</code>, <code>hpp</code></td><td>C / C++</td></tr><tr><td><code>go</code>, <code>golang</code></td><td>Go</td></tr><tr><td><code>typescript</code>, <code>ts</code>, <code>tsx</code>, <code>javascript</code>, <code>js</code>, <code>jsx</code></td><td>TypeScript / JavaScript</td></tr><tr><td><code>lua</code></td><td>Lua</td></tr></tbody></table></div>
 <p>O servidor precisa falar LSP por stdin e stdout, então o comando costuma ser algo como <code>zls</code>, <code>ruff server</code>, <code>pyright-langserver --stdio</code>, <code>rust-analyzer</code>, <code>clangd</code>, <code>gopls</code>, <code>typescript-language-server --stdio</code> ou <code>lua-language-server</code>.</p>
 <ul><li><strong>O comando não passa por um shell.</strong> Ele é separado nos espaços, com <code>"…"</code> ou <code>'…'</code> para
-argumentos com espaço. <code>;</code>, <code>|</code>, <code>$HOME</code> e <code>~</code> são texto comum.</li><li>Um nome de programa sem caminho é procurado no <code>PATH</code>.</li></ul>
-<p>A página também procura esses nomes conhecidos no seu <code>PATH</code> e oferece o que achar. Ela só confere se o arquivo existe e é executável; não o executa. Clicar em <strong>Usar … e ligar</strong> guarda o caminho inteiro como comando, e é com isso que você está concordando.</p>
+argumentos com espaço. <code>;</code>, <code>|</code>, <code>$HOME</code> e <code>~</code> são texto comum, e <code>%USERPROFILE%</code> também, menos
+num <code>.cmd</code> ou <code>.bat</code> (veja abaixo). A barra invertida é um caractere comum, então caminhos do
+Windows funcionam como você digita: <code>"C:\Program Files\LLVM\bin\clangd.exe"</code>.</li><li>Um nome de programa sem caminho é procurado no <code>PATH</code>. No Windows quem procura é o próprio
+Windows: ele acrescenta <code>.exe</code> quando o nome não tem extensão e olha a pasta do larperCord, a
+pasta de onde ele foi aberto e as pastas do Windows antes do <code>PATH</code>. Um caminho completo evita
+surpresa.</li><li>No Windows, os servidores instalados pelo npm (<code>pyright-langserver</code>, <code>typescript-language-server</code>)
+são arquivos <code>.cmd</code>, normalmente em <code>%APPDATA%\npm</code>. Só o nome não acha esses arquivos: use o
+caminho completo com <code>.cmd</code>, por exemplo
+<code>"C:\Users\seu-usuario\AppData\Roaming\npm\typescript-language-server.cmd" --stdio</code>, ou clique em
+<strong>Usar … e ligar</strong> (abaixo). O Windows abre um <code>.cmd</code> ou <code>.bat</code> pelo <code>cmd.exe</code>, que lê <code>%NOME%</code>
+como variável. O app protege os outros caracteres especiais para ele, mas use o <code>.exe</code> do servidor
+quando ele tiver um.</li></ul>
+<p>A página também procura esses nomes conhecidos no seu <code>PATH</code> e oferece o que achar (no Windows ela tenta <code>nome.exe</code>, <code>nome.cmd</code> e <code>nome.bat</code>). Ela só confere se o arquivo existe e, no Linux, se é executável; não o executa. Clicar em <strong>Usar … e ligar</strong> guarda o caminho inteiro como comando, e é com isso que você está concordando.</p>
 <h2 id="enquanto-digita"><a class="anchor" href="#enquanto-digita" aria-hidden="true">#</a>Enquanto digita</h2>
 <p>Ponha o cursor dentro de um bloco:</p>
 <div class="code" data-lang="`"><span class="code-lang">`</span><button class="copy" type="button" data-copy>copy</button><pre><code></code></pre></div>
@@ -69,12 +80,18 @@ caixa e nas Configurações, com um botão <strong>Tentar de novo</strong>, até
 <ul><li><strong>Texto:</strong> só o que você está digitando na sua caixa de texto, só o bloco sob o cursor. Nunca as
 mensagens dos outros, nem mais nada do app.</li><li><strong>Ambiente:</strong> só <code>PATH</code> e <code>HOME</code> (no Windows, também <code>SystemRoot</code>, <code>SystemDrive</code>, <code>USERPROFILE</code>,
 <code>APPDATA</code>, <code>LOCALAPPDATA</code>, <code>TEMP</code>, <code>TMP</code>, <code>PATHEXT</code>). O <code>LARPER_TOKEN</code> e o resto do seu ambiente
-não chegam até ele.</li><li><strong>Pasta:</strong> ele roda numa pasta própria (<code>~/.cache/larpercord/lsp-scratch</code>). O que um servidor
+não chegam até ele.</li><li><strong>Pasta:</strong> ele roda numa pasta própria (<code>~/.cache/larpercord/lsp-scratch</code> no Linux,
+<code>%LOCALAPPDATA%\larpercord\lsp-scratch</code> no Windows). O que um servidor
 deixou ali é apagado antes do próximo início, menos subpastas que não estão vazias: o app não entra
 nelas, então um link deixado ali não o faz apagar mais nada. <code>rootUri</code> e <code>workspaceFolders</code> são <code>null</code>, e o documento é um virtual,
-<code>file://&lt;essa pasta vazia&gt;/larpercord-composer.&lt;ext&gt;</code>, que nunca existe em disco (servidores como o clangd só aceitam <code>file:</code>). Nada do que você digita é gravado em disco, e seus projetos
+<code>file://&lt;essa pasta vazia&gt;/larpercord-composer.&lt;ext&gt;</code> (no Windows,
+<code>file:///C:/Users/&lt;você&gt;/AppData/Local/larpercord/lsp-scratch/larpercord-composer.&lt;ext&gt;</code>), que nunca existe em disco (servidores como o clangd só aceitam <code>file:</code>). Nada do que você digita é gravado em disco, e seus projetos
 ficam de fora. Isso também quer dizer que um servidor que espera um projeto (imports, arquivo de
-build) só vê um arquivo isolado, então os erros são só daquele trecho.</li><li><strong>Arquivos abertos:</strong> no Linux, os soquetes e arquivos do app são fechados no filho.</li><li><strong>Limites:</strong> uma mensagem acima de 1 MiB, quadros malformados, mais de 32 MiB de saída por minuto
+build) só vê um arquivo isolado, então os erros são só daquele trecho.</li><li><strong>Arquivos abertos:</strong> no Linux, os soquetes e arquivos do app são fechados no filho. No Windows
+esse passo não existe: o servidor abre com a herança de handles ligada, então leva junto todo
+handle que o app abriu como herdável, e no Windows os soquetes são herdáveis por padrão. Só o
+soquete local que traz de volta um larperCord já aberto fica de fora. É mais um motivo para só
+ligar servidores em que você confia.</li><li><strong>Limites:</strong> uma mensagem acima de 1 MiB, quadros malformados, mais de 32 MiB de saída por minuto
 ou 10 segundos sem ler a entrada param o servidor. O stderr dele é descartado.</li></ul>
 <p>Isso não é uma jaula. Um servidor de linguagem é um programa comum que roda como você, e poderia ler seus arquivos, inclusive onde o app guarda o token. Só ligue servidores em que você confia.</p>
 <h2 id="por-um-plugin"><a class="anchor" href="#por-um-plugin" aria-hidden="true">#</a>Por um plugin</h2>
@@ -84,8 +101,11 @@ ou 10 segundos sem ler a entrada param o servidor. O stderr dele é descartado.<
 <p>Se a linguagem tem os dois, o seu comando vale.</p>
 <h2 id="limites-que-vale-conhecer"><a class="anchor" href="#limites-que-vale-conhecer" aria-hidden="true">#</a>Limites que vale conhecer</h2>
 <ul><li>Parar um servidor mata aquele processo, não o que ele abriu. Um comando intermediário que abre o
-servidor de verdade (<code>npx …</code>) pode deixar esse para trás.</li><li>Se o app é morto de vez (<code>kill -9</code>, queda de energia), o servidor só percebe quando a entrada dele
-fecha. Servidores bem feitos saem nessa hora.</li></ul>
+servidor de verdade (<code>npx …</code>) pode deixar esse para trás. No Windows, todo servidor <code>.cmd</code> (o que o
+npm instala) é um intermediário desses: o Windows o roda pelo <code>cmd.exe</code>, então matar encerra o
+<code>cmd.exe</code>, não o <code>node.exe</code> por trás dele. Esse ainda recebe o pedido de parar e vê a entrada
+fechar, e servidores bem feitos saem nessa hora.</li><li>Se o app é morto de vez (<code>kill -9</code> no Linux, <code>taskkill /F</code> no Windows, queda de energia), o
+servidor só percebe quando a entrada dele fecha. Servidores bem feitos saem nessa hora.</li></ul>
 <p class="edit"><a href="https://github.com/RshaCuDeVidro/larperCord/blob/main/docs/lsp.pt-BR.md" rel="noopener">Fonte desta página no GitHub</a></p>
 <nav class="pager"><a href="../../pt/guide/plugin-starter.html"><small>Anterior</small>Gerador de plugin</a><a class="next" href="../../pt/guide/architecture.html"><small>Próximo</small>Arquitetura</a></nav>
 </main>

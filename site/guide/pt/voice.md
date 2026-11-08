@@ -56,16 +56,28 @@ Alguns detalhes que deram trabalho para acertar:
 
 ## Depuração
 
+No Linux, abra por um terminal (encerre antes se ele estiver na bandeja) com:
+
 ```bash
 LARPER_VOICE_DEBUG=1 larpercord
 ```
 
-Isso imprime opcodes, códigos de fechamento e eventos do DAVE, além do nível do microfone e dos quadros enviados. Nunca imprime o token nem chaves.
+No Windows, ou sem terminal, ligue Configurações → Avançado → **Salvar registro de depuração** antes de entrar na call, e depois use **Abrir a pasta do registro**. O arquivo é `%LOCALAPPDATA%\larpercord\debug.log` no Windows e `~/.cache/larpercord/debug.log` no Linux.
+
+Dos dois jeitos você recebe opcodes, códigos de fechamento e eventos do DAVE, além do nível do microfone e dos quadros enviados. Nunca tem o token nem chaves.
 
 Para testar só a conexão, o `--voice-test` entra num canal por 25 segundos, **sempre mudo**:
 
 ```bash
 LARPER_TOKEN=... larpercord --voice-test GUILD_ID CHANNEL_ID
+```
+
+No Windows ele só pega o token do `LARPER_TOKEN`, e o texto dele precisa ir para um arquivo, porque não há console:
+
+```powershell
+$env:LARPER_TOKEN = [Net.NetworkCredential]::new('', (Read-Host 'Token' -AsSecureString)).Password
+Start-Process "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe" -ArgumentList '--voice-test','GUILD_ID','CHANNEL_ID' -NoNewWindow -Wait -RedirectStandardError voz.txt; Get-Content voz.txt
+Remove-Item Env:LARPER_TOKEN
 ```
 
 O protocolo segue a documentação de voz do Discord e a [documentação do protocolo DAVE](https://daveprotocol.com).

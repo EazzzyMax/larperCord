@@ -121,7 +121,7 @@
 <section class="node" id="playground">
   <span class="tag reveal"><b>messages</b> <i>flex=1 {</i></span>
   <h2 class="h reveal">A interface é um arquivo. <em>Vai, quebra ele.</em></h2>
-  <p class="lede reveal">Estes são os layouts de verdade de <code>themes/*.kdl</code>. Mude uma largura, mova um nó, troque o nome de um componente. No app, salvar o arquivo recarrega a janela pelo inotify. Um erro aponta <code>arquivo:linha:coluna</code> e o tema anterior continua na tela.</p>
+  <p class="lede reveal">Estes são os layouts de verdade de <code>themes/*.kdl</code>. Mude uma largura, mova um nó, troque o nome de um componente. No app, salvar o arquivo recarrega a janela na hora (inotify no Linux, aviso de mudança na pasta no Windows). Um erro aponta <code>arquivo:linha:coluna</code> e o tema anterior continua na tela.</p>
   <div class="pg reveal" data-playground>
     <div class="pg-edit">
       <div class="pg-bar">
@@ -162,7 +162,7 @@
     <img class="light" src="../assets/shots/pt/vidro-claro.webp" alt="" loading="lazy" decoding="async" width="1280" height="800">
     <span class="tcard-split" aria-hidden="true"></span>
   </button>
-  <figcaption><span class="tnum">02</span><strong>vidro</strong><span class="tdesc">Cartões de vidro sobre o wallpaper, com blur do compositor e reflexo.</span></figcaption>
+  <figcaption><span class="tnum">02</span><strong>vidro</strong><span class="tdesc">Cartões de vidro sobre o wallpaper, com reflexo. No Linux, o compositor desfoca o que está atrás.</span></figcaption>
 </figure>
 <figure class="tcard" data-card="terminal">
   <button type="button" class="tcard-shots" data-apply="terminal" aria-label="Vestir esta página de terminal">
@@ -253,7 +253,7 @@
       <li><h3>Caixa de entrada</h3><p><kbd>Ctrl</kbd>+<kbd>I</kbd>: DMs e menções não lidas de todos os servidores, por canal, com prévia e “marcar tudo como lido”.</p><img src="../assets/shots/pt/f-caixa.webp" alt="O painel da caixa de entrada" loading="lazy" decoding="async"></li>
       <li><h3>Busca offline</h3><p><kbd>Ctrl</kbd>+<kbd>F</kbd> busca na memória e no cache local a cada tecla, sem internet. Filtros: <code>from:</code>, <code>in:</code>, <code>has:link</code>, <code>has:imagem</code>, <code>has:arquivo</code>.</p><img src="../assets/shots/pt/f-busca.webp" alt="Resultados da busca filtrados por autor" loading="lazy" decoding="async"></li>
       <li><h3>Paleta de comandos</h3><p><kbd>Ctrl</kbd>+<kbd>K</kbd>: busca aproximada de canais, DMs, servidores, temas, status e todas as opções. Esta página também tem uma. Experimente.</p><img src="../assets/shots/pt/f-paleta.webp" alt="A paleta de comandos" loading="lazy" decoding="async"></li>
-      <li><h3>Vídeo na conversa</h3><p>Anexos e links diretos tocam no lugar, com o FFmpeg do sistema, carregado só no primeiro play. Até 480p e cerca de 30 qps. Sem FFmpeg, o vídeo abre no navegador.</p><img src="../assets/shots/pt/f-video.webp" alt="Um vídeo tocando dentro da conversa" loading="lazy" decoding="async"></li>
+      <li><h3>Vídeo na conversa</h3><p>Anexos e links diretos tocam no lugar, com o FFmpeg, carregado só no primeiro play: o da distro no Linux, ou o botão Baixar FFmpeg em Configurações → Chat no Windows. Até 480p e cerca de 30 qps. Sem FFmpeg, o vídeo abre no navegador.</p><img src="../assets/shots/pt/f-video.webp" alt="Um vídeo tocando dentro da conversa" loading="lazy" decoding="async"></li>
       <li><h3>Código que parece código</h3><p>Markdown do Discord, interpretado uma vez quando a mensagem chega. Blocos de código têm realce nas cores do tema e botão de copiar, e uma prévia aparece acima da caixa enquanto você digita.</p><img src="../assets/shots/pt/f-codigo.webp" alt="Um bloco de código com realce" loading="lazy" decoding="async"></li>
       <li><h3>Perfis completos</h3><p>Banner, bio, atividade, amigos e servidores em comum, conexões, cargos e uma nota só sua.</p><img src="../assets/shots/pt/f-perfil.webp" alt="Um perfil completo de usuário" loading="lazy" decoding="async"></li>
       <li><h3>Mensagens salvas, com anotação</h3><p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>: favoritos que ficam só no seu computador. Nada vai para o Discord.</p><img src="../assets/shots/pt/f-salvas.webp" alt="Uma mensagem salva com anotação" loading="lazy" decoding="async"></li>
@@ -293,7 +293,7 @@
   <h2 class="h reveal">Lua, <em>numa jaula.</em></h2>
   <div class="split reveal">
     <div>
-      <p class="lede" style="margin-top:0">Coloque um <code>.lua</code> em <code>~/.config/larpercord/plugins/</code> para somar painéis, entradas no botão direito, notas embaixo das mensagens, comandos e atalhos, sem recompilar nada. Anti-golpe, radar de CVE, cartões do GitHub, o que perdi, tradução, lembretes, destaques, links limpos, e links e arquivos vêm com o app.</p>
+      <p class="lede" style="margin-top:0">Coloque um <code>.lua</code> na sua pasta de plugins (<code>~/.config/larpercord/plugins/</code> no Linux, <code>%APPDATA%\larpercord\plugins\</code> no Windows) para somar painéis, entradas no botão direito, notas embaixo das mensagens, comandos e atalhos, sem recompilar nada. Anti-golpe, radar de CVE, cartões do GitHub, o que perdi, tradução, lembretes, destaques, links limpos, e links e arquivos vêm com o app.</p>
       <div class="code" data-lang="lua"><span class="code-lang">lua</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-c">-- @name CVE notes</span>
 <span class="t-c">-- @capabilities messages, decorate, http</span>
 <span class="t-c">-- @hosts cveawg.mitre.org</span>
@@ -332,14 +332,14 @@
   <span class="tag reveal"><b>metrics</b> <i>budget=50 {</i></span>
   <h2 class="h reveal">Sem mágica. <em>Dez decisões chatas.</em></h2>
   <ol class="rules reveal">
-    <li><strong>Dorme quando nada acontece.</strong> O laço principal espera em <code>SDL_WaitEvent</code>. Rede, inotify e relógio acordam o app com eventos. Sem animação, sem redesenho.</li>
+    <li><strong>Dorme quando nada acontece.</strong> O laço principal espera em <code>SDL_WaitEvent</code>. Rede, mudanças nos arquivos (inotify no Linux, avisos de pasta no Windows) e relógio acordam o app com eventos. Sem animação, sem redesenho.</li>
     <li><strong>Nada de navegador.</strong> Tudo é desenhado com o <code>ImDrawList</code> do Dear ImGui sobre o SDL_Renderer.</li>
-    <li><strong>Fontes mapeadas, não copiadas.</strong> Cada arquivo de fonte é um <code>mmap</code> usado por todos os pesos, então só as páginas lidas ficam na RAM.</li>
-    <li><strong>Só o driver de vídeo necessário.</strong> Em máquinas só com NVIDIA, o glvnd também carregaria o Mesa e o LLVM à toa. O app detecta e evita.</li>
+    <li><strong>Fontes mapeadas, não copiadas.</strong> Cada arquivo de fonte é um mapa de memória (<code>mmap</code> no Linux, <code>MapViewOfFile</code> no Windows) usado por todos os pesos, então só as páginas lidas ficam na RAM.</li>
+    <li><strong>Só o driver de vídeo necessário.</strong> Em máquinas Linux só com GPU NVIDIA, o glvnd também carregaria o Mesa e o LLVM à toa. O app detecta e evita.</li>
     <li><strong>Markdown interpretado uma vez.</strong> Quando a mensagem chega. Depois, a interface só faz layout dos trechos, com cache de altura por largura.</li>
     <li><strong>Lista virtualizada.</strong> Busca binária pelo primeiro item visível e desenha só o que está na tela.</li>
     <li><strong>Memória com teto.</strong> 1.500 mensagens por canal e 3.000 no total. Conversas esquecidas são descarregadas, e o cache de imagens tem um teto fixo de 64&nbsp;MB.</li>
-    <li><strong>fontconfig liberado.</strong> Depois de resolver as fontes: <code>FcFini</code> e <code>malloc_trim</code>.</li>
+    <li><strong>fontconfig liberado.</strong> Depois de resolver as fontes, no Linux: <code>FcFini</code> e <code>malloc_trim</code>. O Windows não tem fontconfig: as fontes vêm direto de <code>C:\Windows\Fonts</code>.</li>
     <li><strong>Sem cursor piscando.</strong> Um cursor piscando manteria a CPU acordada à toa.</li>
     <li><strong>As coisas nascem quando você pede.</strong> A thread de voz na primeira call, o FFmpeg no primeiro vídeo. Sem plugin ligado, não há thread de plugins nem Lua, e nada se gasta por mensagem, tecla ou quadro.</li>
   </ol>
@@ -359,7 +359,7 @@
     <tbody>
       <tr><th>Mensagens, DMs, reações, respostas</th><td><span class="chip ok">funciona</span></td><td>Enviar, editar, excluir, histórico, menções</td></tr>
       <tr><th>Imagens</th><td><span class="chip ok">funciona</span></td><td>Avatares e anexos, com cache de tamanho fixo</td></tr>
-      <tr><th>Vídeo na conversa</th><td><span class="chip ok">funciona</span></td><td>Anexos e links diretos, precisa do FFmpeg do sistema</td></tr>
+      <tr><th>Vídeo na conversa</th><td><span class="chip ok">funciona</span></td><td>Anexos e links diretos. Precisa do FFmpeg: o da distro no Linux, o botão Baixar FFmpeg em Configurações → Chat no Windows</td></tr>
       <tr><th>Caixa de entrada, salvas, busca offline</th><td><span class="chip ok">funciona</span></td><td>Tudo local, dá para desligar e apagar</td></tr>
       <tr><th>Contas, proxy, plugins em Lua</th><td><span class="chip ok">funciona</span></td><td></td></tr>
       <tr><th>Threads e fóruns</th><td><span class="chip ok">funciona</span></td><td>Threads aninhadas, lista de posts dos fóruns, criar threads e posts</td></tr>
@@ -368,7 +368,7 @@
       <tr><th>Temas</th><td><span class="chip ok">funciona</span></td><td>11 embutidos, claro e escuro, recarregam ao salvar</td></tr>
       <tr><th>Voz</th><td><span class="chip part">parcial</span></td><td>E2EE, mixer, seletor de dispositivo, aperte para falar e filtros funcionam. O aperte para falar precisa da janela em foco</td></tr>
       <tr><th>Permissões</th><td><span class="chip part">parcial</span></td><td>Canais trancados, voz, threads e fóruns são respeitados. A caixa de texto nos canais comuns, as reações e a lista de membros ainda não consultam</td></tr>
-      <tr><th>Notificações</th><td><span class="chip part">parcial</span></td><td>Pelo <code>notify-send</code>. Clicar não abre o canal, sem bandeja do sistema</td></tr>
+      <tr><th>Notificações</th><td><span class="chip part">parcial</span></td><td>Pelo <code>notify-send</code> no Linux e pela bandeja no Windows. Clicar não abre o canal</td></tr>
       <tr><th>Acessibilidade</th><td><span class="chip part">parcial</span></td><td>Escala de fonte, reduzir movimento, paleta por teclado. Sem foco visível nem alto contraste</td></tr>
       <tr><th>Plataformas</th><td><span class="chip part">parcial</span></td><td>Linux e Windows 10/11. Testado todo dia no Arch com Hyprland; o Windows é novo.</td></tr>
             <tr><th>Entrar em servidor por convite</th><td><span class="chip no">falta</span></td><td>Convites viram um cartão e abrem no navegador</td></tr>
@@ -403,16 +403,16 @@
     </div>
     <div class="dl-card" data-os="linux">
       <h3>Outras distros Linux <small>x86_64</small></h3>
-      <p>Um comando instala em <code>~/.local</code>, sem sudo, e lista as bibliotecas que faltam:</p>
+      <p>Um comando instala em <code>~/.local/bin</code> com entrada no menu, sem sudo, e lista as bibliotecas que faltam:</p>
       <div class="dl-copy"><code class="dl-cmd">curl -fsSL https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.sh | sh</code><button class="copy" type="button" data-copy>copy</button></div>
-      <p>Ou pegue o arquivo portátil. Ele roda em distros de 2022 para cá (glibc 2.34), e antes de cada versão é aberto em Ubuntu, Debian, Fedora, openSUSE e Arch. Marque como executável com <code>chmod +x</code> e rode.</p>
+      <p>Ou pegue o arquivo portátil. Ele roda em distros de 2022 para cá (glibc 2.34), e antes de cada versão é aberto em Ubuntu, Debian, Fedora, openSUSE e Arch. Marque como executável com <code>chmod +x</code> e rode. Ele pode ficar com esse nome: a atualização troca esse mesmo arquivo. Deixe-o numa pasta sua, como <code>~/.local/bin</code>, para ele conseguir se atualizar.</p>
       <a class="btn" href="https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-linux-x86_64" data-asset="larpercord-linux-x86_64">Baixar para Linux ↓</a>
     </div>
     <div class="dl-card" data-os="windows">
       <h3>Windows <small>10 / 11, x64</small></h3>
       <a class="btn" href="https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-windows-x86_64.zip" data-asset="larpercord-windows-x86_64.zip">Baixar para Windows ↓</a>
-      <p>Descompacte e abra o <code>larpercord.exe</code>. O programa ainda não tem assinatura de código, então o Windows pode avisar na primeira vez.</p>
-      <p>Ou instale para o seu usuário, no PowerShell, sem administrador:</p>
+      <p>Descompacte e abra o <code>larpercord.exe</code> da pasta <code>larperCord</code>, com as três DLLs ao lado dele. Descompacte num lugar onde você pode gravar, fora de <code>C:\Program Files</code>, para ele conseguir se atualizar. Ele ainda não tem assinatura de código: se o SmartScreen barrar, clique em <em>Mais informações</em> e depois em <em>Executar assim mesmo</em>.</p>
+      <p>Ou instale para o seu usuário, no PowerShell, sem administrador. Ele vai para <code>%LOCALAPPDATA%\Programs\larperCord</code>, com uma entrada no menu Iniciar:</p>
       <div class="dl-copy"><code class="dl-cmd">irm https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.ps1 | iex</code><button class="copy" type="button" data-copy>copy</button></div>
     </div>
   </div>
@@ -450,7 +450,7 @@
 
 <span class="t-c"># Modo demonstração: dados falsos, não conecta em nada</span>
 <span class="t-k">./zig-out/bin/larpercord</span> <span class="t-p">--demo</span> <span class="t-p">--theme</span> subsolo</code></pre></div>
-      <p class="foot">Prefere não compilar? <a href="#download">Baixe</a> para Linux ou Windows.</p>
+      <p class="foot">Esses comandos são para o Arch Linux. No Windows não tem o que compilar: <a href="#download">baixe o zip</a>, abra o <code>larpercord.exe</code> e escolha "Explorar o modo demonstração" na tela de login, ou abra com <code>.\larpercord.exe --demo --theme subsolo</code>. Prefere não compilar no Linux também? <a href="#download">Baixe</a>.</p>
       <div class="cta" style="margin-top:20px">
         <a class="btn primary" href="../pt/guide/getting-started.html">Primeiros passos →</a>
         <a class="btn" href="https://github.com/RshaCuDeVidro/larperCord">★ Dar estrela no GitHub</a>

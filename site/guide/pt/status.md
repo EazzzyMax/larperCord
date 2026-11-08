@@ -8,7 +8,7 @@ O larperCord é um projeto jovem: versão 0.6.0, com o primeiro commit em 2 de n
 |---|---|---|
 | Mensagens, DMs, reações, respostas | **funciona** | Enviar, editar, excluir, histórico, menções |
 | Imagens | **funciona** | Avatares e anexos, com cache de tamanho fixo |
-| Vídeo na conversa | **funciona** | Anexos e links diretos. Precisa do FFmpeg do sistema |
+| Vídeo na conversa | **funciona** | Anexos e links diretos. Precisa do FFmpeg 7, 8 ou 9: o da distro no Linux, ou o botão **Baixar FFmpeg** em Configurações → Chat no Windows |
 | Caixa de entrada, mensagens salvas, busca offline | **funciona** | Tudo local, dá para desligar e apagar |
 | Várias contas, proxy, plugins em Lua | **funciona** | |
 | Threads e fóruns | **funciona** | Threads aninhadas, lista de posts dos fóruns, criar threads e posts, arquivadas |

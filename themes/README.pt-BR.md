@@ -6,9 +6,25 @@ Um tema do larperCord é um arquivo [KDL](https://kdl.dev) que descreve **a inte
 cores, fontes, estilos e a árvore de layout. Dá pra mudar a posição de tudo sem escrever
 uma linha de código.
 
-Coloque o arquivo em `~/.config/larpercord/themes/meu-tema.kdl` (ou em `themes/`, ao rodar
-de dentro do repositório). **Ao salvar, o app recarrega na hora.** Se houver um erro, aparece
-um aviso com `arquivo:linha:coluna` e o tema anterior continua valendo.
+Coloque o arquivo, por exemplo `meu-tema.kdl`, na sua pasta de temas:
+
+| Sistema | Pasta |
+|---|---|
+| Linux | `~/.config/larpercord/themes/` (ou `$XDG_CONFIG_HOME/larpercord/themes/` quando essa variável existir) |
+| Windows | `%APPDATA%\larpercord\themes\`, normalmente `C:\Users\<você>\AppData\Roaming\larpercord\themes\`. Para abrir, cole `%APPDATA%\larpercord` na barra de endereço do Explorador de Arquivos |
+
+Também vale `themes/`, ao rodar de dentro do repositório. O app vigia as pastas de tema que existem quando
+ele abre. Se você acabou de criar a pasta, reinicie o larperCord uma vez: Configurações → Atualizações →
+**Reiniciar o larperCord**. Fechar a janela não conta, porque por padrão ela só esconde o app na bandeja.
+**Daí em diante, ao salvar, o app recarrega na hora.** Se houver um erro, aparece um aviso com
+`arquivo:linha:coluna` e o tema anterior continua valendo.
+
+Salve o arquivo como UTF-8. No Windows, o "UTF-8" do Bloco de Notas está certo. Não use "UTF-16" ("Unicode"),
+que é também o que o `>` grava no Windows PowerShell 5.1: o tema não carrega e aparece um erro de sintaxe.
+"UTF-8 com BOM" (o que o `Set-Content -Encoding UTF8` grava no Windows PowerShell 5.1) põe três bytes
+invisíveis no começo, e o app lê esses bytes como parte da primeira linha. Não faz mal quando o arquivo começa
+com um comentário, como os temas embutidos, mas se ele começar com `theme`, `palette` ou `colors`, essa linha
+é ignorada.
 
 Troque de tema com `F2`, pela paleta (`Ctrl+K` → "tema: …") ou em Configurações → Aparência.
 
@@ -51,11 +67,19 @@ layout {
 | `palette "wal"` ou `palette "#hex" …` | as 16 cores base (`wal:0` … `wal:15`). Sem isso, usa uma paleta padrão |
 | `colors { token "expressão" … }` | sobrescreve tokens de cor (lista abaixo) |
 | `roles "cor" …` | até 8 cores de cargo (nomes de usuário, ícones de servidor) |
-| `fonts ui="Inter" mono="JetBrains Mono" size=16` | famílias (resolvidas pelo fontconfig) e tamanho base |
+| `fonts ui="Inter" mono="JetBrains Mono" size=16` | famílias e tamanho base. No Linux quem resolve é o fontconfig; no Windows, veja [Fontes no Windows](#fontes-no-windows) |
 | `metrics radius=6` | arredondamento padrão de linhas e botões |
-| `window transparent=#true` | fundo da janela transparente: o compositor aplica blur |
+| `window transparent=#true` | fundo da janela transparente. No Linux, o seu compositor (Hyprland, KDE…) pode desfocar o que está atrás. No Windows o app não pede desfoque ao sistema, então não tem blur |
 | `styles { style "nome" … }` | estilos nomeados para usar com `style=nome` |
 | `layout { … }` | a árvore da interface (um único filho na raiz) |
+
+`palette "wal"` lê as 16 cores do pywal em `~/.cache/wal/colors` (sempre dentro de `$HOME`, mesmo com
+`XDG_CACHE_HOME` definido). No Linux o app também vigia esse arquivo, então o tema acompanha o seu wallpaper. No
+Windows ele só procura lá quando a variável `HOME` existe (`%HOME%\.cache\wal\colors`; o pywal no Windows grava em
+`%USERPROFILE%\.cache\wal`). Lá ele não vigia o arquivo: as cores novas aparecem na próxima vez que um arquivo de
+tema for salvo ou o app abrir. Sem o arquivo, vale a paleta padrão. Para criar o `HOME` no Windows, no PowerShell:
+`[Environment]::SetEnvironmentVariable('HOME', $env:USERPROFILE, 'User')`. Depois feche o larperCord (**Sair** no
+menu do ícone da bandeja) e abra de novo pelo menu Iniciar.
 
 ## Cores
 
@@ -107,10 +131,29 @@ Contêineres: `row` (horizontal), `column` (vertical), `stack` (um sobre o outro
 | `only-below-height=` | só aparece quando a janela é mais baixa que isso (a versão compacta de um cabeçalho alto) |
 | `show=#false` | esconde |
 | `style=` / `bg=` `radius=` | fundo do nó |
-| `font=mono` / `font=ui` / `font="Liberation Serif"` | fonte do componente: a mono, a da interface ou **qualquer família instalada** |
+| `font=mono` / `font=ui` / `font="Liberation Serif"` | fonte do componente: a mono, a da interface ou **qualquer família instalada** (no Windows, veja [Fontes no Windows](#fontes-no-windows)) |
 | `c-<token>=cor` | sobrescreve um token de cor **neste nó e nos filhos** (ex.: `c-text="#fff"` numa barra lateral escura) |
 
 O filho de uma `row` que tem `width=` fixo e contém `channel-list` ou `member-list` é ajustável: o app desenha uma alça de arrastar do lado que dá para o vizinho `flex` da row, e a largura escolhida pela pessoa soma com a que você definiu. Sem vizinho `flex`, não tem alça.
+
+## Fontes no Windows
+
+O Windows não tem fontconfig, então o nome da família funciona de outro jeito. O app só procura em `C:\Windows\Fonts`:
+
+1. Primeiro, um arquivo com o nome da família em minúsculas, sem espaços, terminando em `.ttf`: `Segoe UI` →
+   `segoeui.ttf`, `Georgia` → `georgia.ttf`, `Cascadia Code` → `cascadiacode.ttf` (Windows 11). Esse arquivo vale
+   para todos os pesos, então negrito e itálico saem iguais ao normal.
+2. Senão, a fonte do sistema do mesmo tipo, com negrito e itálico de verdade. Nomes com `mono`, `code`, `consol`,
+   `courier` ou `term` viram Consolas (ou Courier New). Nomes com `serif`, `georgia`, `times`, `garamond` ou
+   `playfair`, e sem `sans`, viram Georgia (ou Times New Roman). `DejaVu Sans` e `DejaVu Sans Mono` viram Segoe UI
+   Symbol. O resto vira Segoe UI (ou Arial, depois Tahoma). O emoji vem da Segoe UI Emoji.
+
+Por isso as fontes padrão, `Inter` e `JetBrains Mono`, aparecem como Segoe UI e Consolas, e `font="Liberation Serif"`
+aparece como Georgia. Instalar uma fonte normalmente não muda isso. Os arquivos de fonte têm nomes como
+`JetBrainsMono-Regular.ttf`, e fontes instaladas só para o seu usuário (o padrão do Windows, em
+`%LOCALAPPDATA%\Microsoft\Windows\Fonts`) não são procuradas. Para um tema que fique bem nos dois sistemas, use
+nomes de fonte que digam o que elas são (com `Mono` ou `Serif` no nome) e confira o tema com Segoe UI, Consolas e
+Georgia.
 
 ## Componentes
 
@@ -332,7 +375,8 @@ Formas de usar as opções:
 | bloco de cores, cargos, estilos | `colors mode=dark when=verde { … }` |
 | estilo | `style "card" sheen="$brilho"` |
 
-As escolhas ficam salvas por tema em `~/.config/larpercord/settings.kdl`.
+As escolhas ficam salvas por tema no `settings.kdl`: `~/.config/larpercord/settings.kdl` no Linux,
+`%APPDATA%\larpercord\settings.kdl` no Windows.
 
 ## Cores personalizadas (sem editar o `.kdl`)
 
@@ -441,13 +485,16 @@ O que é conferido:
   `arquivo:linha:coluna` no primeiro problema, então um arquivo quebrado derruba o build do site. Depois, o
   `node tools/theme_builder_test.js` carrega cada tema com a cópia que o site tem do leitor de temas do app
   (`docs/assets/site/theme-builder-core.js`), nos dois modos e com todas as opções. O CI roda os dois em todo pull
-  request. Dá para rodar a mesma checagem antes de mandar: `python3 tools/gen_site.py --check-community`. Para ver no
-  próprio app, coloque o arquivo na sua pasta de temas e rode `larpercord --theme neon-dusk`.
+  request. Dá para rodar a mesma checagem antes de mandar: `python3 tools/gen_site.py --check-community` (no Windows,
+  `py tools/gen_site.py --check-community`). Para ver no app, coloque o arquivo na sua pasta de temas (a tabela no
+  começo desta página), feche o larperCord se ele estiver aberto e abra com `--theme neon-dusk`.
 - **Um nome só dele.** Nem o nome de um tema embutido (um arquivo chamado `orbital.kdl` tomaria o lugar dele no app) nem
   um que já esteja na galeria. Um tema embutido só com o nome trocado volta: mude as cores ou o layout.
 - **Sem logos nem fontes protegidos.** Só arquivos `.kdl` entram na pasta, então nada de imagens ou arquivos de fonte.
   Não redesenhe o logo ou a marca de outra pessoa com `label`, `shape` ou arte em ASCII, e só cite fontes que dá para
-  conseguir de graça: as fontes são procuradas pela família no sistema de quem usa e nunca vão junto com o tema.
+  conseguir de graça. As fontes são procuradas no sistema de quem usa e nunca vão junto com o tema. No Linux, pela
+  família, via fontconfig. No Windows, por um arquivo em `C:\Windows\Fonts` com o nome da família, ou senão Segoe UI,
+  Consolas ou Georgia ([Fontes no Windows](#fontes-no-windows)), então confira se o seu tema continua bonito com elas.
 - **Uma licença aberta** da lista acima. Ela diz que as pessoas podem usar e mudar o tema. Se as cores vieram do tema
   de outra pessoa (pelo "Importar de um CSS de tema do Discord" do criador, por exemplo), a licença daquele tema tem de
   deixar, e a descrição deve dar o crédito a quem fez.

@@ -63,7 +63,7 @@ Embeds e as mensagens com componentes novos do Discord mostram texto, miniaturas
 
 - **Imagens** e **GIFs**, com cache de tamanho fixo, visualização em tela cheia e envio pelo seletor, arrastando e soltando ou com `Ctrl+V`. WebP e APNG animado também são decodificados.
 - **Embeds** como cartões: cor, autor, título, descrição em markdown, campos, imagem, miniatura e rodapé.
-- **Vídeo na conversa** para anexos e links diretos `.mp4`/`.webm`, pelo FFmpeg do sistema, que só é carregado no primeiro play. Play e pausa, barra de progresso e som, até 854×480 a cerca de 30 qps. O vídeo fora da tela pausa, e 30 segundos depois tudo é liberado. Sem o FFmpeg, ele abre no navegador.
+- **Vídeo na conversa** para anexos e links diretos `.mp4`/`.webm`, pelo FFmpeg 7, 8 ou 9, que só é carregado no primeiro play. No Linux é o FFmpeg do sistema (distros antigas trazem um mais velho, que é ignorado). No Windows, Configurações → Chat → **Baixar FFmpeg** baixa e instala (cerca de 80 MB, conferidos por SHA-256), ou o app usa as DLLs do FFmpeg que achar ao lado do `larpercord.exe` ou no `PATH`. Play e pausa, barra de progresso e som, até 854×480 a cerca de 30 qps. O vídeo fora da tela pausa, e 30 segundos depois tudo é liberado. Sem o FFmpeg, ele abre no navegador.
 - **Modo economia**: imagens, fotos de perfil e anexos só baixam quando você clica.
 
 ## Achando as coisas
@@ -108,7 +108,7 @@ A busca ignora maiúsculas e acentos, então `nao` encontra `não`.
 - **Filtro de palavras** recolhe as mensagens que combinam atrás de um clique, e elas nunca notificam.
 - **Ignorar** esconde as mensagens de alguém localmente, sem bloquear.
 - **Modo foco**: por 15 minutos, 30 minutos, 1 hora ou até você desligar, só DMs e menções notificam e marcam como não lido.
-- **Notificações na área de trabalho** pelo `notify-send`, só com a janela fora de foco, mais a barra de tarefas piscando. Canais silenciados nunca notificam.
+- **Notificações na área de trabalho**, só com a janela fora de foco ou escondida na bandeja, mais a barra de tarefas piscando. No Linux elas passam pelo `notify-send` (da libnotify), e no Windows são notificações do Windows, pela área da bandeja. Canais silenciados nunca notificam.
 
 ## Canais que você não pode abrir
 
@@ -129,6 +129,6 @@ Voz de verdade com criptografia de ponta a ponta, mixer por pessoa, seletor de d
 
 ## Deixe do seu jeito
 
-- Os [temas](page:themes) reorganizam a interface inteira e recarregam ao salvar. Temas com `palette "wal"` acompanham o seu wallpaper pelo pywal, e o tema `vidro` tem fundo transparente que o seu compositor desfoca.
+- Os [temas](page:themes) reorganizam a interface inteira e recarregam ao salvar. No Linux, temas com `palette "wal"` acompanham o seu wallpaper pelo pywal, e o fundo transparente do tema `vidro` é desfocado pelo seu compositor (Hyprland, KDE…). No Windows não tem blur, e as cores do pywal só são lidas quando a variável `HOME` existe, sem acompanhar o wallpaper ao vivo.
 - Os [plugins](page:plugins) em Lua somam painéis, entradas no botão direito, notas embaixo das mensagens, comandos e atalhos. Anti-golpe, radar de CVE, cartões do GitHub, o que perdi, tradução, lembretes, destaques, links limpos, e links e arquivos vêm com o app.
 - **Navegação estilo vim opcional**: veja [Atalhos](page:shortcuts).

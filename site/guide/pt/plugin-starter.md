@@ -13,7 +13,7 @@ Escolha o que o seu plugin vai fazer e baixe um `.lua` pronto para editar. Um pl
 
 Depois abra **Configurações → Plugins** (`Ctrl+,`) e clique em **Recarregar**. O cartão do plugin mostra o nome, o que ele pede e qualquer erro, com `arquivo:linha`. Se ele usa a internet, nada sai antes de você aprovar o host nesse cartão.
 
-Abra o larperCord por um terminal para ver o que o plugin escreve com `print`: o gerador põe uma linha `carregado` quando ele começa.
+Para ver o que o plugin escreve com `print` (o gerador põe uma linha `carregado` quando ele começa): no Linux, abra o larperCord por um terminal. No Windows o app não tem terminal: ligue **Configurações → Avançado → Salvar registro de depuração**, clique em **Recarregar** em Configurações → Plugins e abra `%LOCALAPPDATA%\larpercord\debug.log` (o botão **Abrir a pasta do registro** leva até lá). O registro também funciona no Linux, em `~/.cache/larpercord/debug.log`.
 
 ## O que o gerador confere
 

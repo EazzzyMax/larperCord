@@ -60,8 +60,8 @@ Some items here are how larperCord stays light, and the official app may do simi
 - **[The whole layout is a text file](page:themes).** Move, resize and swap the parts of the window in a `.kdl` file, not only the colors.
 - **[Reloads on save](page:themes).** Saving the file redraws the window right away. A mistake points to `file:line:column` and the previous theme stays on screen.
 - **[11 built-in layouts](page:theme-gallery)**, not just color schemes, from an IRC terminal to a Mac-style desktop, each with light and dark modes and options of its own.
-- **[Colors from your wallpaper](page:themes#colors)** through pywal, in themes with `palette "wal"`.
-- **[Real transparency](page:theme-gallery#vidro).** The `vidro` theme has a see-through background, and your compositor (Hyprland, KDE…) adds the blur.
+- **[Colors from your wallpaper](page:themes#colors)** through pywal, in themes with `palette "wal"`, on Linux (on Windows only with the `HOME` variable set, and not live).
+- **[Real transparency](page:theme-gallery#vidro).** The `vidro` theme has a see-through background, and on Linux your compositor (Hyprland, KDE…) adds the blur. Windows has no blur.
 - **[Every color, per theme and mode](page:themes#custom-colors-without-editing-the-kdl):** each of the theme's color tokens and the eight role colors, picked in hex in Settings, free and without editing the file. Discord's custom theme is a Nitro gradient of up to five colors.
 - **[Lua plugins](page:plugins)** add panels, right-click entries, notes under messages, commands and keybinds, with no rebuild.
 - **[Plugins in a sandbox](page:plugins#limits).** A thread apart from the interface, a Lua state and 8 MB for each plugin, about 5 million instructions per call, no files, processes or sockets, and HTTPS only to hosts you approve. They never see your token.
@@ -76,7 +76,7 @@ Some items here are how larperCord stays light, and the official app may do simi
 - **Creating servers and channels.** You can create threads and forum posts, but not servers or channels.
 - **Stage channels.** A Stage shows up as a plain voice channel, with no speakers and audience sections and no way to ask to speak.
 - **Activities and the soundboard.** Not in the app.
-- **[Video in full quality](page:features#media).** Videos in the chat play up to 480p at about 30 fps and need FFmpeg. Without it, they open in the browser.
+- **[Video in full quality](page:features#media).** Videos in the chat play up to 480p at about 30 fps and need FFmpeg: your distro's on Linux, the **Download FFmpeg** button in Settings → Chat on Windows. Without it, they open in the browser.
 - **[macOS, phones and the web](page:getting-started#what-you-need).** larperCord runs on Linux and Windows 10/11.
 - **[Accessibility](page:status#what-works-today).** There's font scale, reduced motion, the command palette and vim keys, but no visible keyboard focus, no high contrast mode and no screen reader support.
 

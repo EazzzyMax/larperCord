@@ -13,7 +13,7 @@ Pick what your plugin should do and download a ready-to-edit `.lua` file. A plug
 
 Then open **Settings → Plugins** (`Ctrl+,`) and click **Reload**. The plugin's card shows its name, what it asks for and any error, with `file:line`. If it uses the internet, nothing goes out until you approve the host on that card.
 
-Start larperCord from a terminal to see what the plugin `print`s: the starter writes a `loaded` line when it starts.
+To see what the plugin `print`s (the starter writes a `loaded` line when it starts): on Linux, start larperCord from a terminal. On Windows the app has no terminal: turn on **Settings → Advanced → Save debug log**, click **Reload** in Settings → Plugins and open `%LOCALAPPDATA%\larpercord\debug.log` (the **Open the log folder** button takes you there). The debug log works on Linux too, at `~/.cache/larpercord/debug.log`.
 
 ## What the starter checks
 

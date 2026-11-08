@@ -38,7 +38,7 @@ Se acontecer, redefina a senha pelo discord.com. Se a conta continuar bloqueada,
 
 A versão para Windows não é assinada, então o SmartScreen avisa. Um antivírus também pode chamá-la de ladrão de token do Discord, provavelmente porque um cliente de Discord está cheio das mesmas palavras que um ladrão tem, como "token" e "Authorization". Um sandbox deu essa nota à versão 0.5.0 por causa de uma regra de padrões, e o relatório de comportamento dele não mostrou acesso a credenciais e, no modo de demonstração, nenhuma conexão.
 
-O token só vai para o Discord e fica no chaveiro do sistema ou, sem chaveiro, num arquivo privado. O código é público, então dá para ler ou compilar você mesmo. Baixe o larperCord só deste repositório.
+O token só vai para o Discord e fica no chaveiro do sistema (o Gerenciador de Credenciais, no Windows) ou, sem chaveiro, num arquivo privado. O código é público, então dá para ler ou compilar você mesmo. Baixe o larperCord só deste repositório.
 
 ## Por quê
 
@@ -60,11 +60,14 @@ O cliente oficial é um navegador inteiro disfarçado de app. No mesmo PC:
 - **Temas que reorganizam tudo.** Layout em árvore (`row`/`column`/`flex`/`gap`), 11 componentes
   com variantes, cores sobrescritas por pedaço do layout (`c-text="#fff"`), estilos, tokens de cor com expressões (`mix(wal:0, black, 0.4)`).
   [Guia de temas →](themes/README.pt-BR.md)
-- **Recarrega ao salvar.** Edite o `.kdl` e a janela muda na hora (inotify, sem polling).
-  Erros aparecem com `arquivo:linha:coluna`.
-- **Segue o seu wallpaper.** Temas com `palette "wal"` usam as cores do pywal e acompanham a troca.
-- **Blur de verdade.** O tema `vidro` tem fundo transparente e o compositor (Hyprland, KDE…)
-  aplica o blur, sem custo pro app.
+- **Recarrega ao salvar.** Edite o `.kdl` e a janela muda na hora (inotify no Linux, aviso de mudança
+  na pasta no Windows; sem polling). Erros aparecem com `arquivo:linha:coluna`.
+- **Segue o seu wallpaper.** No Linux, temas com `palette "wal"` usam as cores do pywal e acompanham a troca.
+  No Windows as cores só são lidas quando a variável `HOME` existe, e não acompanham a troca ao vivo
+  ([detalhes](themes/README.pt-BR.md#nós-de-topo)); senão esses temas usam a paleta padrão.
+- **Blur de verdade no Linux.** O tema `vidro` tem fundo transparente e o compositor (Hyprland, KDE…)
+  aplica o blur, sem custo pro app. No Windows não tem blur: lá, ligue a opção "Fundo opaco" do tema para
+  ter cartões sólidos.
 - **Conecta no Discord de verdade**: gateway por WebSocket com heartbeat, **RESUME de sessão**,
   **zlib-stream** e reconexão; IDENTIFY e cabeçalhos no formato do cliente web (a mesma
   abordagem do cliente web). REST pra histórico, envio, edição, exclusão, reações e "digitando",
@@ -81,7 +84,8 @@ O cliente oficial é um navegador inteiro disfarçado de app. No mesmo PC:
   servidores, temas, status, marcar como lido e as opções liga/desliga), atalhos de teclado e
   navegação estilo vim opcional (`j`/`k`, `gg`/`G`, `J`/`K` troca de canal, `/` busca).
 - **Painéis do seu tamanho**: arraste a borda da lista de canais, da lista de membros ou dos painéis da tela dividida; duplo clique volta à largura do tema. A escolha fica salva e vale nos outros temas, e a conversa sempre mantém espaço para ser usada.
-- **Plugins em Lua**: arquivos `.lua` em `~/.config/larpercord/plugins/` que somam painéis, entradas no
+- **Plugins em Lua**: arquivos `.lua` na sua pasta de plugins (`~/.config/larpercord/plugins/` no Linux,
+  `%APPDATA%\larpercord\plugins\` no Windows) que somam painéis, entradas no
   botão direito, notas embaixo das mensagens, comandos e lembretes, numa thread só deles, com limite de
   instruções e de memória: não seguram a interface. Anti-golpe, radar de CVE, cartões do GitHub, o que perdi,
   tradução, lembretes, destaques, links limpos, e links e arquivos vêm com o app. [Guia e API →](docs/plugins.pt-BR.md)
@@ -100,14 +104,16 @@ O cliente oficial é um navegador inteiro disfarçado de app. No mesmo PC:
 - **Leitura sincronizada com o Discord**: não lidos e menções corretos ao abrir, `MESSAGE_ACK` de outro aparelho limpa aqui, confirmação como o cliente oficial (no máximo uma por canal a cada 3 s; nada sozinho com a janela sem foco), "marcar como lido" por canal e por servidor, "marcar como não lida" a partir de uma mensagem.
 - **Linha NOVAS MENSAGENS** com botão "N novas mensagens · ir para a primeira" e "marcar como lida"; o canal abre na primeira não lida (dá para desligar em Configurações → Chat).
 - **Mensagens fixadas**: alfinete no cabeçalho, fixar e desafixar pelo menu; ir para qualquer mensagem antiga busca em volta dela, com "Voltar ao presente".
-- **Links do Discord abrem no app** (também ptb. e canary.); convites viram cartão com servidor e membros e abrem no navegador (o app não entra em servidores).
+- **Links do Discord abrem no app** (também ptb. e canary.); convites viram cartão com o servidor e os membros, um botão Entrar (Ir para o servidor quando você já está nele) e Abrir no navegador.
 - Clicar em `@alguém` abre o perfil, em `#canal` abre o canal; o horário mostra a data completa ao passar o mouse.
 - **Caixa de entrada** (`Ctrl+I`): DMs e menções não lidas de todos os servidores, por canal, com
   prévia, ir até a mensagem e "marcar tudo como lido"; aba com as menções recentes do Discord.
 - **Mensagens salvas com anotação** (`Ctrl+Shift+S`, botão direito → Salvar mensagem): só no seu
-  computador, em `~/.config/larpercord/saved-<conta>.json`; nada vai para o Discord.
+  computador, em `~/.config/larpercord/saved-<conta>.json` (`%APPDATA%\larpercord\saved-<conta>.json`
+  no Windows); nada vai para o Discord.
 - **Cache local e busca offline.** As últimas 200 mensagens vistas de cada canal ficam em
-  `~/.cache/larpercord/messages` (pastas 700, arquivos 600, teto de 50 MB): a conversa aparece
+  `~/.cache/larpercord/messages` (`%LOCALAPPDATA%\larpercord\messages` no Windows; teto de 50 MB e, no
+  Linux, pastas 700 e arquivos 600): a conversa aparece
   na hora ao abrir e o histórico de verdade chega por cima, sem pular a rolagem. `Ctrl+F` busca
   na memória e no cache, a cada tecla e sem internet, com `from:nome`, `in:canal`, `has:link`,
   `has:imagem` e `has:arquivo`; clicar no resultado pula até a mensagem. Dá para desligar e
@@ -118,13 +124,17 @@ O cliente oficial é um navegador inteiro disfarçado de app. No mesmo PC:
 - **Configurações no estilo Discord** (`Ctrl+,`): 14 páginas, troca de tema com miniaturas,
   cor de destaque/cantos, **cores personalizadas por tema e modo em hex**, escala de fonte,
   modo compacto, reduzir movimento, relógio 12/24 h, spoilers…, salvas em
-  `~/.config/larpercord/settings.kdl`.
+  `~/.config/larpercord/settings.kdl` (`%APPDATA%\larpercord\settings.kdl` no Windows). Se
+  `XDG_CONFIG_HOME` ou `XDG_CACHE_HOME` existir, o app usa essa pasta, nos dois sistemas.
 - **Markdown do Discord**: **negrito**, *itálico*, ~~riscado~~, `código`, ||spoiler||, menções
   `<@id>`/`<#id>`, links e emoji colorido; blocos de código com realce pela etiqueta (zig, c/cpp,
   js/ts, py, rust, go, sh, json, lua…) e botão "Copiar"; prévia acima da caixa enquanto se digita.
-- **Vídeos tocando na conversa** (anexos e links diretos para .mp4/.webm) com o **FFmpeg do
-  sistema, se tiver** (carregado só no primeiro play, sem dependência de build): play/pausa,
-  barra de progresso, som; até 480p e ~30 qps. Sem FFmpeg, o vídeo abre no navegador. Também
+- **Vídeos tocando na conversa** (anexos e links diretos para .mp4/.webm) com o **FFmpeg 7, 8 ou 9,
+  se tiver** (carregado só no primeiro play, sem dependência de build): play/pausa,
+  barra de progresso, som; até 480p e ~30 qps. Sem FFmpeg, o vídeo abre no navegador. No Linux, é o
+  pacote `ffmpeg` da distro. O Windows não tem, então Configurações → Chat → Vídeos busca uma vez
+  (Verificar se tem FFmpeg, depois Baixar FFmpeg): cerca de 80 MB de github.com/BtbN/FFmpeg-Builds,
+  conferidos com um SHA-256 fixo, cerca de 128 MB em disco em `%LOCALAPPDATA%\larpercord\ffmpeg`. Também
   anima os GIFs antigos do Tenor que só existem em MP4.
 - **Proxy** (http, https, socks5, socks5h; Tor em `socks5h://127.0.0.1:9050`) para a mídia de
   fora do Discord ou para tudo menos as calls de voz, que sempre conectam direto
@@ -146,8 +156,8 @@ Todos têm **modo claro e escuro** e **opções próprias** em Configurações �
 
 | Tema | Ideia | Exclusivo |
 |---|---|---|
-| `classico` | o layout que todo mundo conhece, nas cores do pywal | banner do servidor |
-| `vidro` | cartões translúcidos com o blur do compositor | reflexo de luz nos cartões |
+| `classico` | o layout que todo mundo conhece, nas cores do pywal (ou na paleta padrão) | banner do servidor |
+| `vidro` | cartões translúcidos com o blur do compositor (Linux) | reflexo de luz nos cartões |
 | `terminal` | tmux + IRC; no claro, papel de impressora matricial | efeito CRT, logo em ASCII, fósforo verde |
 | `subsolo` | terminal de hacking underground, verde ácido e scanlines | rack horizontal, ultravioleta, logo em ASCII |
 | `orbital` | console de bordo entre as estrelas, com sistemas numerados | campo de estrelas e órbitas ao fundo, composer de comando, faixa de servidores no rodapé |
@@ -160,7 +170,11 @@ Todos têm **modo claro e escuro** e **opções próprias** em Configurações �
 
 ## Instalação
 
-**Baixar:** [Linux](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-linux-x86_64) · [Windows](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-windows-x86_64.zip) · [todas as versões](https://github.com/RshaCuDeVidro/larperCord/releases). No Linux, marque o arquivo com `chmod +x` e rode. No Windows, descompacte e abra o `larpercord.exe`; ele ainda não tem assinatura de código, então o Windows pode avisar na primeira vez.
+**Baixar:** [Linux](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-linux-x86_64) · [Windows](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-windows-x86_64.zip) · [todas as versões](https://github.com/RshaCuDeVidro/larperCord/releases).
+
+No Linux, marque o arquivo como executável e rode: `chmod +x larpercord-linux-x86_64 && ./larpercord-linux-x86_64`. Ele pode ficar com esse nome: a atualização troca esse mesmo arquivo. Deixe-o numa pasta sua, como `~/.local/bin`, para ele conseguir se atualizar.
+
+No Windows, descompacte e abra o `larpercord.exe` da pasta `larperCord`. Deixe as três DLLs ao lado dele (`SDL3.dll`, `libcurl-x64.dll`, `libcrypto-3-x64.dll`) e descompacte num lugar onde você pode gravar, fora de `C:\Program Files`, para ele conseguir se atualizar. Ele ainda não tem assinatura de código: se o SmartScreen disser "O Windows protegeu o computador", clique em **Mais informações** e depois em **Executar assim mesmo**. Na página de versões, pegue o zip: o `.exe` e as DLLs soltos lá são para o atualizador e o script de instalação.
 
 A versão para Linux roda em distros de 2022 para cá (glibc 2.34 ou mais nova). SDL3, libcurl e OpenSSL vêm dentro dela. FreeType, fontconfig, libwebp, Opus e zlib vêm do sistema, e uma distro de desktop costuma já ter. Antes de cada versão, ela é aberta em contêineres de Ubuntu 22.04 e 24.04, Debian 12 e 13, Fedora, openSUSE e Arch, na demonstração e sem GPU.
 
@@ -168,72 +182,102 @@ Num desktop Wayland, o app conecta nativamente pelo SDL3; não precisa de XWayla
 
 Quem desenvolve pode conferir Wayland nativo nas escalas 1× e 2×, a escolha explícita de backend e a alternativa X11 com `python3 tools/qa_wayland.py zig-out/bin/larpercord` depois de compilar (precisa de Weston, Xvfb e Python 3). O teste usa um compositor separado sem tela, dados de demonstração e nenhuma GPU ou conta do Discord.
 
-O GitHub Actions compila esse arquivo a partir do código deste repositório. Com o GitHub CLI dá para conferir: `gh attestation verify larpercord-linux-x86_64 --repo RshaCuDeVidro/larperCord`.
+O GitHub Actions compila o arquivo para Linux a partir do código deste repositório. Com o GitHub CLI dá para conferir: `gh attestation verify larpercord-linux-x86_64 --repo RshaCuDeVidro/larperCord`. Os arquivos para Windows ainda não têm atestado, então confira com o `SHA256SUMS` da mesma versão. No PowerShell, na pasta com os dois arquivos (`True` quer dizer que bate):
+
+```powershell
+(Get-FileHash .\larpercord-windows-x86_64.zip).Hash -eq ((Select-String 'larpercord-windows-x86_64.zip' .\SHA256SUMS).Line -split '\s+')[0]
+```
+
+No Linux, `sha256sum -c --ignore-missing SHA256SUMS` faz o mesmo.
 
 Ou use um script:
 
-**Linux** (x86_64, em `~/.local`, sem sudo):
+**Linux** (x86_64, sem sudo: o programa em `~/.local/bin`, com entrada no menu de aplicativos e ícone):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.sh | sh
 ```
 
-**Windows 10/11** (para o seu usuário, sem administrador), no PowerShell:
+**Windows 10/11** (para o seu usuário, sem administrador: o programa em `%LOCALAPPDATA%\Programs\larperCord`, com entrada no menu Iniciar), no PowerShell. Se o larperCord estiver aberto, o script fecha antes:
 
 ```powershell
 irm https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.ps1 | iex
 ```
 
-Os dois baixam a última [versão publicada](https://github.com/RshaCuDeVidro/larperCord/releases) e conferem com o `SHA256SUMS`. No Linux o script lista as bibliotecas do sistema que faltam. Numa distro de antes de 2022, [compile do código](#compilando). Depois disso, o app se atualiza sozinho: Configurações → Atualizações.
+Os dois baixam a última [versão publicada](https://github.com/RshaCuDeVidro/larperCord/releases) e conferem com o `SHA256SUMS`. No Linux o script lista as bibliotecas do sistema que faltam. Numa distro de antes de 2022, [compile do código](#compilando). Depois disso, o app se atualiza sozinho: Configurações → Atualizações. Rodar um script de novo também instala a versão mais nova.
 
 ## Conectando sua conta
 
 O token **nunca** fica no código, em log ou em mensagem de erro, e é apagado da memória ao
-sair. O app procura nesta ordem:
+sair. No Linux e no Windows, o jeito mais simples é a tela de login: cole o token e deixe "Lembrar"
+ligado. O app procura nesta ordem:
 
-1. **Chaveiro do sistema** (recomendado):
+1. A variável `LARPER_TOKEN`, que nunca é guardada.
+2. As contas guardadas com "Lembrar", começando pela última usada. Cada uma tem a sua entrada no
+   lugar seguro do sistema: o chaveiro no Linux (`service larpercord-account account <ID>`), o
+   Gerenciador de Credenciais no Windows (`larperCord/account/<ID>`). Sem ele, o token fica em
+   `~/.config/larpercord/tokens/<ID>` com `chmod 600` no Linux, ou em
+   `%APPDATA%\larpercord\tokens\<ID>` no Windows.
+3. Só no Linux, a entrada única de antes, que ainda dá para criar à mão:
    ```bash
    secret-tool store --label='larperCord' service larpercord   # cole o token quando pedir
    ```
-2. A variável `LARPER_TOKEN`
-3. O arquivo `~/.config/larpercord/token`, que precisa ter `chmod 600`
+   ou o arquivo `~/.config/larpercord/token`, que precisa ter `chmod 600`.
 
-Com "Lembrar" no login, cada conta fica numa entrada própria do chaveiro
-(`service larpercord-account account <ID>`; sem chaveiro, `~/.config/larpercord/tokens/<ID>` com
-`chmod 600`) e aparece no menu do usuário para trocar. A lista (só ID, nome e avatar) fica em
-`~/.config/larpercord/accounts`. A entrada de cima continua valendo para a conta que já estava nela.
+A lista das contas guardadas (só ID, nome e avatar) fica em `~/.config/larpercord/accounts` no Linux
+e em `%APPDATA%\larpercord\accounts` no Windows, e elas aparecem no menu do usuário para trocar.
 
-`--demo` força o modo demonstração mesmo com token. Ainda não tem: compartilhar tela e câmera, e
-entrar em servidor por convite. Canais sem acesso só mostram um aviso, e as notificações passam pelo
-`notify-send`. A voz usa o backend de áudio do sistema via SDL3 e só sobe a thread quando você entra
-numa call.
+Para usar o `LARPER_TOKEN` numa vez só, sem guardar em lugar nenhum, no bash ou no zsh:
+
+```bash
+read -rs LARPER_TOKEN && LARPER_TOKEN="$LARPER_TOKEN" larpercord
+```
+
+No PowerShell (troque o caminho pela pasta onde você descompactou, se não usou o script). A última
+linha tira a variável da janela; o app já ficou com a cópia dele:
+
+```powershell
+$env:LARPER_TOKEN = [Net.NetworkCredential]::new('', (Read-Host 'Token' -AsSecureString)).Password
+& "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe"
+Remove-Item Env:LARPER_TOKEN
+```
+
+A variável só vale quando o app abre: se o larperCord já estiver aberto, mesmo só na bandeja,
+encerre antes (**Sair** no menu do ícone da bandeja).
+
+`--demo` força o modo demonstração mesmo com token. Ainda não tem: compartilhar tela e câmera. Canais
+sem acesso só mostram um aviso. As notificações passam pelo `notify-send` no Linux (do libnotify) e
+pela bandeja no Windows, e clicar numa delas ainda não abre o canal. A voz usa o backend de áudio do
+sistema via SDL3 e só sobe a thread quando você entra numa call.
 
 ## Como ele fica leve
 
 Nada de mágica, só muitas decisões pequenas:
 
-1. **Dorme quando nada acontece.** O laço fica em `SDL_WaitEvent`. Rede, inotify e o relógio
-   acordam o app por eventos. Sem animação, sem redesenho. Quadro que sai igual ao anterior nem chega
+1. **Dorme quando nada acontece.** O laço fica em `SDL_WaitEvent`. Rede, mudanças nos arquivos (inotify
+   no Linux, avisos de pasta no Windows) e o relógio acordam o app por eventos. Sem animação, sem redesenho. Quadro que sai igual ao anterior nem chega
    à GPU, e o mouse só andando pede menos quadros.
 2. **Nada de navegador.** Tudo é desenhado com o `ImDrawList` do Dear ImGui sobre o SDL_Renderer.
-3. **Fontes mapeadas, não copiadas.** Cada arquivo de fonte vira um `mmap` compartilhado por
-   todos os pesos e famílias. Só as páginas lidas ficam na RAM. (Carregar 4 pesos do Inter + emoji
-   do jeito ingênuo custava ~90 MB.)
-4. **Só o driver de vídeo necessário.** Em máquinas só com GPU NVIDIA, o glvnd também carregava o
+3. **Fontes mapeadas, não copiadas.** Cada arquivo de fonte vira um mapa de memória (`mmap` no Linux,
+   `MapViewOfFile` no Windows) compartilhado por todos os pesos e famílias. Só as páginas lidas ficam na
+   RAM. (Carregar 4 pesos do Inter + emoji do jeito ingênuo custava ~90 MB.)
+4. **Só o driver de vídeo necessário.** Em máquinas Linux só com GPU NVIDIA, o glvnd também carregava o
    Mesa + LLVM (~23 MB) à toa. O app detecta e evita.
 5. **Markdown interpretado uma vez**, quando a mensagem chega. A interface só faz layout dos
    trechos, com **cache de altura por largura**.
 6. **Lista virtualizada**: busca binária pelo primeiro item visível, desenha só a tela.
 7. **Memória com teto**: 1.500 mensagens por canal e 3.000 no total, e as antigas são liberadas. Depois
    de um minuto na bandeja ou minimizada, as imagens também saem da memória, menos as pequenas que estavam na tela.
-8. **fontconfig liberado** depois de resolver as fontes (`FcFini` + `malloc_trim`).
+8. **No Linux, o fontconfig é liberado** depois de resolver as fontes (`FcFini` + `malloc_trim`). O
+   Windows não tem fontconfig: as fontes são abertas direto de `C:\Windows\Fonts`.
 9. **Sem cursor piscando**: o cursor piscando sozinho manteria a CPU acordada.
-10. **Binário enxuto**: build release sem símbolos de debug. O arquivo para Linux tem cerca de 15 MB com SDL3, libcurl e OpenSSL dentro, e cerca de 7 MB usando as cópias do sistema.
+10. **Binário enxuto**: build release sem símbolos de debug. O arquivo para Linux tem cerca de 15 MB com SDL3, libcurl e OpenSSL dentro, e cerca de 7 MB usando as cópias do sistema. No Windows, esses três vão como DLLs ao lado do `.exe`.
 
 ## Compilando
 
-Precisa de **Zig 0.17**, **SDL3**, **FreeType**, **fontconfig** e **libcurl** (com WebSocket, 7.86+). Fontes recomendadas: Inter,
-JetBrains Mono e Noto Color Emoji (o fontconfig escolhe substitutas se faltar alguma).
+No Linux, precisa de **Zig 0.17**, **SDL3**, **FreeType**, **fontconfig** e **libcurl** (com WebSocket, 7.86+).
+Fontes recomendadas no Linux: Inter, JetBrains Mono e Noto Color Emoji (o fontconfig escolhe substitutas se faltar
+alguma). No Windows o app usa Segoe UI, Consolas e Segoe UI Emoji.
 Opcional: **FFmpeg 7, 8 ou 9** (libavformat 61–63) para tocar vídeo dentro do app; outra versão
 é ignorada e o vídeo abre no navegador.
 
@@ -244,6 +288,17 @@ sudo pacman -S zig sdl3 freetype2 fontconfig curl inter-font ttf-jetbrains-mono 
 zig build -Doptimize=ReleaseFast
 ./zig-out/bin/larpercord --theme vidro
 ```
+
+A versão para Windows é compilada a partir do Linux. O `tools/windows_deps.sh` baixa SDL3, curl, OpenSSL,
+FreeType, Opus, zlib e libwebp para Windows, em versões fixas e com hash conferido:
+
+```bash
+tools/windows_deps.sh && zig build -Dtarget=x86_64-windows-gnu
+```
+
+O `zig-out/bin/` fica com o `larpercord.exe` e as DLLs `SDL3.dll`, `libcurl-x64.dll` e `libcrypto-3-x64.dll`:
+copie os quatro juntos. O Windows não precisa de fontconfig nem de fontes extras: o app usa Segoe UI, Consolas,
+Georgia e Segoe UI Emoji de `C:\Windows\Fonts`.
 
 | Comando | |
 |---|---|
@@ -256,6 +311,16 @@ zig build -Doptimize=ReleaseFast
 larpercord [--theme NOME] [--demo] [--settings] [--list-themes] [--no-live] [--shot ARQ.png] [--stats]
 ```
 
+No Windows, o `larpercord.exe` não tem janela de console, então `--help`, `--list-themes` e `--stats` não
+mostram nada no terminal. Para ver a saída, mande para um arquivo:
+
+```powershell
+Start-Process .\larpercord.exe -ArgumentList '--list-themes' -RedirectStandardError saida.txt -Wait; Get-Content saida.txt
+```
+
+Nos dois sistemas, opções como `--theme` só valem com o larperCord fechado: se ele estiver na bandeja, abrir
+de novo só traz a janela de volta.
+
 Atalhos: `Ctrl+K` paleta · `Ctrl+,` configurações · `Ctrl+I` caixa de entrada · `Ctrl+Shift+S` salvas · `F2` próximo tema · `Ctrl+Tab` abas ·
 `Alt+1…9` · `Ctrl+W` fecha aba · `Ctrl+Clique` abre canal em nova aba · `↑` edita a última
 mensagem · `Esc` cancela resposta/edição · `Ctrl+C` copia a seleção · botão direito em tudo.
@@ -266,7 +331,7 @@ mensagem · `Esc` cancela resposta/edição · `Ctrl+C` copia a seleção · bot
 src/
   core/       dados puros, sem janela: tipos (snowflakes), Store, markdown, eventos
   net/        gateway real (Discord) e de demonstração, cada um na sua thread, mais as filas
-  theme/      parser KDL, cores, carregador de tema, motor de layout, gerenciador + inotify
+  theme/      parser KDL, cores, carregador de tema, motor de layout, gerenciador + vigia de arquivos
   ui/         componentes, texto rico, paleta, configurações, animações
   platform/   janela, renderizador, "acordar" o laço; o único lugar que conhece o SDL
 themes/       os temas embutidos (também compilados dentro do binário)

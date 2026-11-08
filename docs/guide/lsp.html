@@ -53,8 +53,18 @@
 <div class="table-wrap"><table><thead><tr><th>Block tag</th><th>Row</th></tr></thead><tbody><tr><td><code>zig</code></td><td>Zig</td></tr><tr><td><code>python</code>, <code>py</code>, <code>py3</code></td><td>Python</td></tr><tr><td><code>rust</code>, <code>rs</code></td><td>Rust</td></tr><tr><td><code>c</code>, <code>h</code>, <code>cpp</code>, <code>c++</code>, <code>cc</code>, <code>cxx</code>, <code>hpp</code></td><td>C / C++</td></tr><tr><td><code>go</code>, <code>golang</code></td><td>Go</td></tr><tr><td><code>typescript</code>, <code>ts</code>, <code>tsx</code>, <code>javascript</code>, <code>js</code>, <code>jsx</code></td><td>TypeScript / JavaScript</td></tr><tr><td><code>lua</code></td><td>Lua</td></tr></tbody></table></div>
 <p>The server has to speak LSP over stdin and stdout, so the command is usually something like <code>zls</code>, <code>ruff server</code>, <code>pyright-langserver --stdio</code>, <code>rust-analyzer</code>, <code>clangd</code>, <code>gopls</code>, <code>typescript-language-server --stdio</code> or <code>lua-language-server</code>.</p>
 <ul><li><strong>The command is not run by a shell.</strong> It is split on spaces, with <code>"…"</code> or <code>'…'</code> for
-arguments that contain spaces. <code>;</code>, <code>|</code>, <code>$HOME</code> and <code>~</code> are plain text.</li><li>A program name without a path is looked up on <code>PATH</code>.</li></ul>
-<p>The page also searches your <code>PATH</code> for those well-known names and offers what it finds. It only checks that the file exists and is executable; it does not run it. Clicking <strong>Use … and turn on</strong> stores the full path as the command, which is what you are agreeing to run.</p>
+arguments that contain spaces. <code>;</code>, <code>|</code>, <code>$HOME</code> and <code>~</code> are plain text, and so is
+<code>%USERPROFILE%</code>, except for a <code>.cmd</code> or <code>.bat</code> (see below). A backslash is a normal character,
+so Windows paths work as typed: <code>"C:\Program Files\LLVM\bin\clangd.exe"</code>.</li><li>A program name without a path is looked up on <code>PATH</code>. On Windows, Windows itself does the
+search: it adds <code>.exe</code> when the name has no extension, and it looks in larperCord's own folder,
+the folder larperCord was started from and the Windows folders before <code>PATH</code>. A full path avoids
+surprises.</li><li>On Windows, servers installed with npm (<code>pyright-langserver</code>, <code>typescript-language-server</code>) are
+<code>.cmd</code> files, usually in <code>%APPDATA%\npm</code>. The bare name won't find them: use the full path with
+<code>.cmd</code>, for example <code>"C:\Users\you\AppData\Roaming\npm\typescript-language-server.cmd" --stdio</code>,
+or click <strong>Use … and turn on</strong> (below). Windows runs a <code>.cmd</code> or <code>.bat</code> through <code>cmd.exe</code>, which
+does read <code>%NAME%</code> as a variable. The app escapes the other special characters for it, but use
+the server's <code>.exe</code> instead when it has one.</li></ul>
+<p>The page also searches your <code>PATH</code> for those well-known names and offers what it finds (on Windows it tries <code>name.exe</code>, <code>name.cmd</code> and <code>name.bat</code>). It only checks that the file exists and, on Linux, that it is executable; it does not run it. Clicking <strong>Use … and turn on</strong> stores the full path as the command, which is what you are agreeing to run.</p>
 <h2 id="while-typing"><a class="anchor" href="#while-typing" aria-hidden="true">#</a>While typing</h2>
 <p>Put the cursor inside a block:</p>
 <div class="code" data-lang="`"><span class="code-lang">`</span><button class="copy" type="button" data-copy>copy</button><pre><code></code></pre></div>
@@ -69,12 +79,18 @@ box and in Settings, with a <strong>Try again</strong> button, until you change 
 <ul><li><strong>Text:</strong> only what you are typing in your own message box, only the block under the cursor.
 Never other people's messages, and never anything else from the app.</li><li><strong>Environment:</strong> only <code>PATH</code> and <code>HOME</code> (on Windows also <code>SystemRoot</code>, <code>SystemDrive</code>,
 <code>USERPROFILE</code>, <code>APPDATA</code>, <code>LOCALAPPDATA</code>, <code>TEMP</code>, <code>TMP</code>, <code>PATHEXT</code>). <code>LARPER_TOKEN</code> and the
-rest of your environment do not reach it.</li><li><strong>Folder:</strong> it runs in a scratch folder (<code>~/.cache/larpercord/lsp-scratch</code>). Whatever a server
+rest of your environment do not reach it.</li><li><strong>Folder:</strong> it runs in a scratch folder (<code>~/.cache/larpercord/lsp-scratch</code> on Linux,
+<code>%LOCALAPPDATA%\larpercord\lsp-scratch</code> on Windows). Whatever a server
 left there is removed before the next start, except subfolders that aren't empty: the app does
 not walk into them, so a link left there can't make it delete anything else. <code>rootUri</code> and <code>workspaceFolders</code> are <code>null</code>, and the document is a virtual
-<code>file://&lt;that scratch folder&gt;/larpercord-composer.&lt;ext&gt;</code> that never exists on disk (servers such as clangd only accept <code>file:</code>). Nothing you type is written to disk, and your projects
+<code>file://&lt;that scratch folder&gt;/larpercord-composer.&lt;ext&gt;</code> (on Windows,
+<code>file:///C:/Users/&lt;you&gt;/AppData/Local/larpercord/lsp-scratch/larpercord-composer.&lt;ext&gt;</code>) that never exists on disk (servers such as clangd only accept <code>file:</code>). Nothing you type is written to disk, and your projects
 are not involved. This also means a server that wants a project (imports, a build file) only
-sees one isolated file, so its errors are about that snippet alone.</li><li><strong>Open files:</strong> on Linux the app's sockets and files are closed in the child.</li><li><strong>Limits:</strong> a message over 1 MiB, malformed framing, more than 32 MiB of output per minute, or
+sees one isolated file, so its errors are about that snippet alone.</li><li><strong>Open files:</strong> on Linux the app's sockets and files are closed in the child. Windows has no
+such step: the server is started with handle inheritance on, so it gets every handle the app
+opened as inheritable, and sockets are inheritable by default on Windows. Only the local socket
+used to bring back an already open larperCord is kept out. That's one more reason to only turn
+on servers you trust.</li><li><strong>Limits:</strong> a message over 1 MiB, malformed framing, more than 32 MiB of output per minute, or
 not reading its input for 10 seconds all stop the server. Its stderr is discarded.</li></ul>
 <p>This is not a sandbox. A language server is a normal program running as you, and it could read your files, including where the app stores its token. Only turn on servers you trust.</p>
 <h2 id="from-a-plugin"><a class="anchor" href="#from-a-plugin" aria-hidden="true">#</a>From a plugin</h2>
@@ -84,8 +100,11 @@ not reading its input for 10 seconds all stop the server. Its stderr is discarde
 <p>If a language has both, your own command wins.</p>
 <h2 id="limits-worth-knowing"><a class="anchor" href="#limits-worth-knowing" aria-hidden="true">#</a>Limits worth knowing</h2>
 <ul><li>Stopping a server kills that process, not whatever it started. A wrapper command that spawns
-the real server (<code>npx …</code>) may leave that one behind.</li><li>If the app is killed outright (<code>kill -9</code>, power loss), a server only notices when its input
-closes. Well-behaved servers exit then.</li></ul>
+the real server (<code>npx …</code>) may leave that one behind. On Windows every <code>.cmd</code> server (what npm
+installs) is such a wrapper: Windows runs it through <code>cmd.exe</code>, so a kill ends <code>cmd.exe</code>, not the
+<code>node.exe</code> behind it. That one still gets the stop request and sees its input close, and
+well-behaved servers exit then.</li><li>If the app is killed outright (<code>kill -9</code> on Linux, <code>taskkill /F</code> on Windows, power loss), a
+server only notices when its input closes. Well-behaved servers exit then.</li></ul>
 <p class="edit"><a href="https://github.com/RshaCuDeVidro/larperCord/blob/main/docs/lsp.md" rel="noopener">Source of this page on GitHub</a></p>
 <nav class="pager"><a href="../guide/plugin-starter.html"><small>Previous</small>Plugin starter</a><a class="next" href="../guide/architecture.html"><small>Next</small>Architecture</a></nav>
 </main>

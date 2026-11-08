@@ -6,9 +6,24 @@ A larperCord theme is a [KDL](https://kdl.dev) file that describes **the whole i
 colors, fonts, styles and the layout tree. You can change the position of everything without writing
 a line of code.
 
-Put the file in `~/.config/larpercord/themes/meu-tema.kdl` (or in `themes/`, when running
-from inside the repository). **When you save, the app reloads right away.** If there's an error, a
-notice shows `file:line:column` and the previous theme stays in effect.
+Put the file, for example `meu-tema.kdl`, in your themes folder:
+
+| System | Folder |
+|---|---|
+| Linux | `~/.config/larpercord/themes/` (or `$XDG_CONFIG_HOME/larpercord/themes/` when that variable is set) |
+| Windows | `%APPDATA%\larpercord\themes\`, usually `C:\Users\<you>\AppData\Roaming\larpercord\themes\`. To open it, paste `%APPDATA%\larpercord` in File Explorer's address bar |
+
+You can also use `themes/` when running from inside the repository. The app watches the theme folders that
+exist when it opens. If you just created the folder, restart larperCord once: Settings → Updates →
+**Restart larperCord**. Closing the window doesn't count, because by default it only hides the app in the tray.
+**From then on, saving the file reloads the app right away.** If there's an error, a notice shows
+`file:line:column` and the previous theme stays in effect.
+
+Save the file as UTF-8. On Windows, Notepad's "UTF-8" is right. Don't use "UTF-16" ("Unicode"), which is
+also what `>` writes in Windows PowerShell 5.1: the theme won't load and you get a syntax error. "UTF-8 with
+BOM" (what `Set-Content -Encoding UTF8` writes in Windows PowerShell 5.1) puts three invisible bytes at the
+start, and the app reads them as part of the first line. That does no harm when the file starts with a
+comment, like the built-in themes, but if it starts with `theme`, `palette` or `colors`, that line is ignored.
 
 Switch themes with `F2`, from the palette (`Ctrl+K` → "theme: …") or in Settings → Appearance.
 
@@ -51,11 +66,19 @@ layout {
 | `palette "wal"` or `palette "#hex" …` | the 16 base colors (`wal:0` … `wal:15`). Without it, a default palette is used |
 | `colors { token "expression" … }` | overrides color tokens (list below) |
 | `roles "color" …` | up to 8 role colors (usernames, server icons) |
-| `fonts ui="Inter" mono="JetBrains Mono" size=16` | families (resolved by fontconfig) and base size |
+| `fonts ui="Inter" mono="JetBrains Mono" size=16` | families and base size. On Linux fontconfig resolves them; on Windows see [Fonts on Windows](#fonts-on-windows) |
 | `metrics radius=6` | default rounding of rows and buttons |
-| `window transparent=#true` | transparent window background: the compositor applies blur |
+| `window transparent=#true` | transparent window background. On Linux your compositor (Hyprland, KDE…) can blur what's behind it. On Windows the app doesn't ask the system for blur, so there's none |
 | `styles { style "name" … }` | named styles to use with `style=name` |
 | `layout { … }` | the interface tree (a single child at the root) |
+
+`palette "wal"` reads pywal's 16 colors from `~/.cache/wal/colors` (always under `$HOME`, even when
+`XDG_CACHE_HOME` is set). On Linux the app also watches that file, so the theme follows your wallpaper. On
+Windows it only looks there when the `HOME` variable is set (`%HOME%\.cache\wal\colors`; pywal on Windows writes
+to `%USERPROFILE%\.cache\wal`). It doesn't watch the file there: new colors show up the next time a theme file is
+saved or the app opens. Without the file, the default palette is used. To set `HOME` on Windows, in PowerShell:
+`[Environment]::SetEnvironmentVariable('HOME', $env:USERPROFILE, 'User')`. Then quit larperCord (**Quit** in the
+tray icon's menu) and open it again from the Start menu.
 
 ## Colors
 
@@ -107,10 +130,28 @@ Containers: `row` (horizontal), `column` (vertical), `stack` (one on top of anot
 | `only-below-height=` | shows only when the window is shorter than this (a compact version of a tall header) |
 | `show=#false` | hides |
 | `style=` / `bg=` `radius=` | the node's background |
-| `font=mono` / `font=ui` / `font="Liberation Serif"` | the component's font: the mono one, the interface one or **any installed family** |
+| `font=mono` / `font=ui` / `font="Liberation Serif"` | the component's font: the mono one, the interface one or **any installed family** (on Windows, see [Fonts on Windows](#fonts-on-windows)) |
 | `c-<token>=color` | overrides a color token **on this node and its children** (e.g. `c-text="#fff"` on a dark sidebar) |
 
 The child of a `row` that has a fixed `width=` and holds `channel-list` or `member-list` is resizable: the app draws a drag handle on the side facing the row's `flex` sibling, and the width people choose is added to the one you set. Without a `flex` sibling there's no handle.
+
+## Fonts on Windows
+
+Windows has no fontconfig, so a family name works differently there. The app only looks in `C:\Windows\Fonts`:
+
+1. First, a file named after the family in lowercase, with no spaces, ending in `.ttf`: `Segoe UI` → `segoeui.ttf`,
+   `Georgia` → `georgia.ttf`, `Cascadia Code` → `cascadiacode.ttf` (Windows 11). That one file is used for every
+   weight, so bold and italic look like the regular.
+2. Otherwise, the system font of the same kind, with real bold and italic. Names with `mono`, `code`, `consol`,
+   `courier` or `term` get Consolas (or Courier New). Names with `serif`, `georgia`, `times`, `garamond` or
+   `playfair`, and no `sans`, get Georgia (or Times New Roman). `DejaVu Sans` and `DejaVu Sans Mono` get Segoe UI
+   Symbol. Anything else gets Segoe UI (or Arial, then Tahoma). Emoji come from Segoe UI Emoji.
+
+So the defaults, `Inter` and `JetBrains Mono`, show as Segoe UI and Consolas, and `font="Liberation Serif"` shows as
+Georgia. Installing a font usually doesn't change this. Font files keep names like `JetBrainsMono-Regular.ttf`, and
+fonts installed only for your user (the Windows default, in `%LOCALAPPDATA%\Microsoft\Windows\Fonts`) aren't
+searched. For a theme that looks right on both systems, use font names that say what they are (with `Mono` or
+`Serif` in them), and check the theme with Segoe UI, Consolas and Georgia.
 
 ## Components
 
@@ -332,7 +373,8 @@ Ways to use the options:
 | block of colors, roles, styles | `colors mode=dark when=verde { … }` |
 | style | `style "card" sheen="$brilho"` |
 
-The choices are saved per theme in `~/.config/larpercord/settings.kdl`.
+The choices are saved per theme in `settings.kdl`: `~/.config/larpercord/settings.kdl` on Linux,
+`%APPDATA%\larpercord\settings.kdl` on Windows.
 
 ## Custom colors (without editing the `.kdl`)
 
@@ -441,14 +483,17 @@ What is checked:
   the first problem, so a broken file fails the site build. `node tools/theme_builder_test.js` then loads each theme
   with the site's copy of the app's theme loader (`docs/assets/site/theme-builder-core.js`), in both modes and with
   every option. CI runs both on every pull request. You can run the same check before sending:
-  `python3 tools/gen_site.py --check-community`. To see it in the app itself, put the file in your themes folder and
-  run `larpercord --theme neon-dusk`.
+  `python3 tools/gen_site.py --check-community` (on Windows, `py tools/gen_site.py --check-community`). To see it
+  in the app, put the file in your themes folder (the table at the top of this page), quit larperCord if it's
+  running, and start it with `--theme neon-dusk`.
 - **A name of its own.** Not the name of a built-in theme (a file called `orbital.kdl` would take its place in the app)
   and not one already in the gallery. A built-in theme with only the name changed is turned away: change its colors or
   its layout.
 - **No copyrighted logos or fonts.** Only `.kdl` files go in the folder, so no images or font files. Don't redraw
-  someone else's logo or wordmark with `label`, `shape` or ASCII art, and only name fonts people can get freely: fonts
-  are looked up by family on the user's system and never ship with the theme.
+  someone else's logo or wordmark with `label`, `shape` or ASCII art, and only name fonts people can get freely.
+  Fonts are looked up on the user's system and never ship with the theme. On Linux that goes by family, through
+  fontconfig. On Windows it goes by a file in `C:\Windows\Fonts` named after the family, or else Segoe UI, Consolas
+  or Georgia ([Fonts on Windows](#fonts-on-windows)), so check that your theme still looks right with those.
 - **An open license** from the list above. It tells people they may use and change the theme. If the colors came from
   someone else's theme (the builder's "Import from Discord theme CSS", for example), that theme's license has to allow
   it, and the description should credit its author.

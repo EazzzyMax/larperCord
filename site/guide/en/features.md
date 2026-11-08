@@ -63,7 +63,7 @@ Embeds and Discord's newer component messages show text, thumbnails, separators,
 
 - **Images** and **GIFs**, with a fixed-size cache, full-screen view, and upload by picker, drag and drop or `Ctrl+V`. WebP and animated PNG are decoded too.
 - **Embeds** as cards: color, author, title, description in markdown, fields, image, thumbnail and footer.
-- **Video in the chat** for attachments and direct `.mp4`/`.webm` links, through the system's FFmpeg, which is only loaded on the first play. Play and pause, a progress bar and sound, up to 854×480 at about 30 fps. Off-screen video pauses, and 30 seconds later everything is released. Without FFmpeg, it opens in the browser.
+- **Video in the chat** for attachments and direct `.mp4`/`.webm` links, through FFmpeg 7, 8 or 9, which is only loaded on the first play. On Linux it's your system's FFmpeg (older distros ship an older one, which is ignored). On Windows, Settings → Chat → **Download FFmpeg** downloads and installs it (about 80 MB, checked against a SHA-256), or the app uses FFmpeg DLLs it finds next to `larpercord.exe` or on `PATH`. Play and pause, a progress bar and sound, up to 854×480 at about 30 fps. Off-screen video pauses, and 30 seconds later everything is released. Without FFmpeg, it opens in the browser.
 - **Data saver**: images, avatars and attachments only download when you click.
 
 ## Finding things
@@ -108,7 +108,7 @@ Search ignores case and accents, so `nao` finds `não`.
 - **Word filter** collapses matching messages behind a click, and they never notify.
 - **Ignore** hides someone's messages locally, without blocking them.
 - **Focus mode**: for 15 minutes, 30 minutes, 1 hour or until you turn it off, only DMs and mentions notify and mark unread.
-- **Desktop notifications** through `notify-send`, only while the window is unfocused, plus taskbar flashing. Muted channels never notify.
+- **Desktop notifications**, only while the window is unfocused or hidden in the tray, plus taskbar flashing. On Linux they go through `notify-send` (from libnotify), and on Windows they're Windows notifications from the tray area. Muted channels never notify.
 
 ## Channels you can't open
 
@@ -129,6 +129,6 @@ Real voice with end-to-end encryption, a per-person mixer, device picker, push-t
 
 ## Make it yours
 
-- [Themes](page:themes) rearrange the entire interface and reload on save. Themes with `palette "wal"` follow your wallpaper through pywal, and the `vidro` theme has a transparent background that your compositor blurs.
+- [Themes](page:themes) rearrange the entire interface and reload on save. On Linux, themes with `palette "wal"` follow your wallpaper through pywal, and the `vidro` theme's transparent background is blurred by your compositor (Hyprland, KDE…). Windows has no blur, and it only reads pywal's colors when the `HOME` variable is set, without following the wallpaper live.
 - [Plugins](page:plugins) in Lua add panels, right-click entries, notes under messages, commands and keybinds. Scam guard, CVE radar, GitHub cards, what did I miss, translate, reminders, highlights, clean links, and links and files come with the app.
 - **Optional vim navigation**: see [Shortcuts](page:shortcuts).

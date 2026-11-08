@@ -25,12 +25,24 @@ The server has to speak LSP over stdin and stdout, so the command is usually som
 `typescript-language-server --stdio` or `lua-language-server`.
 
 - **The command is not run by a shell.** It is split on spaces, with `"…"` or `'…'` for
-  arguments that contain spaces. `;`, `|`, `$HOME` and `~` are plain text.
-- A program name without a path is looked up on `PATH`.
+  arguments that contain spaces. `;`, `|`, `$HOME` and `~` are plain text, and so is
+  `%USERPROFILE%`, except for a `.cmd` or `.bat` (see below). A backslash is a normal character,
+  so Windows paths work as typed: `"C:\Program Files\LLVM\bin\clangd.exe"`.
+- A program name without a path is looked up on `PATH`. On Windows, Windows itself does the
+  search: it adds `.exe` when the name has no extension, and it looks in larperCord's own folder,
+  the folder larperCord was started from and the Windows folders before `PATH`. A full path avoids
+  surprises.
+- On Windows, servers installed with npm (`pyright-langserver`, `typescript-language-server`) are
+  `.cmd` files, usually in `%APPDATA%\npm`. The bare name won't find them: use the full path with
+  `.cmd`, for example `"C:\Users\you\AppData\Roaming\npm\typescript-language-server.cmd" --stdio`,
+  or click **Use … and turn on** (below). Windows runs a `.cmd` or `.bat` through `cmd.exe`, which
+  does read `%NAME%` as a variable. The app escapes the other special characters for it, but use
+  the server's `.exe` instead when it has one.
 
-The page also searches your `PATH` for those well-known names and offers what it finds. It only
-checks that the file exists and is executable; it does not run it. Clicking **Use … and turn
-on** stores the full path as the command, which is what you are agreeing to run.
+The page also searches your `PATH` for those well-known names and offers what it finds (on Windows
+it tries `name.exe`, `name.cmd` and `name.bat`). It only checks that the file exists and, on Linux,
+that it is executable; it does not run it. Clicking **Use … and turn on** stores the full path as
+the command, which is what you are agreeing to run.
 
 ## While typing
 
@@ -62,13 +74,19 @@ The app holds your Discord token, so a server runs with as little as possible:
 - **Environment:** only `PATH` and `HOME` (on Windows also `SystemRoot`, `SystemDrive`,
   `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP`, `PATHEXT`). `LARPER_TOKEN` and the
   rest of your environment do not reach it.
-- **Folder:** it runs in a scratch folder (`~/.cache/larpercord/lsp-scratch`). Whatever a server
+- **Folder:** it runs in a scratch folder (`~/.cache/larpercord/lsp-scratch` on Linux,
+  `%LOCALAPPDATA%\larpercord\lsp-scratch` on Windows). Whatever a server
   left there is removed before the next start, except subfolders that aren't empty: the app does
   not walk into them, so a link left there can't make it delete anything else. `rootUri` and `workspaceFolders` are `null`, and the document is a virtual
-  `file://<that scratch folder>/larpercord-composer.<ext>` that never exists on disk (servers such as clangd only accept `file:`). Nothing you type is written to disk, and your projects
+  `file://<that scratch folder>/larpercord-composer.<ext>` (on Windows,
+  `file:///C:/Users/<you>/AppData/Local/larpercord/lsp-scratch/larpercord-composer.<ext>`) that never exists on disk (servers such as clangd only accept `file:`). Nothing you type is written to disk, and your projects
   are not involved. This also means a server that wants a project (imports, a build file) only
   sees one isolated file, so its errors are about that snippet alone.
-- **Open files:** on Linux the app's sockets and files are closed in the child.
+- **Open files:** on Linux the app's sockets and files are closed in the child. Windows has no
+  such step: the server is started with handle inheritance on, so it gets every handle the app
+  opened as inheritable, and sockets are inheritable by default on Windows. Only the local socket
+  used to bring back an already open larperCord is kept out. That's one more reason to only turn
+  on servers you trust.
 - **Limits:** a message over 1 MiB, malformed framing, more than 32 MiB of output per minute, or
   not reading its input for 10 seconds all stop the server. Its stderr is discarded.
 
@@ -92,6 +110,9 @@ If a language has both, your own command wins.
 ## Limits worth knowing
 
 - Stopping a server kills that process, not whatever it started. A wrapper command that spawns
-  the real server (`npx …`) may leave that one behind.
-- If the app is killed outright (`kill -9`, power loss), a server only notices when its input
-  closes. Well-behaved servers exit then.
+  the real server (`npx …`) may leave that one behind. On Windows every `.cmd` server (what npm
+  installs) is such a wrapper: Windows runs it through `cmd.exe`, so a kill ends `cmd.exe`, not the
+  `node.exe` behind it. That one still gets the stop request and sees its input close, and
+  well-behaved servers exit then.
+- If the app is killed outright (`kill -9` on Linux, `taskkill /F` on Windows, power loss), a
+  server only notices when its input closes. Well-behaved servers exit then.

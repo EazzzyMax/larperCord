@@ -18,7 +18,7 @@ src/
               inbox, saved messages, filters, search queries, cache format
   net/        the real gateway (Discord) and the demo one, queues, voice,
               settings protobuf, message cache, proxy, media URLs
-  theme/      KDL parser, colors, theme loader, layout engine, manager + inotify
+  theme/      KDL parser, colors, theme loader, layout engine, manager + file watcher
   ui/         components, rich text, palette, settings, animations, images, video
   plugins/    the Lua engine and its host
   platform/   window, renderer, waking the loop, FFmpeg loading. The only
@@ -38,7 +38,7 @@ tools/        QA, memory benchmark, screenshots, logo and site generators
 | Gateway | With a token | WebSocket with heartbeat, RESUME, zlib-stream and reconnects, plus REST, one request at a time |
 | Demo gateway | Without a token | Fake servers, people and messages |
 | Media | Always, mostly asleep | Downloads and decodes images at low priority, at most 2 decodes at a time |
-| Theme watcher | Unless disabled | Waits on inotify for changes to theme files and pywal colors |
+| Theme watcher | Unless disabled | Waits for changes to theme files: inotify on Linux (also pywal's colors), folder change notifications (FindFirstChangeNotification) on Windows (theme folders only) |
 | Video | While playing | One thread downloads, another decodes into a 3-frame ring |
 | Voice | During a call | Voice gateway, UDP, Opus and DAVE |
 
@@ -50,7 +50,7 @@ The gateway uses WebSocket (`v=10`, JSON, `zlib-stream`) with heartbeat, session
 
 Everything is drawn with Dear ImGui's `ImDrawList` over SDL_Renderer, and FreeType renders the text. ImGui is an immediate-mode library, so its usual cost is redrawing all the time. Here, the loop only draws when something changes:
 
-- **Input, network, inotify and the clock** wake the loop through events.
+- **Input, network, file changes and the clock** wake the loop through events.
 - **Animations** ask for frames only while they're running.
 - **Lists** use binary search to find the first visible item and draw only what's on screen.
 - **Markdown** is parsed once, when the message arrives, with a height cache per width.

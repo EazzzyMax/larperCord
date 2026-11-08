@@ -56,16 +56,28 @@ A few details that took work to get right:
 
 ## Debugging
 
+On Linux, start it from a terminal (quit it first if it's open in the tray) with:
+
 ```bash
 LARPER_VOICE_DEBUG=1 larpercord
 ```
 
-This prints opcodes, close codes and DAVE events, and microphone level and frames sent. It never prints the token or any keys.
+On Windows, or without a terminal, turn on Settings → Advanced → **Save debug log** before joining the call, then use **Open the log folder**. The file is `%LOCALAPPDATA%\larpercord\debug.log` on Windows and `~/.cache/larpercord/debug.log` on Linux.
+
+Either way you get opcodes, close codes and DAVE events, and microphone level and frames sent. It never contains the token or any keys.
 
 To test only the connection, `--voice-test` joins a channel for 25 seconds, **always muted**:
 
 ```bash
 LARPER_TOKEN=... larpercord --voice-test GUILD_ID CHANNEL_ID
+```
+
+On Windows it only takes the token from `LARPER_TOKEN`, and its text has to go to a file, since there's no console:
+
+```powershell
+$env:LARPER_TOKEN = [Net.NetworkCredential]::new('', (Read-Host 'Token' -AsSecureString)).Password
+Start-Process "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe" -ArgumentList '--voice-test','GUILD_ID','CHANNEL_ID' -NoNewWindow -Wait -RedirectStandardError voice.txt; Get-Content voice.txt
+Remove-Item Env:LARPER_TOKEN
 ```
 
 The protocol follows Discord's voice documentation and the [DAVE protocol documentation](https://daveprotocol.com).

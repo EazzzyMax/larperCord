@@ -64,10 +64,16 @@
 <h2 id="limits-today"><a class="anchor" href="#limits-today" aria-hidden="true">#</a>Limits today</h2>
 <ul><li>Push-to-talk only works while the window is focused, because SDL has no portable global shortcut.</li><li>Noise suppression targets steady noise. Typing and bangs may get through, and other voices stay.</li><li>No screen sharing, camera or streaming.</li><li>No automated test for a real call. QA covers the UI and the settings, with a fake audio device.</li></ul>
 <h2 id="debugging"><a class="anchor" href="#debugging" aria-hidden="true">#</a>Debugging</h2>
+<p>On Linux, start it from a terminal (quit it first if it's open in the tray) with:</p>
 <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">LARPER_VOICE_DEBUG</span>=1 larpercord</code></pre></div>
-<p>This prints opcodes, close codes and DAVE events, and microphone level and frames sent. It never prints the token or any keys.</p>
+<p>On Windows, or without a terminal, turn on Settings → Advanced → <strong>Save debug log</strong> before joining the call, then use <strong>Open the log folder</strong>. The file is <code>%LOCALAPPDATA%\larpercord\debug.log</code> on Windows and <code>~/.cache/larpercord/debug.log</code> on Linux.</p>
+<p>Either way you get opcodes, close codes and DAVE events, and microphone level and frames sent. It never contains the token or any keys.</p>
 <p>To test only the connection, <code>--voice-test</code> joins a channel for 25 seconds, <strong>always muted</strong>:</p>
 <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">LARPER_TOKEN</span>=... larpercord <span class="t-p">--voice-test</span> GUILD_ID CHANNEL_ID</code></pre></div>
+<p>On Windows it only takes the token from <code>LARPER_TOKEN</code>, and its text has to go to a file, since there's no console:</p>
+<div class="code" data-lang="powershell"><span class="code-lang">powershell</span><button class="copy" type="button" data-copy>copy</button><pre><code>$env:LARPER_TOKEN = [Net.NetworkCredential]::new('', (Read-Host 'Token' -AsSecureString)).Password
+Start-Process "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe" -ArgumentList '--voice-test','GUILD_ID','CHANNEL_ID' -NoNewWindow -Wait -RedirectStandardError voice.txt; Get-Content voice.txt
+Remove-Item Env:LARPER_TOKEN</code></pre></div>
 <p>The protocol follows Discord's voice documentation and the <a href="https://daveprotocol.com">DAVE protocol documentation</a>.</p>
 <p class="edit"><a href="https://github.com/RshaCuDeVidro/larperCord/blob/main/site/guide/en/voice.md" rel="noopener">Source of this page on GitHub</a></p>
 <nav class="pager"><a href="../guide/settings.html"><small>Previous</small>Settings and files</a><a class="next" href="../guide/themes.html"><small>Next</small>Writing themes</a></nav>
