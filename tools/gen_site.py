@@ -638,6 +638,7 @@ def layout_nodes(src, top, on, pal, raw):
 # ------------------------------------------------------------- Páginas ----
 GUIDE = [
     ("Start", "Comece", [
+        ("vs-discord", "What Discord doesn't have", "O que o Discord não tem"),
         ("getting-started", "Getting started", "Primeiros passos"),
         ("account", "Connect your account", "Conectar sua conta"),
     ]),
@@ -684,7 +685,7 @@ def rel(path_from, target):
     return root_of(path_from) + target
 
 
-def shell(lang, path, alt_path, title, desc, body, kind):
+def shell(lang, path, alt_path, title, desc, body, kind, slug=None):
     root = root_of(path)
     other = "pt" if lang == "en" else "en"
     other_label = "Português" if lang == "en" else "English"
@@ -724,7 +725,8 @@ def shell(lang, path, alt_path, title, desc, body, kind):
     <a href="{anchor_home}#themes">{t(lang, 'Themes', 'Temas')}</a>
     <a href="{anchor_home}#playground">Playground</a>
     <a href="{anchor_home}#features">{t(lang, 'Features', 'Recursos')}</a>
-    <a href="{guide}"{' aria-current="page"' if kind == 'guide' else ''}>{t(lang, 'Guide', 'Guia')}</a>
+    <a href="{rel(path, page_url(lang, 'vs-discord'))}"{' aria-current="page"' if slug == 'vs-discord' else ''}>vs. Discord</a>
+    <a href="{guide}"{' aria-current="page"' if kind == 'guide' and slug != 'vs-discord' else ''}>{t(lang, 'Guide', 'Guia')}</a>
     <a href="{REPO}" rel="noopener">★ {t(lang, 'Star on GitHub', 'Dar estrela no GitHub')}</a>
   </nav>
   <a class="kofi-mini" href="https://ko-fi.com/M7E72A1EGZ" target="_blank" rel="noopener"><img src="{root}assets/kofi6.png" alt="{t(lang, 'Buy Me a Coffee at ko-fi.com', 'Me pague um café no ko-fi.com')}" width="580" height="146"></a>
@@ -868,7 +870,7 @@ def build_guide(lang, themes):
         plain = re.sub(r"<[^>]+>", " ", content)
         desc = " ".join(plain.split())[:155]
         full = f"{title} · larperCord"
-        write(path, shell(lang, path, alt, full, desc, body, "guide"))
+        write(path, shell(lang, path, alt, full, desc, body, "guide", slug))
         index.append({"t": title, "s": t(lang, "Guide", "Guia"), "u": path})
         # Cada seção entra na busca com um trecho do que vem depois do título.
         for lv, text, hid in heads:
