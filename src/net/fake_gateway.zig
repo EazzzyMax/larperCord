@@ -2723,16 +2723,22 @@ fn demoMentionMessages(msgs: []types.Message) !void {
 }
 
 /// #música: árabe e hebraico (texto da direita para a esquerda, ui/bidi.zig), um deles no
-/// meio de uma frase em português e outro num embed. O QA confere que aparecem (qa_rtl.zig).
+/// meio de uma frase em português e outro num embed, e uma mensagem com um parágrafo latino e
+/// outro em árabe, com um link no meio. O QA confere que aparecem, cada parágrafo com o seu
+/// alinhamento (qa_rtl.zig).
 pub const rtl_channel: Id = 500_008;
 pub const rtl_arabic = "السلام عليكم ورحمة الله **وبركاته** 🌙 هل سمعتم الأغنية الجديدة؟";
 pub const rtl_hebrew = "שלום לכולם! השיר הזה מושלם, 10 מתוך 10 🔥";
+pub const rtl_link = "https://fairuz.example/kifak-inta";
+/// O segundo parágrafo da mensagem mista: "a letra da música em <link> com a tradução".
+pub const rtl_mixed_arabic = "كلمات الأغنية على " ++ rtl_link ++ " مع الترجمة";
 
 fn demoRtlMessages(msgs: []types.Message) !void {
     const n = msgs.len;
     const texts = [_]struct { back: usize, text: []const u8 }{
         .{ .back = 1, .text = rtl_hebrew },
         .{ .back = 2, .text = rtl_arabic },
+        .{ .back = 5, .text = pick("letra e tradução:\n" ++ rtl_mixed_arabic, "lyrics and translation:\n" ++ rtl_mixed_arabic) },
         .{ .back = 6, .text = pick("ouvindo agora: فيروز - كيفك إنت 🎶", "listening now: فيروز - كيفك إنت 🎶") },
     };
     for (texts) |t| {
@@ -2741,6 +2747,11 @@ fn demoRtlMessages(msgs: []types.Message) !void {
         m.content = try alloc.dupe(u8, t.text);
         m.reply_to = 0;
     }
+    // A mista é só texto (o que a mensagem tinha de anexo ou prévia sai junto).
+    types.freeEmbeds(alloc, msgs[n - 5].embeds);
+    msgs[n - 5].embeds = &.{};
+    types.freeAttachments(alloc, msgs[n - 5].attachments);
+    msgs[n - 5].attachments = &.{};
     const e = try alloc.alloc(types.Embed, 1);
     e[0] = .{
         .provider = try alloc.dupe(u8, "YouTube"),
@@ -2792,7 +2803,7 @@ fn demoPoll(which: usize, mine: u16, epoch_ms: i64) !*polls.Poll {
 /// Mensagem de voz (o Ogg é feito na hora pelo player), anexo com spoiler,
 /// anexo marcado como sensível e uma imagem antiga com o link vencido. O
 /// #música também tem o árabe e o hebraico (`demoRtlMessages`, nas posições
-/// 1, 2 e 6 contando do fim): estas ficam nas 3, 4, 8 e 7.
+/// 1, 2, 5 e 6 contando do fim): estas ficam nas 3, 4, 8 e 7.
 fn demoMediaMessages(msgs: []types.Message) !void {
     const n = msgs.len;
     const set = struct {
