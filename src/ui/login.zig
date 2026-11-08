@@ -567,7 +567,7 @@ fn form(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
         d.circle(dl, tr.x + 9 + 14 * l.remember_k, tr.y + 9, 6.5, Rgba.white.alpha(f.a));
         const remember_label = i18n.tr("Lembrar neste computador", "Remember on this computer");
         f.text(.regular, 14, x + 44, y + 3, f.p.text, remember_label);
-        const note = i18n.tr("no chaveiro do sistema", "in the system keyring");
+        const note = if (@import("../platform/sys.zig").windows) i18n.tr("no Gerenciador de Credenciais", "in Credential Manager") else i18n.tr("no chaveiro do sistema", "in the system keyring");
         f.text(.regular, 12.5, x + 44 + f.width(.regular, 14, remember_label) + 8, y + 4.5, f.p.faint, note);
         y += row.h + 22;
     }

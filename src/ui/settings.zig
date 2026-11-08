@@ -16,6 +16,7 @@ const dropdown = @import("dropdown.zig");
 const tray = @import("../platform/tray.zig");
 const inbox = @import("inbox.zig");
 const mem_use_mod = @import("../core/mem_use.zig");
+const sys = @import("../platform/sys.zig");
 
 // Japonês: como o `label` é também a marca do QA (settings:…), a tradução
 // mora no ponto de uso (`sidebarLabel`), não num campo aqui.
@@ -890,7 +891,11 @@ fn page(p: *Page, previews: []const Preview) void {
                 "By default the app follows your system language. Changes apply right away.",
                 "デフォルトではシステムの言語に従います。変更はすぐに反映されます。",
             ));
-            if (ctx.fonts.triedGroup(.cjk) and !ctx.fonts.hasGroup(.cjk)) p.note(i18n.tr(
+            // No Windows o app só procura alguns arquivos de C:\Windows\Fonts (ui/fonts.zig).
+            if (ctx.fonts.triedGroup(.cjk) and !ctx.fonts.hasGroup(.cjk)) p.note(if (sys.windows) i18n.tr(
+                "Nenhuma fonte de japonês, coreano ou chinês foi encontrada em C:\\Windows\\Fonts, e esses textos aparecem como ???. O app procura Yu Gothic, Meiryo ou MS Gothic (japonês), Malgun Gothic ou Gulim (coreano) e Microsoft YaHei, SimSun ou SimHei (chinês). Adicione as fontes suplementares do idioma nos Recursos opcionais do Windows.",
+                "No Japanese, Korean or Chinese font was found in C:\\Windows\\Fonts, so those texts show as ???. The app looks for Yu Gothic, Meiryo or MS Gothic (Japanese), Malgun Gothic or Gulim (Korean) and Microsoft YaHei, SimSun or SimHei (Chinese). Add that language's supplemental fonts in Windows' Optional features.",
+            ) else i18n.tr(
                 "Nenhuma fonte de japonês, coreano ou chinês foi encontrada neste sistema, e esses textos aparecem como ???. Instale uma, como a Noto Sans CJK (pacote noto-fonts-cjk ou fonts-noto-cjk).",
                 "No Japanese, Korean or Chinese font was found on this system, so those texts show as ???. Install one, such as Noto Sans CJK (package noto-fonts-cjk or fonts-noto-cjk).",
             ));
@@ -898,7 +903,10 @@ fn page(p: *Page, previews: []const Preview) void {
         .avancado => {
             p.title(i18n.tr("Avançado", "Advanced"));
             p.toggle(i18n.tr("Modo desenvolvedor", "Developer Mode"), i18n.tr("Mostra o ID das mensagens e põe \"Copiar ID\" nos menus.", "Shows message IDs and adds \"Copy ID\" to menus."), &s.developer_mode);
-            p.toggle(i18n.tr("Recarregar temas ao salvar", "Reload themes on save"), i18n.tr("Salvar um .kdl em themes/ ou ~/.config/larpercord/themes aplica na hora.", "Saving a .kdl in themes/ or ~/.config/larpercord/themes applies it right away."), &s.hot_reload);
+            p.toggle(i18n.tr("Recarregar temas ao salvar", "Reload themes on save"), if (sys.windows)
+                i18n.tr("Salvar um .kdl em themes/ ou %APPDATA%\\larpercord\\themes aplica na hora. Uma pasta nova só vale depois de reiniciar o app.", "Saving a .kdl in themes/ or %APPDATA%\\larpercord\\themes applies it right away. A new folder only counts after restarting the app.")
+            else
+                i18n.tr("Salvar um .kdl em themes/ ou ~/.config/larpercord/themes aplica na hora. Uma pasta nova só vale depois de reiniciar o app.", "Saving a .kdl in themes/ or ~/.config/larpercord/themes applies it right away. A new folder only counts after restarting the app."), &s.hot_reload);
             p.toggle(i18n.tr("Fechar para a bandeja", "Close to tray"), i18n.tr("Fechar a janela deixa o app conectado, com um ícone na bandeja do sistema.", "Closing the window keeps the app connected, with an icon in the system tray."), &s.close_to_tray);
             if (s.close_to_tray and !tray.hostSeen(ctx.now_ms)) p.note(i18n.tr("Este sistema não tem bandeja agora: fechar a janela encerra o app.", "This system has no tray right now: closing the window quits the app."));
             textSection(p);
@@ -1165,7 +1173,8 @@ fn performance(p: *Page) void {
     const built = ctx.stats.frames_built;
     const skipped = ctx.stats.frames_skipped;
     const stats = [_]struct { label: []const u8, value: []const u8 }{
-        .{ .label = "RAM (PSS)", .value = mbText(buf[0..32], "", ctx.stats.ram_kb) },
+        // No Windows o número é a memória privada do processo, não o PSS (platform/window.zig).
+        .{ .label = if (sys.windows) i18n.tr("RAM (privada)", "RAM (private)") else "RAM (PSS)", .value = mbText(buf[0..32], "", ctx.stats.ram_kb) },
         .{ .label = i18n.tr("Tempo de CPU por quadro", "CPU time per frame"), .value = std.fmt.bufPrint(buf[32..64], "{d}.{d:0>2} ms", .{ ctx.stats.frame_us / 1000, (ctx.stats.frame_us % 1000) / 10 }) catch "" },
         .{ .label = i18n.tr("Quadros iguais, sem desenhar", "Unchanged frames, not drawn"), .value = std.fmt.bufPrint(buf[96..128], "{d}% ({d})", .{ skipped * 100 / @max(built, 1), skipped }) catch "" },
         .{ .label = i18n.tr("CPU parado", "Idle CPU"), .value = i18n.tr("0% (dorme esperando eventos)", "0% (sleeps until there are events)") },
@@ -1187,7 +1196,6 @@ var ffmpeg_confirming = false;
 fn videoSection(p: *Page) void {
     const ffmpeg = @import("../platform/ffmpeg.zig");
     const get = @import("../net/ffmpeg_get.zig");
-    const sys = @import("../platform/sys.zig");
     p.heading(i18n.tr("Vídeos", "Videos"));
     var buf: [420]u8 = undefined;
     // Sem carregar o FFmpeg só por abrir a página: ele fica na memória depois.
@@ -1331,5 +1339,7 @@ fn about(p: *Page) void {
     p.note(i18n.tr("Cliente não oficial: usar contas de usuário fora do app oficial vai contra os termos do Discord.", "Unofficial client: using user accounts outside the official app is against Discord's terms."));
     p.divider();
     p.heading(i18n.tr("Feito com", "Built with"));
-    for ([_][]const u8{ "Zig 0.17", "SDL 3.4", "Dear ImGui 1.93 (dear_bindings)", "FreeType + fontconfig", "GNU FriBidi", "libcurl + zlib", "stb_image", "Lua 5.4 (plugins)", "Inter, JetBrains Mono, Noto Color Emoji" }) |t| p.note(t);
+    // O build do Windows não tem fontconfig e usa as fontes do sistema (ui/fonts.zig).
+    const fonts_line = if (sys.windows) i18n.tr("Segoe UI, Consolas, Segoe UI Emoji (fontes do Windows)", "Segoe UI, Consolas, Segoe UI Emoji (Windows fonts)") else "Inter, JetBrains Mono, Noto Color Emoji";
+    for ([_][]const u8{ "Zig 0.17", "SDL 3.4", "Dear ImGui 1.93 (dear_bindings)", if (sys.windows) "FreeType" else "FreeType + fontconfig", "GNU FriBidi", "libcurl + zlib", "stb_image", "Lua 5.4 (plugins)", fonts_line }) |t| p.note(t);
 }
