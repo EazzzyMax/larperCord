@@ -66,6 +66,7 @@ test {
     _ = @import("ui/atalhos.zig");
     _ = @import("ui/syntax.zig");
     _ = @import("ui/bidi.zig");
+    _ = @import("ui/rich_plan.zig");
     _ = @import("ui/font_blocks.zig");
     _ = @import("ui/settings_state.zig");
     _ = @import("ui/guild_color.zig");
