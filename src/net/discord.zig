@@ -106,6 +106,9 @@ pub const Gateway = struct {
     voice_token_len: usize = 0,
     /// Volume individual por pessoa (0..2), mantido entre calls.
     voice_volumes: std.AutoHashMapUnmanaged(Id, f32) = .empty,
+    /// O último op 4 escrito, até o VOICE_STATE_UPDATE da conta confirmar que chegou.
+    /// Escrito pouco antes de a conexão cair, pode ter se perdido: vai de novo no RESUMED.
+    voice_unconfirmed: ?gw_budget.Voice = null,
     /// A thread de voz parou com 4014 (movido / servidor trocado): até
     /// quando espera o VOICE_SERVER_UPDATE novo antes de desistir.
     voice_wait_until: i64 = 0,
@@ -616,7 +619,8 @@ pub const Gateway = struct {
     fn send(g: *Gateway, payload: []const u8) void {
         if (g.ws == null or !g.ws_live) return;
         g.outbox.budget.note(nowMs());
-        g.writeWs(payload);
+        // Falhando, a conexão cai (`writeWs`) e o RESUME/IDENTIFY sai de novo na próxima.
+        _ = g.writeWs(payload);
     }
 
     /// Op 3, 4 e 14: entram na fila do teto e saem assim que houver vez
@@ -635,7 +639,9 @@ pub const Gateway = struct {
     fn flushOutbox(g: *Gateway) void {
         if (!g.ws_live or !g.ws_ready or g.ws_end != null) return;
         const now = nowMs();
-        while (g.outbox.pop(now)) |it| g.writeItem(it);
+        // Uma escrita que falha derruba a conexão: o item volta para a frente da fila e
+        // sai depois do RESUME, com o que estava atrás dele (nada vai para um socket morto).
+        g.outbox.drainTo(now, OutboxWriter{ .g = g });
         const left = g.outbox.pending();
         if (left == 0) {
             g.outbox_noted = false;
@@ -645,30 +651,43 @@ pub const Gateway = struct {
         }
     }
 
-    fn writeItem(g: *Gateway, it: gw_budget.Item) void {
+    const OutboxWriter = struct {
+        g: *Gateway,
+
+        pub fn write(w: OutboxWriter, it: gw_budget.Item) bool {
+            return w.g.writeItem(it);
+        }
+    };
+
+    /// false = não saiu inteiro (a conexão vai cair). Um item que nem dá para montar
+    /// conta como saído: tentar de novo daria no mesmo.
+    fn writeItem(g: *Gateway, it: gw_budget.Item) bool {
         switch (it) {
             // Com o status personalizado, se vale agora (net/conta_net.zig).
-            .presence => conta_net.writePresence(g, statusName(g.status)),
+            .presence => return conta_net.writePresence(g, statusName(g.status)),
             .lazy => |l| {
                 var tb: [32]u8 = undefined;
                 const lists = if (l.thread != 0) std.fmt.bufPrint(&tb, "\"{d}\"", .{l.thread}) catch "" else "";
                 var buf: [360]u8 = undefined;
-                const payload = std.fmt.bufPrint(&buf, "{{\"op\":14,\"d\":{{\"guild_id\":\"{d}\",\"typing\":true,\"threads\":true,\"activities\":true,\"members\":[],\"channels\":{{\"{d}\":[[0,99]]}},\"thread_member_lists\":[{s}]}}}}", .{ l.guild, l.channel, lists }) catch return;
-                g.writeWs(payload);
+                const payload = std.fmt.bufPrint(&buf, "{{\"op\":14,\"d\":{{\"guild_id\":\"{d}\",\"typing\":true,\"threads\":true,\"activities\":true,\"members\":[],\"channels\":{{\"{d}\":[[0,99]]}},\"thread_member_lists\":[{s}]}}}}", .{ l.guild, l.channel, lists }) catch return true;
+                return g.writeWs(payload);
             },
             .voice => |v| {
                 // Numa DM ou grupo (`guild` 0) o guild_id vai null (net/call_json.zig).
                 var out: [256]u8 = undefined;
-                const p = call_json.voiceState(&out, v.guild, v.channel, v.mute, v.deaf) orelse return;
+                const p = call_json.voiceState(&out, v.guild, v.channel, v.mute, v.deaf) orelse return true;
                 std.log.debug("voz: op4 canal={d}", .{v.channel orelse 0});
-                g.writeWs(p);
+                if (!g.writeWs(p)) return false;
+                g.voice_unconfirmed = v;
+                return true;
             },
         }
     }
 
-    pub fn writeWs(g: *Gateway, payload: []const u8) void {
-        const h = g.ws orelse return;
-        if (!g.ws_live) return;
+    /// true = o quadro saiu inteiro. Falhando, marca a conexão para reconectar.
+    pub fn writeWs(g: *Gateway, payload: []const u8) bool {
+        const h = g.ws orelse return false;
+        if (!g.ws_live) return false;
         var off: usize = 0;
         var first = true;
         var waited: u8 = 0;
@@ -690,7 +709,11 @@ pub const Gateway = struct {
             first = false;
         }
         // Metade de um quadro não tem conserto: reconecta (o RESUME recupera).
-        if (off < payload.len and g.ws_end == null) g.ws_end = .reconnect;
+        if (off < payload.len) {
+            if (g.ws_end == null) g.ws_end = .reconnect;
+            return false;
+        }
+        return true;
     }
 
     fn heartbeat(g: *Gateway) void {
@@ -1199,7 +1222,13 @@ pub const Gateway = struct {
             return;
         }
         if (std.mem.eql(u8, t, "RESUMED")) {
-            // O gateway reenviou o que perdemos; o estado local continua válido.
+            // O gateway reenviou o que perdemos; o estado local continua válido. O op 4
+            // escrito pouco antes da queda que não teve resposta nesses eventos se perdeu:
+            // vai de novo, antes do que ainda espera na fila.
+            if (g.voice_unconfirmed) |v| {
+                g.voice_unconfirmed = null;
+                g.outbox.unpop(.{ .voice = v });
+            }
             g.gatewayReady();
             g.emit(.{ .status = .ready });
             // Um pedido de lista feito bem na hora da queda se perdeu.
@@ -1414,6 +1443,10 @@ pub const Gateway = struct {
             const chan = j.id(j.get(d, "channel_id"));
             g.emit(.{ .voice_state = .{ .channel = chan, .user = user, .flags = voiceFlagsOf(d) } });
             if (user == g.me) {
+                if (g.voice_unconfirmed) |v| {
+                    const vf = voiceFlagsOf(d);
+                    if (v.confirmedBy(chan, vf.self_mute, vf.self_deaf)) g.voice_unconfirmed = null;
+                }
                 if (j.str(j.get(d, "session_id"))) |sid| {
                     // Sessão de voz nova (outro dispositivo, reconexão): a
                     // conexão antiga não vale mais.
@@ -2582,6 +2615,7 @@ pub const Gateway = struct {
         // Sessão nova: o que esperava o teto de envio era da anterior (o que
         // ainda vale sai de novo logo abaixo e no fim).
         g.outbox.forgetPending();
+        g.voice_unconfirmed = null;
         // O pedido de voz pode ter chegado antes do READY; agora o gateway
         // já aceita o op 4. Numa sessão nova a call antiga não vale mais.
         if (g.voice_channel != 0) {
