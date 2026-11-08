@@ -46,6 +46,7 @@ const Fns = struct {
     dbus_connection_get_unix_fd: *const fn (*Conn, *c_int) callconv(.c) u32,
     dbus_connection_read_write: *const fn (*Conn, c_int) callconv(.c) u32,
     dbus_connection_dispatch: *const fn (*Conn) callconv(.c) c_int,
+    dbus_connection_get_dispatch_status: *const fn (*Conn) callconv(.c) c_int,
     dbus_connection_flush: *const fn (*Conn) callconv(.c) void,
     dbus_connection_get_is_connected: *const fn (*Conn) callconv(.c) u32,
     dbus_connection_send: *const fn (*Conn, *Msg, ?*u32) callconv(.c) u32,
@@ -101,6 +102,11 @@ var last_activate_ms: i64 = -1;
 /// tenta de novo daqui a pouco, umas poucas vezes.
 var retry_at_ms: i64 = -1;
 var retries: u8 = 0;
+/// Até quando o primeiro registro pode demorar. Sem o "pronto" até lá (painel que não
+/// responde, que recusa ou que sumiu), o processo avisa a falha e sai: o app tenta de
+/// novo mais tarde sem ficar esperando (o waitReady dele é de 5 s).
+const ready_timeout_ms: i64 = 4000;
+var ready_deadline_ms: i64 = -1;
 
 const Pixmap = struct { size: i32, argb: []u8 };
 var pixmaps_buf: [3]Pixmap = undefined;
@@ -150,6 +156,7 @@ pub fn run(open: [*:0]const u8, quit: [*:0]const u8) void {
     d.dbus_bus_add_match(cn, "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='" ++ watcher ++ "'", &err);
     d.dbus_error_free(&err);
     loadIcons();
+    ready_deadline_ms = nowMs() + ready_timeout_ms;
     register();
     loop(fd);
 }
@@ -157,23 +164,37 @@ pub fn run(open: [*:0]const u8, quit: [*:0]const u8) void {
 /// Parado no poll: acorda só com o painel (D-Bus) ou com a entrada fechando.
 fn loop(bus_fd: c_int) noreturn {
     while (true) {
-        while (d.dbus_connection_dispatch(conn) == dispatch_data_remains) {}
-        d.dbus_connection_flush(conn);
+        // O flush também lê do socket: o que chegou durante ele fica na fila do
+        // libdbus sem acordar o poll, então despacha de novo até a fila esvaziar.
+        while (true) {
+            while (d.dbus_connection_dispatch(conn) == dispatch_data_remains) {}
+            d.dbus_connection_flush(conn);
+            if (d.dbus_connection_get_dispatch_status(conn) != dispatch_data_remains) break;
+        }
         // A sessão D-Bus caiu: sai, e o app refaz o ícone num processo novo.
         if (d.dbus_connection_get_is_connected(conn) == 0) std.process.exit(1);
         var fds = [2]c.struct_pollfd{
             .{ .fd = 0, .events = c.POLLIN, .revents = 0 },
             .{ .fd = bus_fd, .events = c.POLLIN, .revents = 0 },
         };
-        const wait: c_int = if (retry_at_ms < 0) -1 else @intCast(std.math.clamp(retry_at_ms - nowMs(), 0, 1000));
+        var next: i64 = retry_at_ms;
+        if (!told_ready and (next < 0 or ready_deadline_ms < next)) next = ready_deadline_ms;
+        const wait: c_int = if (next < 0) -1 else @intCast(std.math.clamp(next - nowMs(), 0, 1000));
         if (c.poll(&fds, 2, wait) < 0) continue;
         if (fds[0].revents != 0) std.process.exit(0);
         if (fds[1].revents != 0) _ = d.dbus_connection_read_write(conn, 0);
+        if (!told_ready and nowMs() >= ready_deadline_ms) giveUp();
         if (retry_at_ms >= 0 and nowMs() >= retry_at_ms) {
             retry_at_ms = -1;
             register();
         }
     }
+}
+
+/// O ícone não entrou no painel: o app fica sabendo na hora e tenta de novo depois.
+fn giveUp() noreturn {
+    say(&.{bandeja.msg_failed});
+    std.process.exit(1);
 }
 
 fn nowMs() i64 {
@@ -223,7 +244,7 @@ fn onRegistered(p: *Pending, _: ?*anyopaque) callconv(.c) void {
         if (retries < 3) {
             retries += 1;
             retry_at_ms = nowMs() + 1000;
-        }
+        } else if (!told_ready) giveUp();
         return;
     }
     retries = 0;

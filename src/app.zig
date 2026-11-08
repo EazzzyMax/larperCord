@@ -365,13 +365,17 @@ pub const App = struct {
         // (XDG_ACTIVATION_TOKEN, lido do ambiente dele e apagado em seguida).
         var tok_buf: [bandeja.token_max + 1]u8 = undefined;
         const token = tray.takeActivationToken(&tok_buf);
-        const hidden = c.SDL_GetWindowFlags(app.win.window) & c.SDL_WINDOW_HIDDEN != 0;
+        const flags = c.SDL_GetWindowFlags(app.win.window);
+        const hidden = flags & c.SDL_WINDOW_HIDDEN != 0;
+        const minimized = flags & c.SDL_WINDOW_MINIMIZED != 0;
         const env = c.SDL_GetEnvironment();
         const use_token = token != null and hidden and env != null;
         if (use_token) _ = c.SDL_SetEnvironmentVariable(env, "XDG_ACTIVATION_TOKEN", token.?.ptr, true);
         _ = c.SDL_ShowWindow(app.win.window);
         if (use_token) _ = c.SDL_UnsetEnvironmentVariable(env, "XDG_ACTIVATION_TOKEN");
-        _ = c.SDL_RestoreWindow(app.win.window);
+        // No X11 e no Wayland, restaurar uma janela que não está minimizada tira a
+        // maximização: só a minimizada é restaurada (no Windows segue como antes).
+        if (sys.windows or minimized) _ = c.SDL_RestoreWindow(app.win.window);
         _ = c.SDL_RaiseWindow(app.win.window);
     }
 
@@ -392,6 +396,12 @@ pub const App = struct {
         );
         const logged_in = app.store.ready and !app.login.visible();
         app.tray_click = janela.trayClick(vista, app.st.settings.close_to_tray, logged_in);
+        // A ficha do painel vale só para este clique: escondendo, ela não fica guardada
+        // para um "Abrir" qualquer depois.
+        if (app.tray_click.? != .mostrar) {
+            var tok_buf: [bandeja.token_max + 1]u8 = undefined;
+            _ = tray.takeActivationToken(&tok_buf);
+        }
         switch (app.tray_click.?) {
             .mostrar => app.showWindow(),
             .para_bandeja => if (!app.hideToTray()) {
