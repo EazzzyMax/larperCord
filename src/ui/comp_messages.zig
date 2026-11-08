@@ -1716,8 +1716,10 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         if (qa.on() or @import("../platform/debug_log.zig").isOn()) std.log.info("colar: imagem {}, texto {}", .{ has_image, has_text });
     }
     // Esc cancela a edição (ou a resposta), com ou sem foco na caixa. A lista de
-    // sugestões aberta e os painéis por cima pegam o Esc primeiro.
-    const over_it = autocomplete.open() or st.popup != .none or st.palette.open or st.settings.open or search.open;
+    // sugestões aberta e os painéis por cima (o formulário e o modal de um bot também)
+    // pegam o Esc primeiro.
+    const over_it = autocomplete.open() or st.popup != .none or st.palette.open or st.settings.open or search.open or
+        @import("interact.zig").anyOpen();
     if (c.ImGui_IsKeyPressed(c.ImGuiKey_Escape) and (st.reply_to != 0 or st.editing != 0) and !over_it and (active or was_active or !ctx.io.*.WantTextInput)) ctx.act(.cancel_compose);
 
     if (st.edit_last) {

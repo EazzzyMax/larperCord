@@ -40,6 +40,8 @@ pub fn keys(ctx: *d.Ctx) void {
     const st = ctx.st;
     if (!st.settings.vim_keys) return;
     if (st.palette.open or st.settings.open or st.popup != .none or st.viewer != null) return;
+    // O formulário ou o modal de um bot aberto: as teclas são dele.
+    if (@import("interact.zig").anyOpen()) return;
     // Só quando nenhum campo de texto está com o foco.
     const io = ctx.io;
     if (io.*.WantTextInput or c.ImGui_IsAnyItemActive() or io.*.KeyAlt or io.*.KeySuper) return;

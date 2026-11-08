@@ -9,6 +9,7 @@ const R = @import("qa_runner.zig");
 const Op = R.Op;
 const qa = @import("ui/qa.zig");
 const interact = @import("ui/interact.zig");
+const vim = @import("ui/vim.zig");
 const fake = @import("net/fake_interactions.zig");
 const platform = @import("platform/window.zig");
 
@@ -202,6 +203,28 @@ fn avisarWithFile(app: *App) bool {
         has("\"filename\":\"ix-comando.txt\"") and app.st.uploads.items.len == 1;
 }
 
+// --- Esc no formulário ------------------------------------------------------------------
+
+/// Responder a uma mensagem do bot (a barra "Respondendo a…" fica em cima da caixa).
+fn replyToBot(app: *App) void {
+    const cs = app.store.channel(fake.channel()) orelse return;
+    var i = cs.messages.items.len;
+    while (i > 0) {
+        i -= 1;
+        const m = &cs.messages.items[i].msg;
+        if (m.id != 0 and m.flags & (1 << 6) == 0) return app.handle(.{ .reply = m.id });
+    }
+}
+fn replying(app: *App) bool {
+    return app.st.reply_to != 0;
+}
+fn escKeptReply(app: *App) bool {
+    return formClosed(app) and app.st.reply_to != 0 and vim.composer_active;
+}
+fn cancelReply(app: *App) void {
+    app.handle(.cancel_compose);
+}
+
 pub const ops = [_]Op{
     s("Interações: botões e menus"),
     run(toBugs),
@@ -235,8 +258,8 @@ pub const ops = [_]Op{
     expect("com o nome vazio, o modal não envia", modalKept),
     click("ix-field:1"),
     text("Ana"),
-    click("ix-modal-submit"),
-    expect("enviar manda o tipo 5 com os valores", modalSent),
+    key(c.ImGuiKey_Enter),
+    expect("Enter no campo envia o tipo 5 com os valores", modalSent),
 
     s("Interações: comandos de barra"),
     click("composer"),
@@ -324,4 +347,18 @@ pub const ops = [_]Op{
     click("ix-form-send"),
     expect("o comando leva o arquivo escolhido e a bandeja fica como estava", avisarWithFile),
     run(clearTray),
+
+    s("Interações: Esc no formulário"),
+    run(replyToBot),
+    expect("respondendo ao bot", replying),
+    click("composer"),
+    text("/eco"),
+    expect("a lista mostra os comandos", listShown),
+    key(c.ImGuiKey_Enter),
+    expect("o formulário abre", formOpen),
+    // Um clique no cabeçalho do formulário: nenhum campo de texto fica com o foco.
+    .{ .click = .{ .at = .{ .key = "ix-form", .fx = 0.5, .fy = 0.03 } } },
+    key(c.ImGuiKey_Escape),
+    expect("Esc fecha só o formulário: a resposta continua e o foco volta para a caixa", escKeptReply),
+    run(cancelReply),
 };

@@ -729,6 +729,12 @@ fn closeModal() void {
     modal = null;
 }
 
+/// A pessoa fechou (ou enviou) o modal: o foco volta para a caixa de texto.
+fn dismissModal(ctx: *d.Ctx) void {
+    closeModal();
+    ctx.st.focus_input = true;
+}
+
 fn problemText(p: ix.Problem) []const u8 {
     return switch (p) {
         .none => "",
@@ -862,6 +868,7 @@ fn drawModal(ctx: *d.Ctx) void {
     var y = c.ImGui_GetCursorScreenPos().y;
     const x = r.x + 18;
     var focus_next = fresh;
+    var enter = false;
     var ib: [16]u8 = undefined;
     var hb_buf: [128]u8 = undefined;
     for (m.fields, 0..) |*f, i| {
@@ -887,7 +894,8 @@ fn drawModal(ctx: *d.Ctx) void {
                     paragraph(ctx, bdl, cr, idz, f.placeholder, ms.bufs[i], focus_next);
                 } else {
                     if (focus_next) c.ImGui_SetKeyboardFocusHere();
-                    _ = forum.textInput(ctx, bdl, cr, idz, hintZ(&hb_buf, f.placeholder), ms.bufs[i], 0);
+                    // Enter no campo de uma linha envia, como no formulário dos comandos.
+                    if (forum.textInput(ctx, bdl, cr, idz, hintZ(&hb_buf, f.placeholder), ms.bufs[i], c.ImGuiInputTextFlags_EnterReturnsTrue)) enter = true;
                 }
                 focus_next = false;
             },
@@ -945,10 +953,10 @@ fn drawModal(ctx: *d.Ctx) void {
     const cw = inbox.buttonWidth(ctx, cancel);
     const cr: d.Rect = .{ .x = br.x - cw - 10, .y = br.y + 3, .w = cw, .h = 28 };
     qa.mark(cr, "ix-modal-cancel", .{});
-    if (inbox.button(ctx, dl, 0x1A7E_0301, cr, cancel, false)) return closeModal();
+    if (inbox.button(ctx, dl, 0x1A7E_0301, cr, cancel, false)) return dismissModal(ctx);
     const esc = c.ImGui_IsKeyPressed(c.ImGuiKey_Escape) and !dropdown.ownsEsc();
-    if (esc) return closeModal();
-    if (submit) submitModal(ctx, ms);
+    if (esc) return dismissModal(ctx);
+    if (submit or (enter and m.app != 0)) submitModal(ctx, ms);
 }
 
 fn modalSelect(ctx: *d.Ctx, dl: *c.ImDrawList, ms: *ModalState, i: usize, r: d.Rect) void {
@@ -990,7 +998,7 @@ fn submitModal(ctx: *d.Ctx, ms: *ModalState) void {
     const nonce = nextNonce(ctx.now_ms);
     send(ctx, .{ .kind = .modal_submit, .app = m.app, .guild = ms.guild, .channel = m.channel, .nonce = nonce, .data = data });
     addPending(nonce, 0, 0, ctx.now_ms);
-    closeModal();
+    dismissModal(ctx);
 }
 
 // --- Formulário do comando de barra -----------------------------------------------------------
@@ -1084,6 +1092,12 @@ fn closeForm() void {
         clearFiles(fs);
     }
     form = null;
+}
+
+/// A pessoa fechou o formulário (Esc ou ×): o foco volta para a caixa de texto.
+fn dismissForm(ctx: *d.Ctx) void {
+    closeForm();
+    ctx.st.focus_input = true;
 }
 
 /// Escolheu um comando na lista do `/`: abre o formulário dele.
@@ -1212,8 +1226,8 @@ fn drawForm(ctx: *d.Ctx) void {
     if (xh.hovered) d.rect(dl, xr, ctx.col(.hover), radius(ctx));
     d.line(dl, xr.x + 8, xr.y + 8, xr.right() - 8, xr.bottom() - 8, ctx.col(.muted), 1.5);
     d.line(dl, xr.right() - 8, xr.y + 8, xr.x + 8, xr.bottom() - 8, ctx.col(.muted), 1.5);
-    if (xh.clicked) return closeForm();
-    if (c.ImGui_IsKeyPressed(c.ImGuiKey_Escape) and !dropdown.ownsEsc()) return closeForm();
+    if (xh.clicked) return dismissForm(ctx);
+    if (c.ImGui_IsKeyPressed(c.ImGuiKey_Escape) and !dropdown.ownsEsc()) return dismissForm(ctx);
 
     const body: d.Rect = .{ .x = r.x, .y = r.y + head_h, .w = r.w, .h = h - head_h - foot_h };
     const bdl = d.beginRegion(ctx, "##ix-form-body", body, 0);
