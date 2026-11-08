@@ -32,6 +32,9 @@ const i18n = @import("ui/i18n.zig");
 const widgets = @import("ui/widgets.zig");
 const settings_state = @import("ui/settings_state.zig");
 const settings_voz = @import("ui/settings_voz.zig");
+const settings_video = @import("ui/settings_video.zig");
+const ffmpeg = @import("platform/ffmpeg.zig");
+const proxy = @import("net/proxy.zig");
 const kdl = @import("theme/kdl.zig");
 const custom = @import("theme/custom.zig");
 const guild_color = @import("ui/guild_color.zig");
@@ -163,6 +166,8 @@ pub const App = struct {
     trim_wanted: std.atomic.Value(bool) = .init(false),
     /// Guardar o token quando o Discord aceitar (o "Lembrar" do login).
     save_token: bool = false,
+    /// O proxy do Discord da última vez que o quadro olhou (net/proxy.zig `generation`).
+    proxy_gen: u32 = 0,
     /// Último aviso da rede (vira a mensagem de erro do login).
     last_notice: [200]u8 = undefined,
     last_notice_len: usize = 0,
@@ -236,6 +241,10 @@ pub const App = struct {
             var dbuf: [512]u8 = undefined;
             if (draftsPath(&dbuf)) |p| app.st.drafts.load(gpa, p);
         }
+        // Antes da rede: a primeira conexão com um token salvo já vai pelo proxy, e um
+        // vídeo que toque antes do primeiro quadro já acha a pasta do FFmpeg.
+        proxy.set(app.st.settings.proxy.slice(), app.st.settings.proxy_all);
+        ffmpeg.setDir(app.st.settings.ffmpeg_dir.slice());
         // No QA e nos prints ninguém abre o microfone de verdade.
         voz_audio.force_dummy = opts.qa or opts.shot != null;
         voz_audio.qa_sounds_dir = opts.qa or opts.shot != null;
@@ -519,6 +528,17 @@ pub const App = struct {
         pickedCb(data, list, filter);
     }
 
+    /// A pasta com as bibliotecas do FFmpeg (ui/settings_video.zig confere).
+    fn pickFolder(app: *App) void {
+        if (app.opts.qa) return;
+        c.SDL_ShowOpenFolderDialog(pickedFolderCb, app, app.win.window, null, false);
+    }
+
+    fn pickedFolderCb(data: ?*anyopaque, list: [*c]const [*c]const u8, filter: c_int) callconv(.c) void {
+        if (list == null or list[0] == null) settings_video.cancelPick();
+        pickedCb(data, list, filter);
+    }
+
     /// Só uma imagem, para o ícone ou o banner (ui/edit_place.zig).
     fn pickImage(app: *App) void {
         if (app.opts.qa) return;
@@ -599,6 +619,36 @@ pub const App = struct {
         st.selection = .{};
         @memset(&st.input, 0);
         st.input_sync = true;
+    }
+
+    /// O formulário do proxy das Configurações (ui/settings_rede.zig) no cartão da tela
+    /// de entrada: o mesmo código, com as cores e a fonte da tela de entrada.
+    fn loginProxyForm(ptr: *anyopaque, area: login_mod.Area) f32 {
+        const app: *App = @ptrCast(@alignCast(ptr));
+        var th = app.themes.theme_().*;
+        login_mod.paint(&th, area.light);
+        const inter = app.uiFamily("Inter");
+        var ctx: d.Ctx = .{
+            .th = &th,
+            .theme_name = app.themes.name(),
+            .theme_names = app.themes.names.items,
+            .theme_index = app.themes.current,
+            .store = &app.store,
+            .st = &app.st,
+            .fonts = &app.fonts,
+            .ui = inter,
+            .mono = inter,
+            .dl = area.dl,
+            .fg = c.ImGui_GetForegroundDrawList(),
+            .io = app.io,
+            .mouse = app.io.*.MousePos,
+            .now_ms = now(),
+            .actions = &app.actions,
+            .stats = &app.stats,
+            .images = &app.images,
+            .win = area.win,
+        };
+        return @import("ui/settings.zig").proxyPanel(&ctx, area.dl, area.x, area.y, area.w);
     }
 
     /// O que a tela de login pediu.
@@ -1565,6 +1615,7 @@ pub const App = struct {
             .delete_thread => |id| app.cmd(.{ .delete_thread = id }),
             .pick_image => app.pickImage(),
             .pick_sound => app.pickSound(),
+            .pick_ffmpeg_dir => app.pickFolder(),
             .restart => if (app.opts.qa) st.showToast(now(), false, "reiniciando", "restarting", .{}) else {
                 app.restart_wanted = true;
             },
@@ -1926,6 +1977,7 @@ pub const App = struct {
             if (e == .voice_audio) app.voiceAudio(e.voice_audio.mic_ok, e.voice_audio.out_ok);
             if (e == .history) timeline.mark(.historico);
             if (e == .status and e.status == .failed) failed = true;
+            if (e == .net_fail and app.login.phase == .connecting) app.login.net_fail = e.net_fail;
             if (e == .status and e.status == .rejected) token_dead = true;
             // Antes de o Store ficar com a mensagem (se o canal não existe, ele a libera).
             const quiet: ?types.Id = if (e == .message_create and app.store.ready) app.incoming(e.message_create) else null;
@@ -2571,10 +2623,15 @@ pub const App = struct {
                 var picked: std.ArrayList([:0]u8) = .empty;
                 defer picked.deinit(std.heap.c_allocator);
                 settings_voz.pollCancel();
+                settings_video.pollCancel();
                 app.picked.drain(&picked);
                 for (picked.items) |p| {
                     defer std.heap.c_allocator.free(p);
                     if (settings_voz.takePicked(&app.st, now(), p)) {
+                        app.saveSettings();
+                        continue;
+                    }
+                    if (settings_video.takePicked(&app.st, now(), p)) {
                         app.saveSettings();
                         continue;
                     }
@@ -2690,7 +2747,13 @@ pub const App = struct {
             }
             anim.instant = set.reduce_motion;
             @import("net/media_url.zig").allow_gif_hosts.store(set.gif_hosts, .release);
-            @import("net/proxy.zig").set(set.proxy.slice(), set.proxy_all);
+            proxy.set(set.proxy.slice(), set.proxy_all);
+            // Proxy novo (o da tela de entrada): o erro de rede era da tentativa sem ele.
+            if (proxy.generation() != app.proxy_gen) {
+                app.proxy_gen = proxy.generation();
+                app.login.net_fail = null;
+            }
+            ffmpeg.setDir(set.ffmpeg_dir.slice());
             voz_audio.apply(set);
             lsp_ui.apply(set);
             app_presenca.frame(app);
@@ -2763,6 +2826,8 @@ pub const App = struct {
                     .reduce = set.reduce_motion,
                     .dt = if (record_dir != null) 1.0 / 30.0 else anim.dt,
                     .accounts = app_accounts.others(&login_accounts),
+                    .proxy = .{ .ctx = app, .draw = loginProxyForm },
+                    .proxy_on = set.proxy.len > 0,
                 });
                 _ = th;
                 if (result) |r| login_result = r;

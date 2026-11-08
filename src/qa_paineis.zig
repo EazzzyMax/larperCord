@@ -657,6 +657,7 @@ pub const ops_extras = [_]Op{
     click("settings:Chat"),
     .{ .run = ffmpegMissing },
     .{ .expect = .{ .name = "sem FFmpeg, oferece baixar", .check = ffmpegNotFound, .timeout_ms = 3000 } },
+} ++ @import("qa_ffmpeg.zig").ops ++ [_]Op{
     click("button:Baixar FFmpeg"),
     .{ .expect = .{ .name = "avisa antes de baixar qualquer coisa", .check = ffmpegWarns, .timeout_ms = 2000 } },
     .{ .shot = "ffmpeg-aviso" },
@@ -971,7 +972,7 @@ pub const ops_pages = [_]Op{
     .{ .shot = "73c-atualizacoes-pequena" },
     .{ .resize = .{ 1280, 800 } },
     .{ .wait = 200 },
-} ++ pageOps("Minha conta", "conta") ++ pageOps("Privacidade", "privacidade") ++ pageOps("Alertas e filtros", "filtros") ++ pageOps("Aparência", "aparencia") ++ pageOps("Acessibilidade", "acessibilidade") ++ pageOps("Chat", "chat") ++ pageOps("Voz", "voz") ++ pageOps("Notificações", "notificacoes") ++ pageOps("Atalhos de teclado", "atalhos") ++ pageOps("Idioma", "idioma") ++ pageOps("Avançado", "avancado") ++ pageOps("Desempenho", "desempenho") ++ pageOps("Erros no código", "lsp") ++ pageOps("Plugins", "plugins") ++ pageOps("Sobre", "sobre") ++ [_]Op{
+} ++ pageOps("Minha conta", "conta") ++ pageOps("Privacidade", "privacidade") ++ pageOps("Alertas e filtros", "filtros") ++ pageOps("Aparência", "aparencia") ++ pageOps("Acessibilidade", "acessibilidade") ++ pageOps("Chat", "chat") ++ pageOps("Voz", "voz") ++ pageOps("Notificações", "notificacoes") ++ pageOps("Atalhos de teclado", "atalhos") ++ pageOps("Idioma", "idioma") ++ pageOps("Rede", "rede") ++ pageOps("Avançado", "avancado") ++ pageOps("Desempenho", "desempenho") ++ pageOps("Erros no código", "lsp") ++ pageOps("Plugins", "plugins") ++ pageOps("Sobre", "sobre") ++ [_]Op{
     key(c.ImGuiKey_Escape),
     .{ .wait = 350 },
 };

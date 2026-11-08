@@ -1,6 +1,6 @@
-//! Proxy das conexões (Configurações → Privacidade → Rede): http, https,
-//! socks5 ou socks5h (socks5h://127.0.0.1:9050 = Tor, com o DNS pelo proxy).
-//! Por padrão só a mídia de fora (Tenor, Giphy) passa por ele; com "em
+//! Proxy das conexões (Configurações → Rede, e o botão Proxy da tela de entrada):
+//! http, https, socks5 ou socks5h (socks5h://127.0.0.1:9050 = Tor, com o DNS pelo
+//! proxy). Por padrão só a mídia de fora (Tenor, Giphy) passa por ele; com "em
 //! tudo", também o Discord (gateway, API, imagens e vídeos).
 //! Sem dependências (testado no `zig build test`); quem tem o curl aplica.
 const std = @import("std");
@@ -349,15 +349,25 @@ pub fn set(url: []const u8, all: bool) void {
     lock();
     defer unlock();
     if (cur_all == all and std.mem.eql(u8, cur[0..cur_len], u)) return;
+    // Só a mídia de fora antes e depois: o Discord não muda.
+    const discord = cur_all or all;
     @memcpy(cur[0..u.len], u);
     cur[u.len] = 0;
     cur_len = u.len;
     cur_all = all;
+    if (discord) _ = gen.fetchAdd(1, .release);
 }
 
 var last_raw: [512]u8 = undefined;
 var last_raw_len: usize = 0;
 var last_all = false;
+/// Muda a cada troca do proxy do Discord: o gateway, esperando para tentar de novo,
+/// tenta já (quem acabou de pôr um proxy na tela de entrada não espera um minuto).
+var gen: std.atomic.Value(u32) = .init(0);
+
+pub fn generation() u32 {
+    return gen.load(.acquire);
+}
 
 /// O proxy para baixar `url` (null = conexão direta).
 pub fn forUrl(buf: *Buf, url: []const u8) ?[:0]const u8 {
@@ -376,6 +386,67 @@ pub fn forDiscord(buf: *Buf) ?[:0]const u8 {
     if (cur_len == 0 or !cur_all) return null;
     @memcpy(buf[0 .. cur_len + 1], cur[0 .. cur_len + 1]);
     return buf[0..cur_len :0];
+}
+
+// --- Por que não chegou no Discord ----------------------------------------------
+
+/// O que deu errado ao abrir a conexão com o Discord (a tela de entrada oferece o proxy).
+pub const NetFail = enum { dns, refused, timeout, tls, proxy, dropped, other };
+
+/// O CURLcode do `curl_easy_perform` (0 = deu certo, null). `via_proxy`: a conexão
+/// recusada é a do proxy, não a do Discord. Os números são os do curl.h, fixos desde
+/// sempre; aqui sem o curl, para o teste.
+pub fn classify(code: c_int, via_proxy: bool) ?NetFail {
+    return switch (code) {
+        0 => null,
+        // CURLE_COULDNT_RESOLVE_PROXY, CURLE_PROXY (handshake do SOCKS/HTTP CONNECT).
+        5, 97 => .proxy,
+        6 => if (via_proxy) .proxy else .dns,
+        7 => if (via_proxy) .proxy else .refused,
+        28 => .timeout,
+        // SSL_CONNECT_ERROR, SSL_CERTPROBLEM, SSL_CIPHER, PEER_FAILED_VERIFICATION,
+        // SSL_CACERT_BADFILE, SSL_ISSUER_ERROR, SSL_PINNEDPUBKEYNOTMATCH, SSL_INVALIDCERTSTATUS.
+        35, 58, 59, 60, 77, 83, 90, 91 => .tls,
+        // GOT_NOTHING, SEND_ERROR, RECV_ERROR: conectou e caiu sem resposta.
+        52, 55, 56 => .dropped,
+        else => .other,
+    };
+}
+
+test "proxy: por que não chegou no Discord" {
+    try std.testing.expectEqual(@as(?NetFail, null), classify(0, false));
+    try std.testing.expectEqual(NetFail.dns, classify(6, false).?);
+    try std.testing.expectEqual(NetFail.refused, classify(7, false).?);
+    try std.testing.expectEqual(NetFail.timeout, classify(28, true).?);
+    try std.testing.expectEqual(NetFail.tls, classify(60, false).?);
+    try std.testing.expectEqual(NetFail.dropped, classify(56, false).?);
+    // Com proxy, a recusa e o nome que não resolve são do proxy.
+    try std.testing.expectEqual(NetFail.proxy, classify(7, true).?);
+    try std.testing.expectEqual(NetFail.proxy, classify(6, true).?);
+    try std.testing.expectEqual(NetFail.proxy, classify(97, false).?);
+    try std.testing.expectEqual(NetFail.other, classify(1, false).?);
+}
+
+test "proxy: trocar o proxy em uso avisa quem espera" {
+    set("", false);
+    const g0 = generation();
+    set("", false);
+    try std.testing.expectEqual(g0, generation());
+    set("socks5h://127.0.0.1:9050", true);
+    try std.testing.expect(generation() != g0);
+    const g1 = generation();
+    // O mesmo valor de novo não conta; inválido é o mesmo que nenhum.
+    set("socks5h://127.0.0.1:9050", true);
+    try std.testing.expectEqual(g1, generation());
+    set("", false);
+    try std.testing.expect(generation() != g1);
+    const g2 = generation();
+    set("lixo", false);
+    try std.testing.expectEqual(g2, generation());
+    // Proxy só da mídia de fora: o Discord continua direto, ninguém precisa saber.
+    set("socks5h://127.0.0.1:9050", false);
+    try std.testing.expectEqual(g2, generation());
+    set("", false);
 }
 
 test "proxy: urls aceitas e recusadas" {
