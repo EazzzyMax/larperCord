@@ -105,6 +105,55 @@ jobs:
           name: qa-out
           path: qa-out/
 
+  # macOS (experimental, Apple Silicon): as bibliotecas do Homebrew (docs/macos.md), os
+  # testes, a bateria geral do QA fora da tela e o .app para quem tem um Mac baixar e
+  # testar. Enquanto o port for experimental, uma falha aqui não segura o resto.
+  macos:
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      - run: brew install sdl3 curl opus webp freetype fontconfig openssl@3 pkgconf
+      - run: sh tools/macos_build.sh
+      - run: zig build test
+      # Debug, com as checagens de segurança, como o tools/qa.sh. Sem janela: o driver
+      # offscreen do SDL desenha no renderizador de software (o Metal precisa de janela).
+      - name: QA geral (fora da tela)
+        env:
+          SDL_VIDEO_DRIVER: offscreen
+          LARPER_RENDERER: software
+          QA_SLOW: "3"
+        run: |
+          sh tools/macos_build.sh -Doptimize=debug -p .zig-cache/qa
+          mkdir -p qa-out
+          status=0
+          ./.zig-cache/qa/bin/larpercord --qa --theme classico > qa-out/geral.log 2>&1 || status=$?
+          grep -E 'passaram|falharam|^\s+- \[|panic' qa-out/geral.log || tail -n 30 qa-out/geral.log
+          exit $status
+      # O .app com as dylibs dentro, assinado ad hoc. Em .tar.gz: o artefato do GitHub
+      # perde a permissão de execução dos arquivos.
+      - name: Pacote .app
+        if: always()
+        run: |
+          rm -rf dist && mkdir dist
+          python3 tools/macos_bundle.py dist/LarperCord.app
+          tar -czf dist/larpercord-macos-arm64.tar.gz -C dist LarperCord.app
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: larpercord-macos-arm64
+          path: dist/larpercord-macos-arm64.tar.gz
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-qa-out
+          path: qa-out/
+          if-no-files-found: ignore
+
   # O site: cada tema de themes/community/ com as regras do app e da galeria (metadados,
   # nome único, sem cópia de tema embutido) e o teste do criador de temas, que carrega cada
   # um como o app. Um tema quebrado num pull request falha aqui, antes de chegar ao Pages.

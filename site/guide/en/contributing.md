@@ -21,7 +21,7 @@ tools/membench.sh 50                # RAM and idle CPU per theme, with a budget 
 
 The QA drives the real UI: it clicks through elements, and a button with no effect counts as a failure. It runs in demo mode and never touches your account. On Linux it runs off-screen; on macOS it opens native windows. For the experimental Apple Silicon build, install the dependencies in `docs/macos.md` first; `tools/qa.sh` selects the macOS build script automatically.
 
-CI (`.github/workflows/ci.yml`) runs the tests, then builds the app on Arch and runs the full QA on every push and pull request.
+CI (`.github/workflows/ci.yml`) runs the tests, then builds the app on Arch and runs the full QA on every push and pull request. An experimental macOS job builds on Apple Silicon, runs the tests and the general QA, and uploads the `.app`; while the port is experimental, a failure there doesn't block anything.
 
 ## Sending a theme
 

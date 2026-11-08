@@ -21,7 +21,7 @@ tools/membench.sh 50                # RAM e CPU parado por tema, com um orçamen
 
 O QA controla a interface de verdade: ele clica nos elementos, e um botão sem efeito conta como falha. Roda em modo demonstração e nunca toca na sua conta. No Linux roda fora da tela; no macOS abre janelas nativas. Para o build experimental Apple Silicon, instale primeiro as dependências de `docs/macos.pt-BR.md`; o `tools/qa.sh` escolhe o script de build do macOS automaticamente.
 
-O CI (`.github/workflows/ci.yml`) roda os testes, depois compila o app no Arch e roda o QA completo a cada push e pull request.
+O CI (`.github/workflows/ci.yml`) roda os testes, depois compila o app no Arch e roda o QA completo a cada push e pull request. Um job experimental de macOS compila no Apple Silicon, roda os testes e a bateria geral do QA e publica o `.app`; enquanto o port for experimental, uma falha ali não segura nada.
 
 ## Enviando um tema
 
