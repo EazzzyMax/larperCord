@@ -841,7 +841,10 @@ html[data-fx=zine] .brand{font:400 20px/1 var(--display);letter-spacing:0;color:
 .nav-trig[data-current]::after,.nav-link[aria-current]::after{content:"";position:absolute;left:11px;right:11px;bottom:3px;height:2px;border-radius:2px;background:var(--accent)}
 .nav-caret{width:14px;height:14px;margin-right:-3px;opacity:.7;transition:transform .2s cubic-bezier(.3,1.4,.5,1)}
 .nav-group.open .nav-caret{transform:rotate(180deg)}
-.nav-menu{position:absolute;top:calc(100% + 10px);left:-6px;z-index:50;min-width:318px;padding:8px;border:1px solid var(--border);border-radius:calc(var(--radius) + 12px);
+/* O .nav-item tem só a largura do botão: sem width, o menu (absolute dentro dele) ficaria no
+   min-width e o texto passaria da borda. A largura acompanha o texto; acima de max-width a
+   descrição quebra a linha. Se passar da janela, o site.js puxa o menu para a esquerda. */
+.nav-menu{position:absolute;top:calc(100% + 10px);left:-6px;z-index:50;width:max-content;min-width:318px;max-width:min(420px,calc(100vw - 24px));padding:8px;border:1px solid var(--border);border-radius:calc(var(--radius) + 12px);
   background:color-mix(in srgb,var(--overlay) 94%,transparent);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
   box-shadow:0 28px 70px -22px var(--shadow),0 0 0 1px color-mix(in srgb,var(--accent) 8%,transparent);
   opacity:0;visibility:hidden;transform:translateY(-6px) scale(.985);transform-origin:24px 0;transition:opacity .15s,transform .2s cubic-bezier(.2,.9,.3,1.15),visibility 0s .2s}
@@ -856,7 +859,7 @@ html[data-fx=zine] .brand{font:400 20px/1 var(--display);letter-spacing:0;color:
 .nav-mi:hover .nav-mi-ic,.nav-mi:focus-visible .nav-mi-ic{background:var(--accent);color:var(--accent-text);transform:rotate(-6deg) scale(1.06)}
 .nav-mi-t{display:flex;flex-direction:column;gap:4px;min-width:0}
 .nav-mi-t b{font:600 13.5px/1.2 var(--sans);white-space:nowrap}
-.nav-mi-t small{font:400 11.5px/1.35 var(--mono);color:var(--muted);white-space:nowrap}
+.nav-mi-t small{font:400 11.5px/1.35 var(--mono);color:var(--muted);text-wrap:pretty}
 
 .nav-try{position:relative;display:inline-flex;align-items:center;gap:7px;height:34px;margin-left:8px;padding:0 14px 0 12px;border-radius:999px;background:var(--accent);color:var(--accent-text);font-weight:500;text-decoration:none;white-space:nowrap;
   box-shadow:0 8px 24px -10px var(--accent);transition:transform .15s,box-shadow .15s}
@@ -901,10 +904,9 @@ html[data-fx=zine] .nav-try-dot{display:none}
   html.js.nav-open .nav{clip-path:inset(0 0 0 0);visibility:visible;transition-delay:0s}
   html.js .nav-list{flex-direction:column;align-items:stretch;gap:16px}
   html.js .nav-trig{display:none}
-  html.js .nav-menu{position:static;min-width:0;padding:0;border:0;background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;opacity:1;visibility:visible;transform:none;transition:none}
+  html.js .nav-menu{position:static;width:auto;min-width:0;max-width:none;padding:0;border:0;background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;opacity:1;visibility:visible;transform:none;transition:none}
   html.js .nav-menu::before{display:none}
   html.js .nav-sect{display:block;margin:0 0 6px 10px;font:400 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
-  html.js .nav-mi-t small{white-space:normal}
   html.js .nav-link{display:grid;grid-template-columns:34px minmax(0,1fr);gap:12px;height:auto;padding:8px 10px;color:var(--text);font:600 13.5px/1.2 var(--sans)}
   html.js .nav-link[aria-current]::after{display:none}
   html.js .nav-link[aria-current]{background:var(--selected)}
@@ -921,7 +923,7 @@ html[data-fx=zine] .nav-try-dot{display:none}
   html:not(.js) .topnav{height:auto;flex-wrap:wrap;row-gap:4px;padding-top:10px;padding-bottom:8px}
   html:not(.js) .nav{order:3;flex-basis:100%;justify-content:flex-start;overflow-x:auto;scrollbar-width:none}
   html:not(.js) .nav-trig,html:not(.js) .nav-burger,html:not(.js) .nav-mi-ic,html:not(.js) .nav-mi-t small{display:none}
-  html:not(.js) .nav-menu{position:static;min-width:0;padding:0;border:0;background:none;box-shadow:none;opacity:1;visibility:visible;transform:none}
+  html:not(.js) .nav-menu{position:static;width:auto;min-width:0;max-width:none;padding:0;border:0;background:none;box-shadow:none;opacity:1;visibility:visible;transform:none}
   html:not(.js) .nav-menu ul{display:flex}
   html:not(.js) .nav-mi{display:flex;padding:8px 10px;white-space:nowrap}
   html:not(.js) .nav-mi-t b{font:inherit}

@@ -155,15 +155,19 @@
   setInterval(tick, 20000);
 
   // Posição na página, como a régua do vim, e o fio de progresso da barra.
-  var pos = document.querySelector("[data-scroll-pos]"), queued = false, shownPos = "", maxScroll = 1, barW = 0;
+  var pos = document.querySelector("[data-scroll-pos]"), queued = false, shownPos = "", barW = 0;
   var prog = document.querySelector(".sb-prog"), buddyEl = document.querySelector(".buddy");
   function measure() {
-    maxScroll = Math.max(html.scrollHeight - innerHeight, 1);
     barW = innerWidth - (buddyEl ? buddyEl.offsetWidth : 0);
     place();
   }
+  // Seções fora da tela só têm tamanho estimado (content-visibility): a altura muda enquanto se
+  // rola, então ela é lida aqui, a cada quadro de rolagem. Um ResizeObserver no body fazia isso,
+  // mas o body muda de tamanho dentro do próprio ciclo do observador quando uma seção chega perto
+  // da tela, e o navegador registrava "ResizeObserver loop completed with undelivered notifications".
   function place() {
     queued = false;
+    var maxScroll = Math.max(html.scrollHeight - innerHeight, 1);
     var p = Math.min(scrollY / maxScroll, 1);
     prog.style.transform = "scaleX(" + p.toFixed(4) + ")";
     if (buddyEl) buddyEl.style.transform = "translateX(" + (p * barW).toFixed(1) + "px)";
@@ -175,10 +179,6 @@
   }, { passive: true });
   addEventListener("resize", measure);
   addEventListener("load", measure);
-  // Seções fora da tela só têm tamanho estimado: a altura muda enquanto se rola.
-  if (window.ResizeObserver) new ResizeObserver(function () {
-    maxScroll = Math.max(html.scrollHeight - innerHeight, 1);
-  }).observe(document.body);
   measure();
 
   // ------------------------------------------------------------ Paleta ----
@@ -472,6 +472,16 @@
       item.g.classList.toggle("open", open);
       item.b.setAttribute("aria-expanded", open ? "true" : "false");
       item.pinned = open && pin;
+      if (open) keepIn(item.menu);
+    }
+    // O menu tem a largura do texto (site.css): numa janela estreita, ou com um texto mais longo
+    // noutra língua, ele anda para a esquerda até caber, em vez de passar da borda da janela.
+    // Conta sem o transform da animação de abrir (offsetWidth e a posição do item).
+    function keepIn(menu) {
+      menu.style.left = "";
+      var left = parseFloat(getComputedStyle(menu).left) || 0;
+      var over = menu.parentElement.getBoundingClientRect().left + left + menu.offsetWidth - (document.documentElement.clientWidth - 12);
+      if (over > 0) menu.style.left = (left - over) + "px";
     }
     function closeAll(focusBack) {
       groups.forEach(function (o) {

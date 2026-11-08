@@ -368,6 +368,37 @@ tasks.push(test("damaged or hostile share links are refused with a reason", () =
     ...["d.%%%%", "j.%E0%A4%A", "d.abc%", "j.%ZZ"].map((tk) => TB.decode(tk, builtinStructure).then(() => { throw new Error("accepted " + tk); }, (e) => assert.strictEqual(e.code, "link-broken", tk))),
   ]);
 }));
+// Um link de 4 KB descomprimia para 36 mil nós (pouco abaixo do limite de 1 MiB) e travava a página
+// por uns 10 s. O layout que chega de fora (link, arquivo aberto, tema da comunidade) tem limite
+// de nós e de tamanho; os temas de verdade ficam muito longe dele.
+tasks.push(test("share links and files with a huge layout are refused before anything is drawn", () => {
+  for (const t of THEMES) assert.doesNotThrow(() => TB.layoutCheck(structureOf[t]), t);
+  const huge = "layout {\n  column {\n" + 'label height=1 text="x"\n'.repeat(36000) + "  }\n}";
+  const atLimit = "layout {\n" + "  label\n".repeat(TB.LAYOUT_NODES - 1) + "}";
+  const overLimit = "layout {\n" + "  label\n".repeat(TB.LAYOUT_NODES) + "}";
+  const spans = "layout {\n  label {\n" + '    span "x"\n'.repeat(TB.LAYOUT_NODES) + "  }\n}";
+  const longText = "layout {\n  // " + "x".repeat(TB.LAYOUT_BYTES) + "\n  messages\n}";
+  assert.doesNotThrow(() => TB.layoutCheck(atLimit));
+  for (const s of [huge, overLimit, spans, longText]) assert.throws(() => TB.layoutCheck(s), (e) => e.code === "layout-big", s.slice(0, 40));
+  // Um layout que nem lê não é "grande demais": ele abre e o editor aponta o erro, como antes.
+  assert.doesNotThrow(() => TB.layoutCheck("layout {\n" + "  label\n".repeat(20)));
+  assert.strictEqual(TB.expand(Object.assign(TB.compact(TB.fromSource(sources.zen)), { s: "layout {\n  row {" }), builtinStructure).structure, "layout {\n  row {");
+  // O arquivo aberto no criador.
+  assert.throws(() => TB.fromSource('theme "grande"\n' + overLimit), (e) => e.code === "layout-big");
+  assert.ok(TB.errorText({ code: "layout-big" }, "en").includes(TB.LAYOUT_NODES + " nodes") && TB.errorText({ code: "layout-big" }, "pt").includes(TB.LAYOUT_NODES + " nós"));
+  // O link: comprimido, com poucos KB, recusado com o motivo e sem demora.
+  const state = TB.fromSource(sources.zen, { base: "zen", name: "z" });
+  state.layoutFrom = null;
+  state.structure = huge;
+  return TB.encode(state, builtinStructure).then((token) => {
+    if (typeof CompressionStream !== "undefined") assert.ok(token.length < 8000, "token " + token.length);
+    const t0 = Date.now();
+    return TB.decode(token, builtinStructure).then(() => { throw new Error("accepted"); }, (e) => {
+      assert.strictEqual(e.code, "layout-big");
+      assert.ok(Date.now() - t0 < 1500, "took " + (Date.now() - t0) + " ms");
+    });
+  });
+}));
 // Um link que algum app codificou com % continua abrindo o mesmo tema.
 tasks.push(test("share links still open after percent-encoding", () => {
   const state = TB.fromSource(sources.bolhas, { base: "bolhas", name: "b" });
@@ -410,6 +441,7 @@ tasks.push(test("every error has English and Portuguese text", () => {
     ["css-too-big", () => TB.importDiscordCss("a".repeat(TB.CSS_MAX + 1))], ["css-empty", () => TB.importDiscordCss(":root { --nothing-here: #fff }")],
     ["css-slow", () => { let clock = 0; TB.importDiscordCss(":root{" + "--v: #fff;".repeat(5000) + "}", { now: () => (clock += 100), budget: 1000 }); }],
     ["community-missing", () => TB.communityFromSource("// " + "x".repeat(TB.COMMUNITY_MAX))],
+    ["layout-big", () => TB.expand(Object.assign(TB.compact(TB.fromSource(sources.zen)), { s: "layout {\n" + "  label\n".repeat(TB.LAYOUT_NODES) + "}" }), builtinStructure)],
   ];
   const seen = new Set();
   for (const [code, fn, arg] of cases) {

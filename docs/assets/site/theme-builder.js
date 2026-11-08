@@ -870,8 +870,8 @@
   function placePop(anchor) {
     if (matchMedia("(max-width: 899.98px)").matches) { pop.style.left = ""; pop.style.top = ""; return; }
     // Fica acima da barra de baixo do palco (o zoom e o contraste continuam à vista), não só dentro da janela.
-    var cb = canvas.getBoundingClientRect().bottom, vw = innerWidth, vh = Math.min(innerHeight, cb), x, y;
-    pop.style.maxHeight = Math.max(240, vh - 20) + "px";
+    var cb = canvas.getBoundingClientRect().bottom, vw = innerWidth, vh = Math.min(innerHeight, cb), top0 = popTop(), x, y;
+    pop.style.maxHeight = Math.max(240, vh - top0 - 10) + "px";
     var w = pop.offsetWidth || 316, hh = pop.offsetHeight || 480;
     if (anchor.width !== undefined) {
       x = anchor.right + 10;
@@ -883,7 +883,14 @@
       y = anchor.y - 60;
     }
     pop.style.left = clamp(x, 10, vw - w - 10) + "px";
-    pop.style.top = clamp(y, 10, Math.max(10, vh - hh - 10)) + "px";
+    pop.style.top = clamp(y, top0, Math.max(top0, vh - hh - 10)) + "px";
+  }
+  // O topo do site fica por cima do palco (o main tem z-index 0 e o topo, 45), então o editor
+  // começa abaixo dele: numa janela baixa, o título, o cadeado e o fechar ficariam sem clique.
+  // Na tela cheia, ou com a prévia ocupando a janela, o topo fica por baixo e vale a janela toda.
+  function popTop() {
+    var nav = document.querySelector("[data-topnav]");
+    return fullOn() || !nav ? 10 : Math.max(10, nav.getBoundingClientRect().bottom + 10);
   }
   // `kbd`: aberto pelo teclado (Enter ou Espaço numa cor do painel): o foco vai para o campo hex.
   // Pelo mouse ou pelo toque o foco fica onde está (num celular, focar o campo abriria o teclado).
@@ -2124,9 +2131,13 @@
     }, 700);
   }
   // Da galeria da comunidade: o .kdl vem de docs/community/, do próprio site (a CSP só deixa
-  // buscar dele), e só os nomes que gen_site.py conferiu.
+  // buscar dele), e só os nomes que gen_site.py conferiu. Um nome fora da lista (tema renomeado
+  // ou tirado da galeria, link cortado) não busca nada, mas diz por que o tema não abriu.
   function loadCommunity(name) {
-    if (!Array.isArray(DATA.community) || DATA.community.indexOf(name) < 0 || !/^[a-z0-9-]{1,48}$/.test(name)) return;
+    if (!Array.isArray(DATA.community) || DATA.community.indexOf(name) < 0 || !/^[a-z0-9-]{1,48}$/.test(name)) {
+      say(S.linkFail + TB.errorText({ code: "community-missing" }, lang));
+      return;
+    }
     fetch(DATA.communityBase + name + ".kdl", { credentials: "same-origin" }).then(function (r) {
       if (!r.ok) throw { code: "community-missing" };
       return r.text();
@@ -2188,7 +2199,8 @@
       return true;
     }
     if ((m = /^base=([a-z]+)$/.exec(hash)) && DATA.order.indexOf(m[1]) >= 0) { take(startFrom(m[1]), state ? S.started + m[1] : ""); return true; }
-    if ((m = /^community=([a-z0-9-]{1,48})$/.exec(hash))) {
+    // Qualquer #community=…: o loadCommunity só busca os nomes da lista e explica o resto.
+    if ((m = /^community=(.*)$/.exec(hash))) {
       if (!state) { state = startFrom(DATA.order.indexOf(html.dataset.theme) >= 0 ? html.dataset.theme : "orbital"); ready(); }
       loadCommunity(m[1]);
       return true;

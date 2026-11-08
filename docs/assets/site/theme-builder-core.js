@@ -29,6 +29,7 @@
       "css-too-big": "the CSS is bigger than 500 KB", "css-slow": "the CSS took too long to read",
       "css-empty": "no Discord color variables this page knows were found in the CSS",
       "community-missing": "this community theme couldn't be loaded from the site",
+      "layout-big": "the layout is bigger than this page can draw (over 500 nodes or 64 KB)",
     },
     pt: {
       comment: "comentário /* sem fechar", depth: "blocos aninhados demais", close: "faltou fechar '}'", "extra-close": "'}' sobrando",
@@ -46,6 +47,7 @@
       "css-too-big": "o CSS passa de 500 KB", "css-slow": "o CSS demorou demais para ser lido",
       "css-empty": "o CSS não tem nenhuma variável de cor do Discord que esta página conheça",
       "community-missing": "não deu para carregar este tema da comunidade do site",
+      "layout-big": "o layout é maior do que esta página consegue desenhar (mais de 500 nós ou 64 KB)",
     },
   };
   // As propriedades femininas, como o app escreve ("border inválida", "grain inválido").
@@ -720,7 +722,25 @@
       }
     });
     state.structure = nodes.filter(function (nd) { return !absorbable(nd); }).map(function (nd) { return chunk(src, nd); }).join("\n\n");
+    layoutCheck(state.structure);
     return state;
+  }
+
+  // Um layout de verdade tem algumas dezenas de nós (o maior dos embutidos, 48) e poucos KB. Um
+  // link de 4 KB descomprime para dezenas de milhares de nós, e a página travaria por segundos
+  // desenhando a prévia, as camadas e o realce do texto. Então um layout que chega de fora (link,
+  // arquivo aberto, tema da comunidade) passa por aqui; o texto de "layout-big" cita os dois
+  // números. O app não tem este limite: ele só lê o arquivo que a pessoa pôs no disco.
+  var LAYOUT_NODES = 500, LAYOUT_BYTES = 64 * 1024;
+  function layoutCheck(structure) {
+    var s = String(structure || ""), nodes, n = 0;
+    if (s.length > LAYOUT_BYTES || utf8(s).length > LAYOUT_BYTES) throw linkError("layout-big");
+    // Um layout que nem chega a ser lido não desenha nada: o erro dele aparece onde já aparecia.
+    try { nodes = parseKdl(s); } catch (e) { return; }
+    (function count(list) {
+      list.forEach(function (nd) { if (++n <= LAYOUT_NODES) count(nd.kids); });
+    })(nodes);
+    if (n > LAYOUT_NODES) throw linkError("layout-big");
   }
 
   // ------------------------------------------------------ Gerar o .kdl ----
@@ -1908,7 +1928,10 @@
     if (c.l !== undefined && c.l !== null && c.l !== "") {
       structure = /^[a-z0-9-]{1,40}$/.test(text(c.l)) && builtinStructure ? builtinStructure(c.l) : undefined;
       if (typeof structure !== "string") throw linkError("link-layout");
-    } else structure = text(c.s);
+    } else {
+      structure = text(c.s);
+      layoutCheck(structure);
+    }
     var state = { v: 1, base: base, layoutFrom: typeof c.l === "string" && c.l ? c.l : null,
       meta: { name: text(m[0]), author: text(m[1]), desc: text(m[2]), descEn: text(m[3]), preview: PREVIEWS.indexOf(m[4]) >= 0 ? m[4] : "classic", license: text(m[5]) },
       fonts: { ui: text(f[0]) || "Inter", mono: text(f[1]) || "JetBrains Mono", size: clampNum(f[2], 6, 72, 16) },
@@ -1995,7 +2018,7 @@
     contrastReport: contrastReport, layoutColorBlocks: layoutColorBlocks, effectiveColors: effectiveColors, oklch: oklch, toOklch: toOklch, rng: rng,
     generate: generate, randomSeed: randomSeed, imageColors: imageColors, seedFromImage: seedFromImage,
     seedFromColors: seedFromColors, fromPalette: fromPalette,
-    COMMUNITY: COMMUNITY, COMMUNITY_MAX: COMMUNITY_MAX, LICENSES: LICENSES, licenseOk: licenseOk, communityCheck: communityCheck, communityFromSource: communityFromSource,
+    COMMUNITY: COMMUNITY, COMMUNITY_MAX: COMMUNITY_MAX, LAYOUT_NODES: LAYOUT_NODES, LAYOUT_BYTES: LAYOUT_BYTES, layoutCheck: layoutCheck, LICENSES: LICENSES, licenseOk: licenseOk, communityCheck: communityCheck, communityFromSource: communityFromSource,
     CSS_MAX: CSS_MAX, CSS_MAP: CSS_MAP, parseCss: parseCss, parseCssColor: parseCssColor, importDiscordCss: importDiscordCss, applyCssImport: applyCssImport,
     encode: encode, encodeSync: encodeSync, decode: decode, compact: compact, expand: expand, clone: clone,
   };
