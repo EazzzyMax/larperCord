@@ -182,7 +182,6 @@ pub fn applyMuted(store: *const Store, muted: *std.AutoHashMapUnmanaged(Id, void
 pub fn countFrom(store: *const Store, cs: *store_mod.ChannelState, after: Id) struct { messages: u16, mentions: u16 } {
     var n: u16 = 0;
     var m: u16 = 0;
-    const inbox = @import("inbox.zig");
     var i = cs.messages.items.len;
     while (i > 0) {
         i -= 1;
@@ -191,7 +190,7 @@ pub fn countFrom(store: *const Store, cs: *store_mod.ChannelState, after: Id) st
         if (sm.msg.id <= after) break;
         if (sm.msg.author == store.me) continue;
         n +|= 1;
-        if (inbox.mentionsMeCached(store, cs.info.guild, sm)) m +|= 1;
+        if (store.mentionsMeCached(cs.info.guild, sm)) m +|= 1;
     }
     return .{ .messages = n, .mentions = m };
 }

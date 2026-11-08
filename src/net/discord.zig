@@ -1268,6 +1268,9 @@ pub const Gateway = struct {
                 try embedAttachments(d, &list);
                 atts = try list.toOwnedSlice(alloc);
             }
+            // A edição traz a mensagem inteira, com quem ela chama; a que só
+            // completa os embeds não traz `mentions`.
+            const full = j.get(d, "mentions") != null;
             g.emit(.{ .message_update = .{
                 .channel = ch,
                 .id = id,
@@ -1276,6 +1279,7 @@ pub const Gateway = struct {
                 .embeds = if (has_embeds) try embedsOf(d) else null,
                 .attachments = atts,
                 .pinned = if (j.get(d, "pinned")) |p| p == .bool and p.bool else null,
+                .mentions = if (full) .{ .me = g.mentionedMe(d), .everyone = mentionEveryone(d), .roles = try mentionRolesOf(d) } else null,
             } });
             // A enquete acabou (a contagem final chega assim).
             g.emitPoll(d);
@@ -2005,6 +2009,8 @@ pub const Gateway = struct {
         }
         const embeds = try embedsOf(m);
         errdefer types.freeEmbeds(alloc, embeds);
+        const roles = try mentionRolesOf(m);
+        errdefer if (roles.len > 0) alloc.free(roles);
         // Mensagens de sistema vêm sem texto: monta o que o Discord mostra.
         const sys_msg = try systemText(m, author);
         if (sys_msg.text) |t| {
@@ -2036,14 +2042,38 @@ pub const Gateway = struct {
             .embeds = embeds,
             .system = sys_msg.kind,
             .pinned = if (j.get(m, "pinned")) |p| p == .bool and p.bool else false,
-            .mention_everyone = if (j.get(m, "mention_everyone")) |me| me == .bool and me.bool else false,
-            .mentions_me = for (j.array(j.get(m, "mentions"))) |u| {
-                if (j.id(j.get(u, "id")) == g.me) break true;
-            } else false,
+            .mention_everyone = mentionEveryone(m),
+            .mentions_me = g.mentionedMe(m),
+            .mention_roles = roles,
             .thread = thread,
             .flags = @truncate(@as(u64, @bitCast(j.int(j.get(m, "flags")) orelse 0))),
             .app = j.id(j.get(m, "application_id")) orelse 0,
         };
+    }
+
+    /// Estamos no `mentions` da mensagem: menção direta ou a resposta que marca
+    /// quem foi respondido (core/mencao.zig).
+    fn mentionedMe(g: *const Gateway, m: Value) bool {
+        for (j.array(j.get(m, "mentions"))) |u| if (j.id(j.get(u, "id")) == g.me) return true;
+        return false;
+    }
+
+    fn mentionEveryone(m: Value) bool {
+        return if (j.get(m, "mention_everyone")) |me| me == .bool and me.bool else false;
+    }
+
+    /// Os cargos do `mention_roles` (vazio, sem alocar, na maioria das mensagens).
+    fn mentionRolesOf(m: Value) ![]const Id {
+        const list = j.array(j.get(m, "mention_roles"));
+        if (list.len == 0) return &.{};
+        var out: std.ArrayList(Id) = .empty;
+        errdefer out.deinit(alloc);
+        for (list) |r| if (j.id(r)) |id| try out.append(alloc, id);
+        if (out.items.len == 0) {
+            out.deinit(alloc);
+            return &.{};
+        }
+        return try out.toOwnedSlice(alloc);
     }
 
     /// Texto das mensagens de sistema (tipos do Discord), com os nomes em

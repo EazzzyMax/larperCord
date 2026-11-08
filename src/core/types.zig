@@ -497,10 +497,13 @@ pub const Message = struct {
     /// Mensagem de sistema (entrou, saiu, chamada, fixou…): `content` já
     /// vem com o texto pronto e a interface desenha como uma linha cinza.
     system: SystemKind = .none,
-    /// Do servidor: @everyone/@here valendo (quem escreveu tinha permissão) e
-    /// menção a nós fora de bloco de código.
+    /// Do servidor: @everyone/@here valendo (quem escreveu tinha permissão),
+    /// menção a nós (no `mentions`, o que inclui a resposta que marca) e os
+    /// cargos mencionados (`mention_roles`, alocado como o resto da mensagem;
+    /// vazio na maioria). Quem decide se chama a gente é core/mencao.zig.
     mention_everyone: bool = false,
     mentions_me: bool = false,
+    mention_roles: []const Id = &.{},
     /// Fixada no canal.
     pinned: bool = false,
     /// Thread aberta a partir desta mensagem (0 = nenhuma): o cartão clicável.

@@ -46,31 +46,6 @@ pub const Model = struct {
     }
 };
 
-/// A mensagem fala com a gente: <@nós>, um cargo nosso, @everyone ou @here.
-pub fn mentionsMe(store: *const Store, guild: Id, m: *const StoredMessage) bool {
-    for (m.spans) |sp| switch (sp.mention) {
-        .user => |u| if (u == store.me) return true,
-        .role => |r| if (store.hasRole(guild, r)) return true,
-        else => {},
-    };
-    if (m.msg.mention_everyone) return true;
-    // "@everyone" escrito por quem não tem permissão não chama ninguém; a
-    // demonstração não tem esse dado do servidor.
-    if (!store.demo) return false;
-    const t = m.msg.content;
-    return std.mem.indexOf(u8, t, "@everyone") != null or std.mem.indexOf(u8, t, "@here") != null;
-}
-
-/// `mentionsMe` com cache na mensagem: só olha de novo quando o texto ou os
-/// nossos cargos mudam.
-pub fn mentionsMeCached(store: *const Store, guild: Id, m: *StoredMessage) bool {
-    const key = (store.me_rev *% 2654435761 ^ @as(u32, @truncate(@intFromPtr(m.msg.content.ptr) ^ m.msg.content.len))) | 1;
-    if (m.mm_key == key) return m.mm;
-    m.mm_key = key;
-    m.mm = mentionsMe(store, guild, m);
-    return m.mm;
-}
-
 /// Junta as não lidas de um canal, da mais nova para trás. Para no marcador
 /// de leitura ou na nossa última mensagem (responder é ter lido); canal
 /// nunca lido nesta sessão não tem marcador e vale só a segunda regra.
@@ -87,7 +62,7 @@ fn collect(store: *const Store, cs: *ChannelState, only_mentions: bool, g: *Grou
         if (cs.read_id != 0 and m.msg.id <= cs.read_id) break;
         if (m.msg.author == store.me) break;
         if (m.msg.system != .none or m.deleted) continue;
-        if (only_mentions and !mentionsMeCached(store, cs.info.guild, m)) continue;
+        if (only_mentions and !store.mentionsMeCached(cs.info.guild, m)) continue;
         g.total += 1;
         if (g.latest == 0) g.latest = m.msg.id;
         if (k < per_group) {
@@ -237,7 +212,7 @@ pub fn buildMentions(store: *const Store, out: *Mentions) void {
             const m = &cs.messages.items[i];
             if (m.msg.id == 0) continue;
             if (types.snowflakeTime(m.msg.id) <= store.mentions_ms) break;
-            if (m.msg.author == store.me or !mentionsMeCached(store, cs.info.guild, m)) continue;
+            if (m.msg.author == store.me or !store.mentionsMeCached(cs.info.guild, m)) continue;
             const dup = for (refs[0..nr]) |r| {
                 if (r.id == m.msg.id) break true;
             } else false;
@@ -340,7 +315,9 @@ test "caixa de entrada: DMs não lidas, menções e marcador de leitura" {
     try s.apply(.{ .ready = .{ .me = 1, .users = users, .guilds = try ca.alloc(types.Guild, 0), .channels = chans, .voice = try ca.alloc([2]Id, 0) } }, 0);
     const msg = struct {
         fn f(st: *Store, id: Id, ch: Id, author: Id, text: []const u8) !void {
-            try st.apply(.{ .message_create = .{ .id = id, .channel = ch, .author = author, .timestamp = 0, .content = try std.heap.c_allocator.dupe(u8, text) } }, 0);
+            // O `mentions` que o servidor preencheria (core/mencao.zig).
+            const me = std.mem.indexOf(u8, text, "<@1>") != null;
+            try st.apply(.{ .message_create = .{ .id = id, .channel = ch, .author = author, .timestamp = 0, .content = try std.heap.c_allocator.dupe(u8, text), .mentions_me = me } }, 0);
         }
     }.f;
     try msg(&s, 100, 10, 2, "nada pra você");

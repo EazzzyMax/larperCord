@@ -37,6 +37,8 @@ const inbox_ui = @import("inbox.zig");
 const plugins = @import("../plugins/engine.zig");
 const compose_opts = @import("compose_opts.zig");
 const reactors = @import("reactors.zig");
+const destaque = @import("destaque.zig");
+const filtros = @import("../core/filtros.zig");
 const Id = types.Id;
 const StoredMessage = store_mod.StoredMessage;
 
@@ -1177,6 +1179,33 @@ fn guildOf(ctx: *const d.Ctx, channel: types.Id) types.Id {
     return if (ctx.store.channel(channel)) |cs| cs.info.guild else 0;
 }
 
+/// Cores do destaque no tema de agora (ui/destaque.zig): refeitas só quando
+/// as cores do tema mudam.
+var paint_key: [3]u32 = @splat(0);
+var paint: destaque.Cores = .{ .faixa = .{ .r = 0, .g = 0, .b = 0 }, .fundo = .{ .r = 0, .g = 0, .b = 0, .a = 0 } };
+
+fn mentionPaint(ctx: *const d.Ctx, variant: Variant) destaque.Cores {
+    // O dourado do Discord; no estilo terminal, a cor de menção do tema.
+    const base = if (variant == .irc) ctx.col(.mention) else ctx.col(.idle);
+    const bg = ctx.col(.bg);
+    const sf = ctx.col(.surface);
+    const key = [3]u32{ base.u(), bg.u(), sf.u() };
+    if (!std.mem.eql(u32, &key, &paint_key)) {
+        paint_key = key;
+        paint = destaque.cores(base, &.{ bg, sf });
+    }
+    return paint;
+}
+
+/// Faixa à esquerda e fundo claro da linha que chama a gente. (A marca do QA
+/// não começa com "me": a varredura de cliques clica em tudo que começa assim.)
+fn mentionRow(ctx: *const d.Ctx, dl: *c.ImDrawList, variant: Variant, row: d.Rect, id: Id) void {
+    const p = mentionPaint(ctx, variant);
+    d.rect(dl, row, p.fundo, 0);
+    d.rect(dl, .{ .x = row.x, .y = row.y, .w = 2, .h = row.h }, p.faixa, 0);
+    qa.mark(row, "row-mention:{d}", .{id});
+}
+
 fn drawMessage(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *StoredMessage, flags: u8, r: d.Rect, y_in: f32, under: bool, sel_from: u32, sel_to: u32, probe: ?*rich.Probe) void {
     var y = y_in;
     var buf: [96]u8 = undefined;
@@ -1209,12 +1238,12 @@ fn drawMessage(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *StoredMessage, flags:
         anim.active = true;
         break :blk @as(f32, @floatFromInt(flash_until - ctx.now_ms)) / 1600.0;
     } else 0;
-    // Menção a mim: faixa amarela à esquerda, como no Discord.
-    // Palavra de alerta (Configurações → Alertas e filtros) destaca igual.
-    var mentions_me = ctx.st.filtros.flags(m) & @import("../core/filtros.zig").bit_alert != 0;
-    for (m.spans) |sp| if (sp.mention == .user and sp.mention.user == ctx.store.me) {
-        mentions_me = true;
-    };
+    // Chama a gente (menção direta ou resposta que marca, @everyone/@here que
+    // valem, cargo nosso; core/mencao.zig): faixa à esquerda e fundo claro,
+    // como no Discord. O resultado já vem guardado na mensagem. Palavra de
+    // alerta (Configurações → Alertas e filtros) destaca igual.
+    const lit = m.msg.system == .none and m.msg.id != 0 and
+        (ctx.st.filtros.flags(m) & filtros.bit_alert != 0 or ctx.store.mentionsMeCached(guildOf(ctx, m.msg.channel), m));
 
     switch (g.variant) {
         .cozy => {
@@ -1223,10 +1252,7 @@ fn drawMessage(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *StoredMessage, flags:
                 y += 46;
             }
             const row: d.Rect = .{ .x = r.x, .y = y, .w = r.w, .h = m.height - (if (day) @as(f32, 46) else 0) };
-            if (mentions_me) {
-                d.rect(dl, row, ctx.col(.idle).alpha(0.08), 0);
-                d.rect(dl, .{ .x = r.x, .y = row.y, .w = 2, .h = row.h }, ctx.col(.idle), 0);
-            }
+            if (lit) mentionRow(ctx, dl, g.variant, row, m.msg.id);
             if (under) d.rect(dl, row, d.Rgba.black.alpha(0.07), 0);
             if (flash > 0) d.rect(dl, row, ctx.col(.accent).alpha(0.25 * flash), 0);
             const tx = r.x + g.content_x;
@@ -1287,9 +1313,9 @@ fn drawMessage(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *StoredMessage, flags:
             }
             if (group) y += 4;
             const row: d.Rect = .{ .x = r.x, .y = y, .w = r.w, .h = m.height - (y - y_in) };
+            if (lit) mentionRow(ctx, dl, g.variant, row, m.msg.id);
             if (under) d.rect(dl, row, ctx.col(.hover), 0);
             if (flash > 0) d.rect(dl, row, ctx.col(.accent).alpha(0.25 * flash), 0);
-            if (mentions_me) d.rect(dl, .{ .x = r.x, .y = row.y, .w = 2, .h = row.h }, ctx.col(.mention), 0);
             if (reply) {
                 const found = ctx.store.findNear(m.msg.channel, m.msg.reply_to);
                 const ru = if (found) |f| ctx.store.user(f.m.msg.author) else null;
@@ -1340,6 +1366,8 @@ fn drawMessage(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *StoredMessage, flags:
                 y += 46;
             }
             const left_pad: f32 = 20 + (if (g.avatar > 0) g.avatar + 10 else 0);
+            // A linha inteira, por trás do balão (o nosso, à direita, também).
+            if (lit) mentionRow(ctx, dl, g.variant, .{ .x = r.x, .y = y, .w = r.w, .h = m.height - (y - y_in) }, m.msg.id);
             if (group) {
                 y += g.spacing;
                 if (!self) {

@@ -11,6 +11,7 @@ const event = @import("event.zig");
 const polls_mod = @import("polls.zig");
 const envio = @import("envio.zig");
 const thread_edit = @import("thread_edit.zig");
+const mencao = @import("mencao.zig");
 const Id = types.Id;
 
 /// LARPER_READ_DEBUG: conta no log por que cada canal ficou não lido (só IDs).
@@ -55,7 +56,8 @@ pub const StoredMessage = struct {
     dc_key: u32 = 0,
     dc_ver: u32 = 0,
     dc_rule: u16 = 0,
-    /// Cache de "fala com a gente" (core/inbox.zig `mentionsMe`).
+    /// "Chama a gente" (core/mencao.zig): calculado ao guardar e refeito só
+    /// quando a chave muda (nossos cargos, as supressões do servidor, o texto).
     mm_key: u32 = 0,
     mm: bool = false,
     /// Veio do cache em disco (ver `loadCached`), não do servidor.
@@ -373,7 +375,11 @@ pub const Store = struct {
     /// (mensagens, não lidas, marcador de leitura, menções dos servidores):
     /// ela só se refaz quando isto muda, sem olhar todos os canais a cada quadro.
     rev: u32 = 0,
-    /// Muda quando nós ou os nossos cargos mudam (invalida `mm` das mensagens).
+    /// "Suprimir @everyone e @here" e "Suprimir menções a cargos" de cada
+    /// servidor, das configurações da conta (app_conta.zig mantém em dia).
+    suppress: std.AutoHashMapUnmanaged(Id, mencao.Supressao) = .empty,
+    /// Muda quando nós, os nossos cargos ou as supressões mudam (invalida `mm`
+    /// das mensagens).
     me_rev: u32 = 1,
 
     pub fn init(gpa: std.mem.Allocator) Store {
@@ -445,6 +451,7 @@ pub const Store = struct {
         while (mri.next()) |r| ev_alloc.free(r.*);
         s.my_roles.deinit(s.gpa);
         s.pending_guilds.deinit(s.gpa);
+        s.suppress.deinit(s.gpa);
         for (s.recent_mentions.items) |*m| s.freeMessage(m);
         s.recent_mentions.deinit(s.gpa);
         var gc = s.guild_channels.valueIterator();
@@ -593,6 +600,7 @@ pub const Store = struct {
     fn freeMessage(s: *Store, m: *StoredMessage) void {
         ev_alloc.free(m.msg.content);
         ev_alloc.free(m.msg.raw);
+        if (m.msg.mention_roles.len > 0) ev_alloc.free(m.msg.mention_roles);
         types.freeAttachments(ev_alloc, m.msg.attachments);
         types.freeEmbeds(ev_alloc, m.msg.embeds);
         s.gpa.free(m.spans);
@@ -603,6 +611,7 @@ pub const Store = struct {
     fn freeRaw(m: types.Message) void {
         ev_alloc.free(m.content);
         ev_alloc.free(m.raw);
+        if (m.mention_roles.len > 0) ev_alloc.free(m.mention_roles);
         types.freeAttachments(ev_alloc, m.attachments);
         types.freeEmbeds(ev_alloc, m.embeds);
     }
@@ -639,7 +648,10 @@ pub const Store = struct {
         // A thread aberta de uma mensagem tem o ID dela: vale também para o
         // que volta do cache em disco. (Um post de fórum é a própria conversa.)
         if (m.thread == 0 and m.id != m.channel and s.channels.contains(m.id)) m.thread = m.id;
-        return .{ .msg = m, .spans = try markdown.parseRaw(s.gpa, m.content, m.raw), .embed_spans = try s.parseEmbeds(m.embeds) };
+        var sm: StoredMessage = .{ .msg = m, .spans = try markdown.parseRaw(s.gpa, m.content, m.raw), .embed_spans = try s.parseEmbeds(m.embeds) };
+        // "Chama a gente" já sai pronto: a conversa só lê o resultado.
+        _ = s.mentionsMeCached(s.guildOfChannel(m.channel), &sm);
+        return sm;
     }
 
     /// Quem é bot não deixa de ser: nem todo objeto de usuário diz (a presença, por
@@ -957,6 +969,52 @@ pub const Store = struct {
         if (s.my_roles.get(guild_id)) |list| return std.mem.indexOfScalar(Id, list, role) != null;
         const mi = s.memberInfo(guild_id, s.me) orelse return false;
         return std.mem.indexOfScalar(Id, mi.roleSlice(), role) != null;
+    }
+
+    /// O servidor de uma conversa (0 = DM, grupo ou canal que não conhecemos).
+    pub fn guildOfChannel(s: *const Store, channel_id: Id) Id {
+        return if (s.channels.get(channel_id)) |cs| cs.info.guild else 0;
+    }
+
+    const Cargos = struct {
+        s: *const Store,
+        guild: Id,
+        pub fn tem(c: Cargos, role: Id) bool {
+            return c.guild != 0 and c.s.hasRole(c.guild, role);
+        }
+    };
+
+    /// O que a mensagem chama, antes das supressões (core/mencao.zig).
+    pub fn mentionFacts(s: *const Store, guild_id: Id, m: *const types.Message) mencao.Chamado {
+        return mencao.chamado(m, s.me, s.demo, Cargos{ .s = s, .guild = guild_id });
+    }
+
+    /// A mensagem chama a gente, pela regra do Discord (core/mencao.zig):
+    /// destaque, contador de menções, caixa de entrada e notificação.
+    pub fn mentionsMe(s: *const Store, guild_id: Id, m: *const types.Message) bool {
+        const sup: mencao.Supressao = if (guild_id != 0) s.suppress.get(guild_id) orelse .{} else .{};
+        return mencao.destaca(s.mentionFacts(guild_id, m), sup);
+    }
+
+    /// `mentionsMe` guardado na mensagem: só olha de novo quando o texto, os
+    /// nossos cargos ou as supressões mudam.
+    pub fn mentionsMeCached(s: *const Store, guild_id: Id, m: *StoredMessage) bool {
+        const key = (s.me_rev *% 2654435761 ^ @as(u32, @truncate(@intFromPtr(m.msg.content.ptr) ^ m.msg.content.len))) | 1;
+        if (m.mm_key == key) return m.mm;
+        m.mm_key = key;
+        m.mm = s.mentionsMe(guild_id, &m.msg);
+        return m.mm;
+    }
+
+    /// As supressões de um servidor mudaram (configurações da conta).
+    pub fn setSuppress(s: *Store, guild_id: Id, sup: mencao.Supressao) void {
+        const old: mencao.Supressao = s.suppress.get(guild_id) orelse .{};
+        if (old.everyone == sup.everyone and old.roles == sup.roles) return;
+        if (!sup.everyone and !sup.roles) {
+            _ = s.suppress.remove(guild_id);
+        } else s.suppress.put(s.gpa, guild_id, sup) catch return;
+        s.me_rev +%= 1;
+        s.rev +%= 1;
     }
 
     pub fn channelsOf(s: *const Store, guild_id: Id) []const Id {
@@ -1381,9 +1439,18 @@ pub const Store = struct {
                     if (up.raw) |t| ev_alloc.free(t);
                     if (up.embeds) |e| types.freeEmbeds(ev_alloc, e);
                     if (up.attachments) |a| types.freeAttachments(ev_alloc, a);
+                    if (up.mentions) |mn| if (mn.roles.len > 0) ev_alloc.free(mn.roles);
                     return;
                 };
                 if (up.pinned) |p| m.msg.pinned = p;
+                // Editada: quem ela chama pode ter mudado.
+                if (up.mentions) |mn| {
+                    if (m.msg.mention_roles.len > 0) ev_alloc.free(m.msg.mention_roles);
+                    m.msg.mentions_me = mn.me;
+                    m.msg.mention_everyone = mn.everyone;
+                    m.msg.mention_roles = mn.roles;
+                    m.mm_key = 0;
+                }
                 if (up.content) |t| {
                     const spans = markdown.parseRaw(s.gpa, t, up.raw orelse "") catch {
                         ev_alloc.free(t);
@@ -1439,6 +1506,7 @@ pub const Store = struct {
                         m.msg.attachments = a;
                     }
                 }
+                _ = s.mentionsMeCached(cs.info.guild, m);
                 m.layout_w = -1;
                 cs.version +%= 1;
             },
@@ -1500,6 +1568,9 @@ pub const Store = struct {
                 const gop = try s.my_roles.getOrPut(s.gpa, mr.guild);
                 if (gop.found_existing) ev_alloc.free(gop.value_ptr.*);
                 gop.value_ptr.* = mr.roles;
+                // Menção a um cargo nosso pode ter mudado.
+                s.me_rev +%= 1;
+                s.rev +%= 1;
             },
             .role_delete => |rid| if (s.roles.fetchRemove(rid)) |kv| ev_alloc.free(kv.value.name),
             .member_remove => |mr| {
@@ -2367,6 +2438,39 @@ pub const Store = struct {
         }
     }
 };
+
+test "menção numa thread: cargo que chega depois, @everyone e as supressões" {
+    const c_alloc = std.heap.c_allocator;
+    var s = Store.init(std.testing.allocator);
+    defer s.deinit();
+    const users = try c_alloc.alloc(types.User, 1);
+    users[0] = .{ .id = 1, .name = try c_alloc.dupe(u8, "eu") };
+    const chans = try c_alloc.alloc(types.Channel, 2);
+    chans[0] = .{ .id = 10, .guild = 5, .name = try c_alloc.dupe(u8, "geral"), .topic = try c_alloc.dupe(u8, "") };
+    chans[1] = .{ .id = 11, .guild = 5, .parent = 10, .name = try c_alloc.dupe(u8, "thread"), .topic = try c_alloc.dupe(u8, ""), .thread = .{} };
+    try s.apply(.{ .ready = .{ .me = 1, .users = users, .guilds = try c_alloc.alloc(types.Guild, 0), .channels = chans, .voice = try c_alloc.alloc([2]Id, 0) } }, 0);
+    try s.apply(.{ .message_create = .{ .id = 100, .channel = 11, .author = 2, .timestamp = 0, .content = try c_alloc.dupe(u8, "<@&77> olhem"), .mention_roles = try c_alloc.dupe(Id, &.{77}) } }, 0);
+    try s.apply(.{ .message_create = .{ .id = 101, .channel = 11, .author = 2, .timestamp = 0, .content = try c_alloc.dupe(u8, "@here bora"), .mention_everyone = true } }, 0);
+    try s.apply(.{ .message_create = .{ .id = 102, .channel = 11, .author = 2, .timestamp = 0, .content = try c_alloc.dupe(u8, "<@&77> sem marcar") } }, 0);
+    const items = s.channel(11).?.messages.items;
+    // Já sai calculado ao guardar (a conversa só lê).
+    try std.testing.expect(items[1].mm_key != 0 and items[1].mm);
+    try std.testing.expect(!s.mentionsMeCached(5, &items[0]));
+    // Os nossos cargos chegam (READY ou GUILD_MEMBER_UPDATE): a menção vale.
+    try s.apply(.{ .my_roles = .{ .guild = 5, .roles = try c_alloc.dupe(Id, &.{77}) } }, 0);
+    try std.testing.expect(s.mentionsMeCached(5, &items[0]));
+    // `<@&77>` no texto sem estar no `mention_roles`: não chama.
+    try std.testing.expect(!s.mentionsMeCached(5, &items[2]));
+    s.setSuppress(5, .{ .roles = true });
+    try std.testing.expect(!s.mentionsMeCached(5, &items[0]) and s.mentionsMeCached(5, &items[1]));
+    s.setSuppress(5, .{ .everyone = true });
+    try std.testing.expect(s.mentionsMeCached(5, &items[0]) and !s.mentionsMeCached(5, &items[1]));
+    s.setSuppress(5, .{});
+    try std.testing.expect(s.mentionsMeCached(5, &items[1]) and s.suppress.count() == 0);
+    // Editada para não chamar mais ninguém.
+    try s.apply(.{ .message_update = .{ .channel = 11, .id = 101, .content = null, .mentions = .{} } }, 0);
+    try std.testing.expect(!s.mentionsMeCached(5, &items[1]));
+}
 
 test "limite de mensagens por canal libera as antigas" {
     const c_alloc = std.heap.c_allocator;

@@ -102,6 +102,17 @@ pub fn plus(dl: *c.ImDrawList, cx: f32, cy: f32, r: f32, col: u32) void {
     line(dl, cx, cy - r, cx, cy + r, col, 2);
 }
 
+/// Uma pessoa com um "+" ao lado: adicionar amigo.
+pub fn addFriend(dl: *c.ImDrawList, cx_in: f32, cy_in: f32, col: u32) void {
+    const cx = @round(cx_in) - 2;
+    const cy = @round(cy_in);
+    c.ImDrawList_AddCircleEx(dl, v(cx, cy - 3), 3, col, 0, 1.6, 0);
+    c.ImDrawList_PathClear(dl);
+    c.ImDrawList_PathArcTo(dl, v(cx, cy + 7), 5.5, -pi, 0, 0);
+    c.ImDrawList_PathStroke(dl, col, 1.6, 0);
+    plus(dl, cx + 7.5, cy - 1, 2.5, col);
+}
+
 /// Duas pessoas (amigos, lista de membros).
 pub fn members(dl: *c.ImDrawList, cx: f32, cy: f32, col: u32) void {
     people(dl, cx, cy, 0.8, 1.7, col);

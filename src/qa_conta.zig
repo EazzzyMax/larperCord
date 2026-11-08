@@ -1,6 +1,7 @@
 //! QA da conta no Discord: bloquear, ignorar pela conta (e os de antes, só
-//! locais), pedido de amizade (um por clique, captcha explicado), silenciar
-//! e notificações nos dois sentidos, status personalizado e perfil. O
+//! locais), pedido de amizade (um por clique, captcha explicado) e pelo nome de
+//! usuário na página Amigos, silenciar e notificações nos dois sentidos,
+//! status personalizado e perfil. O
 //! servidor de mentira (net/fake_conta.zig) responde como o Discord.
 const std = @import("std");
 const c = @import("c");
@@ -38,6 +39,7 @@ const bruno: Id = 1002;
 const lulu: Id = 1004;
 const gustavo: Id = 1008;
 const ana: Id = 1001;
+const kaique: Id = 1003;
 
 fn load(a: anytype) u64 {
     return a.load(.acquire);
@@ -162,6 +164,48 @@ fn captchaExplained(app: *App) bool {
     const st = app.st.conta.friends.get(fc.captcha_user) orelse return false;
     // Sem repetir sozinho: um pedido, e o botão volta para a pessoa decidir.
     return st == .captcha and load(&fc.sent.friend_requests) == 2 and qa.find("profile-btn:add") != null and app.st.toast.is_error;
+}
+
+fn cardPedro(app: *App) void {
+    app.st.popup = .{ .profile = .{ .user = fc.captcha_user, .x = 420, .y = 260 } };
+}
+fn cardOffersAdd(_: *App) bool {
+    return qa.find("profile-add") != null;
+}
+fn cardRequested(app: *App) bool {
+    // Um clique, um pedido (o captcha de novo devolve o botão para a pessoa).
+    const st = app.st.conta.friends.get(fc.captcha_user) orelse return false;
+    return load(&fc.sent.friend_requests) == 3 and st == .captcha;
+}
+
+// --- Adicionar amigo pelo nome --------------------------------------------------------
+
+fn openFriends(app: *App) void {
+    app.handle(.open_friends);
+}
+fn addTab(app: *App) bool {
+    return app.st.friends and qa.find("add-friend-input") != null and qa.find("add-friend-send") != null;
+}
+fn noneByName(app: *App) bool {
+    return load(&fc.sent.friend_names) == 0 and app.st.conta.name_status == null;
+}
+fn unknownShown(app: *App) bool {
+    return load(&fc.sent.friend_names) == 1 and app.st.conta.name_status == .unknown and !app.st.conta.name_busy and
+        qa.find("add-friend-result:unknown") != null;
+}
+fn unfriendKaique(app: *App) void {
+    app.handle(.{ .remove_relationship = .{ .user = kaique, .from = .context_menu } });
+}
+fn kaiqueNone(app: *App) bool {
+    return app.store.relationship(kaique) == .none;
+}
+fn kaiqueSent(app: *App) bool {
+    // Um pedido, com o nome em minúsculas e sem o "@"; a pessoa vai para os pendentes.
+    return load(&fc.sent.friend_names) == 2 and std.mem.eql(u8, body(), "{\"username\":\"kaique\",\"discriminator\":null}") and
+        app.st.conta.name_status == .sent and app.store.relationship(kaique) == .outgoing and qa.find("add-friend-result:sent") != null;
+}
+fn alreadyShown(app: *App) bool {
+    return load(&fc.sent.friend_names) == 3 and app.st.conta.name_status == .already and qa.find("add-friend-result:already") != null;
 }
 
 // --- Notificações -----------------------------------------------------------------
@@ -419,6 +463,37 @@ pub const ops = [_]Op{
     click("profile-btn:add"),
     expect("captcha é explicado, sem repetir sozinho", captchaExplained),
     click("profile-full-close"),
+    run(cardPedro),
+    expect("o cartão pequeno também oferece adicionar", cardOffersAdd),
+    click("profile-add"),
+    expect("pelo cartão é o mesmo pedido, um por clique", cardRequested),
+    .{ .key = .{ .key = c.ImGuiKey_Escape } },
+
+    s("conta: adicionar amigo pelo nome"),
+    run(openFriends),
+    click("friends-tab:add"),
+    expect("a aba tem a caixa do nome e o botão", addTab),
+    click("add-friend-send"),
+    .{ .wait = 300 },
+    expect("sem nome, o botão não manda nada", noneByName),
+    click("add-friend-input"),
+    .{ .text = "ninguem.existe" },
+    click("add-friend-send"),
+    expect("nome que ninguém tem explica o erro", unknownShown),
+    run(unfriendKaique),
+    expect("(prepara alguém sem amizade)", kaiqueNone),
+    click("add-friend-input"),
+    .{ .key = .{ .key = c.ImGuiKey_A, .ctrl = true } },
+    .{ .text = "@Kaique" },
+    .{ .key = .{ .key = c.ImGuiKey_Enter } },
+    expect("um pedido por vez e a pessoa vai para os pendentes", kaiqueSent),
+    .{ .shot = "conta-adicionar-amigo" },
+    click("add-friend-input"),
+    .{ .text = "ana.exe" },
+    click("add-friend-send"),
+    expect("quem já é amigo é explicado", alreadyShown),
+    // A bateria geral segue daqui: a página de amigos volta para a lista.
+    click("friends-tab:online"),
 
     s("conta: cancelar pedido de amizade"),
     run(toFriends),
