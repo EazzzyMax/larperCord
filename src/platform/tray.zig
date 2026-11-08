@@ -1,21 +1,25 @@
-//! O ícone na bandeja do sistema, pelo SDL_CreateTray. Com "Fechar para a
-//! bandeja" (o padrão, como no Discord) ele fica da abertura até sair; com a opção
-//! desligada não há ícone nenhum, nada fica carregado nem acordando o app, e
-//! fechar a janela sai.
+//! O ícone na bandeja do sistema. Com "Fechar para a bandeja" (o padrão, como no
+//! Discord) ele fica da abertura até sair; com a opção desligada não há ícone
+//! nenhum, nada fica carregado nem acordando o app, e fechar a janela sai.
 //!
 //! No Linux ele mora em outro processo (`--tray-helper`). O protocolo não tem como
 //! tirar um ícone do registro: ele só sai quando a conexão D-Bus de quem o criou
-//! fecha. No mesmo processo, cada ida à bandeja somaria um ícone; além disso o GTK
-//! e as 20 voltas por segundo para atendê-lo ficariam no app para sempre.
+//! fecha. No mesmo processo, cada ida à bandeja somaria um ícone. Esse processo
+//! fala StatusNotifierItem direto pelo D-Bus (platform/sni.zig), sem GTK e parado
+//! até o painel ou o app falarem; sem libdbus ou sem sessão D-Bus, fica o
+//! SDL_CreateTray (libappindicator) de antes. No Windows é o SDL_CreateTray.
 //!
-//! Clicar no próprio ícone: no Windows o botão esquerdo alterna a janela e o
-//! direito abre o menu. No Linux o ícone vai pelo libappindicator, que não repassa
-//! o clique (o painel abre o menu): lá, Abrir e Sair ficam no menu.
+//! Clicar no próprio ícone: o botão esquerdo alterna a janela (ver
+//! janela.trayClick) e o direito abre o menu com Abrir e Sair. No Linux pelo
+//! SDL_CreateTray de reserva, o libappindicator não repassa o clique e o painel
+//! abre o menu.
 const std = @import("std");
 const c = @import("c");
 const sys = @import("sys.zig");
 const platform = @import("window.zig");
 const janela = @import("../core/janela.zig");
+const bandeja = @import("../core/bandeja.zig");
+const sni = @import("sni.zig");
 
 var tray: ?*c.SDL_Tray = null;
 var helper: ?*c.SDL_Process = null;
@@ -31,11 +35,10 @@ var wake_type: u32 = 0;
 pub var fake: ?bool = null;
 var fake_on = false;
 
-// O recado do processo do ícone para o app, um byte de cada vez.
-const msg_ready = 'r';
-const msg_failed = 'x';
-const msg_open = 'o';
-const msg_quit = 'q';
+/// A ficha do xdg-activation do último clique (ver `takeActivationToken`).
+var token_lock: ?*c.SDL_Mutex = null;
+var token_buf: [bandeja.token_max]u8 = undefined;
+var token_len: usize = 0;
 
 pub fn active() bool {
     return tray != null or helper != null or fake_on;
@@ -143,6 +146,7 @@ fn startHelper(open_label: [*:0]const u8, quit_label: [*:0]const u8, wait: bool)
     closing.store(false, .release);
     ready.store(false, .release);
     dead.store(false, .release);
+    if (token_lock == null) token_lock = c.SDL_CreateMutex();
     helper = proc;
     reader = c.SDL_CreateThread(readerMain, "bandeja", proc);
     if (reader == null) {
@@ -158,7 +162,7 @@ fn startHelper(open_label: [*:0]const u8, quit_label: [*:0]const u8, wait: bool)
 }
 
 fn waitReady() bool {
-    // A primeira vez carrega o GTK do disco.
+    // Até o painel aceitar o registro do ícone (de reserva, até o GTK carregar do disco).
     var tries: u32 = 0;
     while (tries < 500) : (tries += 1) {
         if (ready.load(.acquire)) return true;
@@ -173,14 +177,17 @@ fn readerMain(data: ?*anyopaque) callconv(.c) c_int {
     const proc: *c.SDL_Process = @ptrCast(data.?);
     const out = c.SDL_GetProcessOutput(proc);
     const fd = c.SDL_GetNumberProperty(c.SDL_GetIOProperties(out), c.SDL_PROP_IOSTREAM_FILE_DESCRIPTOR_NUMBER, -1);
+    var leitor: bandeja.Leitor = .{};
     while (true) {
         var b: u8 = 0;
         if (c.SDL_ReadIO(out, &b, 1) == 1) {
-            switch (b) {
-                msg_ready => ready.store(true, .release),
-                msg_open => platform.Window.wake(wake_type, .show),
-                msg_quit => platform.Window.wake(wake_type, .quit),
-                else => {},
+            switch (leitor.feed(b) orelse continue) {
+                .ready => ready.store(true, .release),
+                .open => platform.Window.wake(wake_type, .show),
+                .quit => platform.Window.wake(wake_type, .quit),
+                .toggle => platform.Window.wake(wake_type, .toggle),
+                .token => |t| keepToken(t),
+                .failed => {},
             }
             continue;
         }
@@ -197,6 +204,27 @@ fn readerMain(data: ?*anyopaque) callconv(.c) c_int {
     // um processo invisível); aberta, o ícone é refeito mais tarde.
     if (!closing.load(.acquire)) platform.Window.wake(wake_type, .tray_gone);
     return 0;
+}
+
+fn keepToken(t: []const u8) void {
+    c.SDL_LockMutex(token_lock);
+    defer c.SDL_UnlockMutex(token_lock);
+    @memcpy(token_buf[0..t.len], t);
+    token_len = t.len;
+}
+
+/// A ficha que o painel mandou junto do último clique, uma vez só (ela só vale
+/// para um pedido de foco). Nula se não veio nenhuma, como no Windows.
+pub fn takeActivationToken(out: *[bandeja.token_max + 1]u8) ?[:0]const u8 {
+    const lock = token_lock orelse return null;
+    c.SDL_LockMutex(lock);
+    defer c.SDL_UnlockMutex(lock);
+    if (token_len == 0) return null;
+    const n = token_len;
+    token_len = 0;
+    @memcpy(out[0..n], token_buf[0..n]);
+    out[n] = 0;
+    return out[0..n :0];
 }
 
 fn stopHelper() void {
@@ -228,21 +256,24 @@ fn say(b: u8) void {
 }
 
 fn helperOpen(_: ?*anyopaque, _: ?*c.SDL_TrayEntry) callconv(.c) void {
-    say(msg_open);
+    say(bandeja.msg_open);
 }
 
 fn helperQuit(_: ?*anyopaque, _: ?*c.SDL_TrayEntry) callconv(.c) void {
-    say(msg_quit);
+    say(bandeja.msg_quit);
 }
 
 /// Mostra o ícone até a entrada fechar: o app mandou sair ou morreu, até com SIGKILL.
 pub fn helperMain(open_label: [*:0]const u8, quit_label: [*:0]const u8) noreturn {
+    // O nosso StatusNotifierItem: só volta se não deu para começar pelo D-Bus.
+    sni.run(open_label, quit_label);
+    // De reserva, o libappindicator (com o GTK e uma volta a cada 50 ms para atendê-lo).
     const t = if (c.SDL_Init(c.SDL_INIT_EVENTS)) build(open_label, quit_label, helperOpen, helperQuit) else null;
     if (t == null) {
-        say(msg_failed);
+        say(bandeja.msg_failed);
         std.process.exit(1);
     }
-    say(msg_ready);
+    say(bandeja.msg_ready);
     var fds = [1]sys.PollFd{.{ .fd = 0, .events = c.POLLIN, .revents = 0 }};
     while (true) {
         fds[0].revents = 0;

@@ -791,12 +791,10 @@ fn page(p: *Page, previews: []const Preview) void {
                 i18n.tr("Salvar um .kdl em themes/ ou ~/.config/larpercord/themes aplica na hora. Uma pasta nova só vale depois de reiniciar o app.", "Saving a .kdl in themes/ or ~/.config/larpercord/themes applies it right away. A new folder only counts after restarting the app."), &s.hot_reload);
             // Uma opção só para a bandeja: ligada, o ícone fica lá da abertura até sair e
             // fechar a janela esconde nele; desligada, nenhum ícone nem processo dele, e
-            // fechar sai. No Linux o painel abre o menu com qualquer clique (libappindicator).
+            // fechar sai. Clicar no ícone alterna a janela nos dois sistemas (no Linux pelo
+            // StatusNotifierItem do processo do ícone, platform/sni.zig).
             const has_tray = tray.hostSeen(ctx.now_ms);
-            p.toggleIf(i18n.tr("Fechar para a bandeja", "Close to tray"), if (sys.windows)
-                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto: clicar nele mostra ou esconde a janela, o menu tem Abrir e Sair, e fechar a janela deixa o app conectado lá. Com a opção desligada, não há ícone e fechar encerra o app.", "The icon stays in the system tray while the app runs: clicking it shows or hides the window, its menu has Open and Quit, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app.")
-            else
-                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto, com Abrir e Sair no menu, e fechar a janela deixa o app conectado lá. Com a opção desligada, não há ícone e fechar encerra o app.", "The icon stays in the system tray while the app runs, with Open and Quit in its menu, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app."), &s.close_to_tray, has_tray);
+            p.toggleIf(i18n.tr("Fechar para a bandeja", "Close to tray"), i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto: clicar nele mostra ou esconde a janela, o menu tem Abrir e Sair, e fechar a janela deixa o app conectado lá. Com a opção desligada, não há ícone e fechar encerra o app.", "The icon stays in the system tray while the app runs: clicking it shows or hides the window, its menu has Open and Quit, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app."), &s.close_to_tray, has_tray);
             if (!has_tray) {
                 const y0 = p.y;
                 p.note(i18n.tr("Indisponível: nenhum painel do sistema mostra ícones agora (StatusNotifier), então fechar a janela encerra o app. Com a opção ligada, o ícone aparece quando houver um.", "Unavailable: no system panel shows icons right now (StatusNotifier), so closing the window quits the app. While on, the icon appears once there is one."));

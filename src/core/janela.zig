@@ -22,6 +22,15 @@ pub const Vista = enum { aberta, minimizada, na_bandeja };
 /// O que o clique no ícone faz.
 pub const Clique = enum { mostrar, para_bandeja, minimizar };
 
+/// A janela para o clique no ícone. `conta_foco` (Linux): aberta mas sem o foco,
+/// atrás de outra, também é para vê-la. No Windows o clique na área de notificação
+/// já tira o foco da janela, então lá ele não diz nada.
+pub fn trayVista(escondida: bool, minimizada: bool, focada: bool, conta_foco: bool) Vista {
+    if (escondida) return .na_bandeja;
+    if (minimizada or (conta_foco and !focada)) return .minimizada;
+    return .aberta;
+}
+
 /// Clicar no ícone alterna a janela: escondida ou minimizada, ela volta na
 /// frente; aberta, vai para a bandeja quando fechar iria (opção ligada e depois
 /// do login), senão minimiza.
@@ -126,6 +135,21 @@ test "clique no ícone: janela × fechar para a bandeja × login" {
     try std.testing.expectEqual(Clique.minimizar, T.f(.aberta, false, true));
     try std.testing.expectEqual(Clique.minimizar, T.f(.aberta, true, false));
     try std.testing.expectEqual(Clique.minimizar, T.f(.aberta, false, false));
+}
+
+test "clique no ícone: como a janela está" {
+    // Escondida ganha de tudo.
+    try std.testing.expectEqual(Vista.na_bandeja, trayVista(true, true, true, true));
+    try std.testing.expectEqual(Vista.na_bandeja, trayVista(true, false, false, false));
+    // Minimizada ou coberta, nos dois sistemas.
+    try std.testing.expectEqual(Vista.minimizada, trayVista(false, true, true, false));
+    try std.testing.expectEqual(Vista.minimizada, trayVista(false, true, true, true));
+    // Linux: aberta sem o foco é para trazer para a frente; com o foco, aberta.
+    try std.testing.expectEqual(Vista.minimizada, trayVista(false, false, false, true));
+    try std.testing.expectEqual(Vista.aberta, trayVista(false, false, true, true));
+    // Windows: o foco não conta.
+    try std.testing.expectEqual(Vista.aberta, trayVista(false, false, false, false));
+    try std.testing.expectEqual(Vista.aberta, trayVista(false, false, true, false));
 }
 
 test "clique duplo no ícone conta uma vez" {
