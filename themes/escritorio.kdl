@@ -73,9 +73,9 @@ styles {
 
 layout {
     column {
-        topbar height=42 style=topo when=topo c-text="#ffffff" c-muted="#cdbdcd" c-faint="#9f8aa0" c-hover="alpha(#ffffff, 0.1)"
+        topbar height=42 style=topo when=topo cl-rail="#3f0e40" c-text="#ffffff" c-muted="#cdbdcd" c-faint="#9f8aa0" c-hover="alpha(#ffffff, 0.1)"
         row flex=1 {
-            column width=264 style=berinjela c-text="#ffffff" c-muted="#cdbdcd" c-faint="#9f8aa0" c-selected="#1164a3" c-hover="alpha(#ffffff, 0.08)" c-elevated="#5a2a5c" c-rail="#350d36" c-border="alpha(#ffffff, 0.12)" cd-selected="#1164a3" cd-elevated="#2a2830" cd-rail="#121016" {
+            column width=264 style=berinjela cl-sidebar="#3f0e40" c-text="#ffffff" c-muted="#cdbdcd" c-faint="#9f8aa0" c-selected="#1164a3" c-hover="alpha(#ffffff, 0.08)" c-elevated="#5a2a5c" c-rail="#350d36" c-border="alpha(#ffffff, 0.12)" cd-selected="#1164a3" cd-elevated="#2a2830" cd-rail="#121016" {
                 logo height=48 variant=wordmark size=16
                 rule height=1 color=border
                 guild-bar height=206 variant=list shape=squircle size=24 when=servidores
