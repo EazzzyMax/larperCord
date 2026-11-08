@@ -46,10 +46,10 @@ fn sockPath() [:0]const u8 {
 fn connectClient() void {
     closeClient();
     const p = sockPath();
-    var addr: extern struct { family: u16, path: [108]u8 } = .{ .family = c.AF_UNIX, .path = @splat(0) };
-    if (p.len == 0 or p.len >= addr.path.len) return;
-    @memcpy(addr.path[0..p.len], p);
-    const f = c.socket(c.AF_UNIX, c.SOCK_STREAM | c.SOCK_CLOEXEC, 0);
+    if (p.len == 0) return;
+    // O mesmo endereço do servidor (no macOS o sockaddr_un tem outro formato).
+    const addr = rpc.unixAddr(p) orelse return;
+    const f = rpc.unixSocket();
     if (f < 0) return;
     if (c.connect(f, @ptrCast(&addr), @sizeOf(@TypeOf(addr))) != 0) {
         _ = c.close(f);
@@ -67,7 +67,7 @@ fn closeClient() void {
 
 fn sendRaw(bytes: []const u8) void {
     if (fd < 0) return;
-    _ = c.send(fd, bytes.ptr, bytes.len, 0x4000);
+    _ = c.send(fd, bytes.ptr, bytes.len, rpc.msg_nosignal);
 }
 
 fn sendFrame(op: u32, json: []const u8) void {

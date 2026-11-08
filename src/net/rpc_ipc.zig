@@ -1,7 +1,8 @@
 //! Rich Presence: o servidor local que faz o papel do Discord do computador para
 //! jogos e apps (discord-ipc-N). Só existe com a opção ligada: desligada, não há
 //! thread, socket nem arquivo. Linux: socket Unix em $XDG_RUNTIME_DIR (só do
-//! dono); Windows: o pipe \\.\pipe\discord-ipc-N. O protocolo está em rpc_proto.zig.
+//! dono); macOS: o mesmo, em $TMPDIR; Windows: o pipe \\.\pipe\discord-ipc-N. O
+//! protocolo está em rpc_proto.zig.
 //!
 //! A thread daqui não fala com o gateway: entrega a atividade para a thread da
 //! interface (`take`), que manda o comando para a conta conectada.
@@ -293,11 +294,24 @@ fn closeListener() void {
     sock_path_len = 0;
 }
 
-// --- Linux ---------------------------------------------------------------------
+// --- Linux e macOS ---------------------------------------------------------------
 
-const SockAddrUn = extern struct { family: u16, path: [108]u8 };
-const msg_dontwait = 0x40;
-const msg_nosignal = 0x4000;
+/// No macOS (BSD), o sockaddr_un começa pelo tamanho e o caminho tem 104 bytes.
+pub const SockAddrUn = if (sys.macos) extern struct { len: u8, family: u8, path: [104]u8 } else extern struct { family: u16, path: [108]u8 };
+const msg_dontwait = if (sys.macos) 0x80 else 0x40;
+/// O macOS não tem MSG_NOSIGNAL: lá o SIGPIPE já é ignorado no processo inteiro (sys.init).
+pub const msg_nosignal = if (sys.macos) 0 else 0x4000;
+
+/// Um socket Unix que os filhos não herdam. O macOS não tem SOCK_CLOEXEC: vai pelo fcntl.
+pub fn unixSocket() c_int {
+    if (!sys.macos) return c.socket(c.AF_UNIX, c.SOCK_STREAM | c.SOCK_CLOEXEC, 0);
+    const fd = c.socket(c.AF_UNIX, c.SOCK_STREAM, 0);
+    if (fd >= 0 and c.fcntl(fd, c.F_SETFD, c.FD_CLOEXEC) != 0) {
+        _ = c.close(fd);
+        return -1;
+    }
+    return fd;
+}
 
 fn env(name: [*:0]const u8) ?[]const u8 {
     const v = c.SDL_getenv(name) orelse return null;
@@ -305,8 +319,11 @@ fn env(name: [*:0]const u8) ?[]const u8 {
     return if (s.len > 0) s else null;
 }
 
-fn unixAddr(p: []const u8) ?SockAddrUn {
-    var a: SockAddrUn = .{ .family = c.AF_UNIX, .path = @splat(0) };
+pub fn unixAddr(p: []const u8) ?SockAddrUn {
+    var a: SockAddrUn = if (sys.macos)
+        .{ .len = @sizeOf(SockAddrUn), .family = c.AF_UNIX, .path = @splat(0) }
+    else
+        .{ .family = c.AF_UNIX, .path = @splat(0) };
     if (p.len >= a.path.len) return null;
     @memcpy(a.path[0..p.len], p);
     return a;
@@ -318,7 +335,7 @@ fn stale(p: [*:0]const u8, addr: *const SockAddrUn) bool {
     var st: c.struct_stat = undefined;
     if (c.lstat(p, &st) != 0) return false;
     if (st.st_mode & 0o170000 != 0o140000 or st.st_uid != c.getuid()) return false;
-    const fd = c.socket(c.AF_UNIX, c.SOCK_STREAM | c.SOCK_CLOEXEC, 0);
+    const fd = unixSocket();
     if (fd < 0) return false;
     defer _ = c.close(fd);
     if (c.connect(fd, @ptrCast(addr), @sizeOf(SockAddrUn)) == 0) return false;
@@ -333,7 +350,7 @@ fn listenPosix() bool {
     while (n < 10) {
         const p = std.fmt.bufPrintSentinel(&sock_path, "{s}/discord-ipc-{d}", .{ std.mem.trimEnd(u8, dir, "/"), n }, 0) catch return false;
         const addr = unixAddr(p) orelse return false;
-        const fd = c.socket(c.AF_UNIX, c.SOCK_STREAM | c.SOCK_CLOEXEC, 0);
+        const fd = unixSocket();
         if (fd < 0) return false;
         if (c.bind(fd, @ptrCast(&addr), @sizeOf(SockAddrUn)) == 0) {
             // Só o dono conecta. listen() vem depois: antes dele ninguém entra.
