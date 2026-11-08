@@ -15,10 +15,16 @@ run() {
     rm -rf qa-out/cache
     local out; out=$("$@" 2>&1 | grep -v '^info:')
     local line; line=$(echo "$out" | grep 'passaram')
-    printf "%-24s %s\n" "$label" "${line%%(*}"
+    local summary="${line%%(*}"
+    printf "%-24s %s\n" "$label" "${summary:-saiu antes do fim, sem o resumo}"
     if ! echo "$line" | grep -q ' 0 falharam'; then
         total_fail=1
-        echo "$out" | sed -n '/^Falhas:/,$p' | sed 's/^/    /'
+        if [ -z "$line" ]; then
+            # Caiu ou travou no meio: o fim da saída mostra onde (o panic do Debug).
+            echo "$out" | tail -n 25 | sed 's/^/    /'
+        else
+            echo "$out" | sed -n '/^Falhas:/,$p' | sed 's/^/    /'
+        fi
     fi
 }
 run "geral (classico)" $bin --qa --theme classico
@@ -34,6 +40,13 @@ QA_SUITE=presenca XDG_RUNTIME_DIR="$PWD/qa-out/run" run "presença" $bin --qa --
 QA_SUITE=moderacao run "moderação" $bin --qa --theme classico
 QA_SUITE=entrada run "entrada" $bin --qa --theme classico
 QA_SUITE=interacoes run "interações" $bin --qa --theme classico
+# Fontes reserva (CJK) só quando um texto pede, e o mixer da call: fora da geral.
+QA_SUITE=escritas run "escritas" $bin --qa --theme classico
+QA_SUITE=voice run "mixer da call" $bin --qa --theme classico
+# As outras baterias do qa_runner.zig rodam dentro da geral ou da "tema" (threads, conta,
+# proxy, chamada, voz, dispositivos, rtl...) ou têm script próprio: lsp-quit em
+# tools/qa_lsp.sh, bandeja-* em tools/qa_bandeja.sh, plugins-tls em tools/qa_http_tls.sh.
+# ffmpeg, plugins-real, vitrine e lsp-real usam a rede ou programas de verdade.
 # Plugins: o que fica gravado ao fechar continua lá ao abrir de novo (outro processo).
 QA_SUITE=plugins-a run "plugins (antes)" $bin --qa
 sleep 2.5
