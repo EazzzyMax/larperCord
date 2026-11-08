@@ -1,0 +1,88 @@
+// larperCord — Japanese (日本語) interface text.
+//
+// One entry per line: the English text exactly as it is in the code, then the
+// translation:
+//
+//     "Sign in" "ログイン"
+//     "Replying to {s}" "{s}に返信中"
+//
+// Text that is missing here shows in English. Escapes: \n (new line), \" and \\.
+// A long entry can continue on the next line after a trailing \ .
+//
+// Placeholders ({s}, {d}, {d:.0}...) only matter in text that has them:
+//   - copy them exactly as in the English text; they are filled in the same order;
+//   - to change the order, write {0}, {1}... instead: {N} is the Nth placeholder
+//     of the English text, counting from 0, with its formatting. Don't mix the two;
+//   - every value of the English text must appear; {{ and }} are literal braces.
+// A translation that breaks these rules shows in English.
+//
+// The list of texts, what is still missing and a check of this file:
+//     python3 tools/i18n_strings.py --check
+// To try changes without building, copy this file to larpercord/i18n/ja.kdl in the
+// settings folder (~/.config on Linux, %APPDATA% on Windows) and restart the app.
+//
+// Português: o texto em inglês do código como chave, a tradução ao lado; o que
+// falta aparece em inglês. As regras dos marcadores {…} estão acima.
+
+"About" "larperCordについて"
+"Accessibility" "アクセシビリティ"
+"action" "アクション"
+"Advanced" "詳細設定"
+"Alerts & Filters" "通知とフィルター"
+"Anyone with your token has your account. Never share it." "トークンを持つ人はあなたのアカウントを乗っ取れます。誰にも送らないでください。"
+"APP SETTINGS" "アプリ設定"
+"Appearance" "外観"
+"appearance" "外観"
+"Attach File" "ファイルを添付"
+"By default the app follows your system language. Changes apply right away." "デフォルトではシステムの言語に従います。変更はすぐに反映されます。"
+"Chat" "チャット"
+"Click to change or turn off" "クリックで変更・オフ"
+"Click to see attachment" "クリックして添付ファイルを表示"
+"Click to see message" "クリックしてメッセージを表示"
+"Code diagnostics" "コードの診断"
+"current" "使用中"
+"Deafen  (Ctrl+Shift+D)" "スピーカーをミュート  (Ctrl+Shift+D)"
+"direct message" "ダイレクトメッセージ"
+"Direct Messages" "ダイレクトメッセージ"
+"Do Not Disturb" "取り込み中"
+"Editing message  ·  Esc to cancel  ·  Enter to save" "メッセージを編集中  ·  Escでキャンセル  ·  Enterで保存"
+"Folder" "フォルダー"
+"Follow system" "システムに従う"
+"Getting your channels ready" "チャンネルを準備しています"
+"group" "グループ"
+"Idle" "退席中"
+"Interface size" "インターフェースの大きさ"
+"Invisible" "オンライン状態を隠す"
+"Keybinds" "キーボードショートカット"
+"Language" "言語"
+"Loading servers and direct messages" "サーバーとダイレクトメッセージを読み込んでいます"
+"Makes everything bigger, not just the text. Applies when you let go of the mouse." "テキストだけでなく全体を拡大します。マウスを離すと反映されます。"
+"me" "自分"
+"mouse wheel: zoom" "ホイールで拡大"
+"Mute  (Ctrl+Shift+M)" "マイクをミュート  (Ctrl+Shift+M)"
+"My Account" "アカウント"
+"Network" "ネットワーク"
+"Nothing found." "見つかりません。"
+"Notifications" "通知"
+"off now" "オフ"
+"on now" "オン"
+"Open discord.com/app in your browser and log in." "ブラウザで discord.com/app を開いてログインします。"
+"Opening the gateway connection" "ゲートウェイへの接続を開いています"
+"Performance" "パフォーマンス"
+"Plugins" "プラグイン"
+"Press F12 and go to the Network tab." "F12 を押して Network タブを開きます。"
+"Privacy" "プライバシー"
+"Replying to a message" "メッセージに返信中"
+"server" "サーバー"
+"settings" "設定"
+"someone" "誰か"
+"Switch channels and click a request to /api." "チャンネルを切り替え、/api へのリクエストをクリックします。"
+"Undeafen  (Ctrl+Shift+D)" "スピーカーを元に戻す  (Ctrl+Shift+D)"
+"Under Headers, copy the Authorization value." "Headers の Authorization の値をコピーします。"
+"Unmute  (Ctrl+Shift+M)" "ミュート解除  (Ctrl+Shift+M)"
+"Updates" "アップデート"
+"USER SETTINGS" "ユーザー設定"
+"User Settings  (Ctrl+,)" "ユーザー設定  (Ctrl+,)"
+"Voice" "音声"
+"Voice message" "ボイスメッセージ"
+"What's new" "新着情報"

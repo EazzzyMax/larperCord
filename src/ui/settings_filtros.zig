@@ -223,7 +223,7 @@ fn focus(p: *P) void {
         const sel = if (o.min) |m| (on and m == 0 and f.focus_until == filtros.forever) else !on;
         d.rect(p.dl, r, ctx.col(.rail).alpha(0.6).mix(ctx.col(.accent).alpha(0.22), if (sel) 1 else if (hb.hovered) 0.4 else 0), ctx.th.radius + 2);
         d.border(p.dl, r, if (sel) ctx.col(.accent) else ctx.col(.border), ctx.th.radius + 2, if (sel) 2 else 1);
-        const label = if (i18n.en()) o.en else o.pt;
+        const label = i18n.tr(o.pt, o.en);
         const tw = d.width(ctx.ui.get(.semibold), 15, label);
         _ = d.textClipped(p.dl, ctx.ui.get(.semibold), 15, r.x + @max(6, (r.w - tw) / 2), d.centerY(r, 15), if (sel) ctx.col(.text) else ctx.col(.muted), label, r.w - 12);
         if (hb.clicked) {

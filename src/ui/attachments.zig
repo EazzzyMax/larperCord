@@ -421,7 +421,7 @@ pub fn viewer(ctx: *d.Ctx) void {
     const dims = if (v.zoom > 1)
         std.fmt.bufPrint(&buf, "{d} × {d}  ·  {d}%", .{ v.w, v.h, @as(u32, @intFromFloat(s * v.zoom * 100 + 0.5)) }) catch ""
     else
-        std.fmt.bufPrint(&buf, "{d} × {d}  ·  {s}", .{ v.w, v.h, i18n.tr3("roda do mouse: zoom", "mouse wheel: zoom", "ホイールで拡大") }) catch "";
+        std.fmt.bufPrint(&buf, "{d} × {d}  ·  {s}", .{ v.w, v.h, i18n.tr("roda do mouse: zoom", "mouse wheel: zoom") }) catch "";
     d.text(dl, fam.get(.semibold), 14, win.x + 24, by + 4, d.Rgba.white.alpha(k), name);
     d.text(dl, fam.get(.regular), 12.5, win.x + 24, by + 24, d.Rgba.white.alpha(0.55 * k), dims);
     var bx = win.right() - 24;

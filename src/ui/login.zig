@@ -682,28 +682,11 @@ fn form(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
         y += 28;
         l.help_k = anim.step(l.help_k, if (l.help) 1 else 0, 14);
         if (l.help_k > 0.01) {
-            const steps_pt = [_][]const u8{
-                "Abra discord.com/app no navegador e entre na conta.",
-                "Aperte F12 e vá na aba Rede (Network).",
-                "Troque de canal e clique numa requisição para /api.",
-                "Em Cabeçalhos, copie o valor de Authorization.",
-            };
-            const steps_en = [_][]const u8{
-                "Open discord.com/app in your browser and log in.",
-                "Press F12 and go to the Network tab.",
-                "Switch channels and click a request to /api.",
-                "Under Headers, copy the Authorization value.",
-            };
-            const steps_ja = [_][]const u8{
-                "ブラウザで discord.com/app を開いてログインします。",
-                "F12 を押して Network タブを開きます。",
-                "チャンネルを切り替え、/api へのリクエストをクリックします。",
-                "Headers の Authorization の値をコピーします。",
-            };
-            const steps = switch (i18n.current()) {
-                .en => steps_en,
-                .ja => steps_ja,
-                .pt => steps_pt,
+            const steps = [_][]const u8{
+                i18n.tr("Abra discord.com/app no navegador e entre na conta.", "Open discord.com/app in your browser and log in."),
+                i18n.tr("Aperte F12 e vá na aba Rede (Network).", "Press F12 and go to the Network tab."),
+                i18n.tr("Troque de canal e clique numa requisição para /api.", "Switch channels and click a request to /api."),
+                i18n.tr("Em Cabeçalhos, copie o valor de Authorization.", "Under Headers, copy the Authorization value."),
             };
             const full_h: f32 = 4 * 26 + 50;
             const hr: Rect = .{ .x = x, .y = y, .w = w, .h = full_h * l.help_k };
@@ -721,7 +704,7 @@ fn form(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
                 hy += 26;
             }
             hy += 4;
-            _ = d.textClipped(dl, f.font(.medium), 12.5, hr.x + 16, hy, f.p.danger.alpha(f.a), i18n.tr3("Quem tem o token tem a sua conta. Não mande pra ninguém.", "Anyone with your token has your account. Never share it.", "トークンを持つ人はあなたのアカウントを乗っ取れます。誰にも送らないでください。"), hr.w - 28);
+            _ = d.textClipped(dl, f.font(.medium), 12.5, hr.x + 16, hy, f.p.danger.alpha(f.a), i18n.tr("Quem tem o token tem a sua conta. Não mande pra ninguém.", "Anyone with your token has your account. Never share it."), hr.w - 28);
             c.ImDrawList_PopClipRect(dl);
             y += hr.h + 6;
         }
@@ -818,25 +801,10 @@ fn connecting(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
     const title = i18n.fmt(&buf, "Conectando ao Discord{s}", "Connecting to Discord{s}", .{"..."[0..dots]});
     f.text(.bold, 20, cx - f.width(.bold, 20, i18n.tr("Conectando ao Discord...", "Connecting to Discord...")) / 2, y, f.p.text, title);
     y += 32;
-    const tips_pt = [_][]const u8{
-        "Abrindo a conexão com o gateway",
-        "Carregando servidores e mensagens diretas",
-        "Arrumando os seus canais",
-    };
-    const tips_en = [_][]const u8{
-        "Opening the gateway connection",
-        "Loading servers and direct messages",
-        "Getting your channels ready",
-    };
-    const tips_ja = [_][]const u8{
-        "ゲートウェイへの接続を開いています",
-        "サーバーとダイレクトメッセージを読み込んでいます",
-        "チャンネルを準備しています",
-    };
-    const tips = switch (i18n.current()) {
-        .en => tips_en,
-        .ja => tips_ja,
-        .pt => tips_pt,
+    const tips = [_][]const u8{
+        i18n.tr("Abrindo a conexão com o gateway", "Opening the gateway connection"),
+        i18n.tr("Carregando servidores e mensagens diretas", "Loading servers and direct messages"),
+        i18n.tr("Arrumando os seus canais", "Getting your channels ready"),
     };
     const since = t - l.phase_at;
     const tip = tips[@min(tips.len - 1, @as(usize, @intFromFloat(since / 1.6)))];
