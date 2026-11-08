@@ -50,6 +50,9 @@ pub const Opts = struct {
     code_gutter: f32 = 0,
     /// Só na passada que mede para a ordem visual (ver `Plan`): onde anotar cada pedaço.
     plan: ?*Plan = null,
+    /// Onde termina, a partir do começo do texto, um parágrafo da direita para a esquerda
+    /// (alinhado à direita). Zero: na largura de quebra. O balão usa a largura dele.
+    align_w: f32 = 0,
 };
 
 /// Tamanho de um trecho em relação ao texto normal (títulos e `-#`).
@@ -85,7 +88,26 @@ pub const Probe = struct {
     out: ?u32 = null,
 };
 
-pub const Measure = struct { h: f32, w: f32, last_x: f32 };
+pub const Measure = struct {
+    h: f32,
+    w: f32,
+    last_x: f32,
+    /// Só na passada que desenha: algum parágrafo da direita para a esquerda foi alinhado à
+    /// direita, e o texto ocupa na tela de `lo` a `hi` (a partir de x0), não de 0 a `w`.
+    aligned: bool = false,
+    lo: f32 = 0,
+    hi: f32 = 0,
+    /// A primeira linha foi para a direita (a barra de ações não fica por cima do começo).
+    first_right: bool = false,
+    /// A última linha foi para a direita: onde ela começa (o "(editado)" vem antes dela).
+    last_right: bool = false,
+    last_lo: f32 = 0,
+
+    /// O pedaço da linha que o texto ocupa na tela, a partir de x0.
+    pub fn extent(m: Measure) struct { x: f32, w: f32 } {
+        return if (m.aligned) .{ .x = m.lo, .w = m.hi - m.lo } else .{ .x = 0, .w = m.w };
+    }
+};
 
 const Word = struct {
     text: []const u8,
@@ -241,144 +263,8 @@ fn relativeText(buf: []u8, unix: i64) []const u8 {
     return (if (delta < 0) f(buf, "há {d} {s}", .{ n, name }) else f(buf, "em {d} {s}", .{ n, name })) catch "?";
 }
 
-/// Texto com árabe ou hebraico: cada palavra se molda sozinha no `d.text` (ver `bidi`), mas a
-/// ordem das palavras na linha também muda. Uma passada que só mede anota onde cada pedaço caiu
-/// (a quebra é feita com as larguras moldadas) e cada linha ganha a ordem visual antes de
-/// desenhar. Só o x muda: seleção e cópia seguem os bytes do texto original.
-const Plan = struct {
-    const max = 1024;
-    n: usize = 0,
-    /// Passou de `max`: o último parágrafo fica na ordem lógica.
-    full: bool = false,
-    x: [max]f32 = undefined,
-    y: [max]f32 = undefined,
-    w: [max]f32 = undefined,
-    cls: [max]bidi.Class = undefined,
-    /// Começa um parágrafo (\n antes) / começa uma linha / não sai do lugar (marcador de
-    /// lista e linha de bloco de código).
-    para: [max]bool = undefined,
-    line: [max]bool = undefined,
-    fixed: [max]bool = undefined,
-    /// O x de cada pedaço na ordem visual.
-    vx: [max]f32 = undefined,
-    /// A linha do pedaço mudou de ordem: onde ela começa e termina na tela, a direção do
-    /// parágrafo e se o pedaço é o último dela no texto (a sonda do mouse usa, ver `select`).
-    moved: [max]bool = undefined,
-    lo: [max]f32 = undefined,
-    hi: [max]f32 = undefined,
-    rtl: [max]bool = undefined,
-    last: [max]bool = undefined,
-    /// O vão até o próximo pedaço do texto, na tela: à direita ou à esquerda, conforme a
-    /// ordem (a seleção pinta o espaço entre as palavras ali).
-    gap_lo: [max]f32 = undefined,
-    gap_hi: [max]f32 = undefined,
-
-    const Line = struct { lo: f32, hi: f32, rtl: bool, last: bool, gap_lo: f32, gap_hi: f32 };
-
-    fn add(p: *Plan, x: f32, y: f32, w: f32, cls: bidi.Class, para: bool, line: bool, fixed: bool) void {
-        if (p.n == max) {
-            p.full = true;
-            return;
-        }
-        p.x[p.n] = x;
-        p.y[p.n] = y;
-        p.w[p.n] = w;
-        p.cls[p.n] = cls;
-        p.para[p.n] = para or p.n == 0;
-        p.line[p.n] = line;
-        p.fixed[p.n] = fixed;
-        p.n += 1;
-    }
-
-    fn xAt(p: *const Plan, k: usize, x: f32) f32 {
-        return if (k < p.n) p.vx[k] else x;
-    }
-
-    fn lineOf(p: *const Plan, k: usize) ?Line {
-        if (k >= p.n or !p.moved[k]) return null;
-        return .{ .lo = p.lo[k], .hi = p.hi[k], .rtl = p.rtl[k], .last = p.last[k], .gap_lo = p.gap_lo[k], .gap_hi = p.gap_hi[k] };
-    }
-
-    fn resolve(p: *Plan) void {
-        var i: usize = 0;
-        while (i < p.n) {
-            var j = i + 1;
-            while (j < p.n and !p.para[j]) j += 1;
-            for (i..j) |k| {
-                p.vx[k] = p.x[k];
-                p.moved[k] = false;
-            }
-            if (!(j == p.n and p.full)) p.paragraph(i, j);
-            i = j;
-        }
-    }
-
-    /// A ordem visual de um parágrafo, linha por linha. Cada linha começa onde começava.
-    fn paragraph(p: *Plan, from: usize, to: usize) void {
-        var idx: [max]u16 = undefined;
-        var cls: [max]bidi.Class = undefined;
-        var gap: [max]bool = undefined;
-        var starts: [max]bool = undefined;
-        var order: [max]u16 = undefined;
-        var n: usize = 0;
-        for (from..to) |k| {
-            if (p.fixed[k]) continue;
-            const prev = if (n > 0) idx[n - 1] else 0;
-            idx[n] = @intCast(k);
-            cls[n] = p.cls[k];
-            starts[n] = n == 0 or p.line[k] or p.y[k] != p.y[prev];
-            gap[n] = !starts[n] and p.x[k] > p.x[prev] + p.w[prev] + 0.5;
-            n += 1;
-        }
-        if (!bidi.anyRtl(cls[0..n])) return;
-        const rtl = bidi.orderWords(cls[0..n], gap[0..n], starts[0..n], order[0..n]) orelse return;
-        var a: usize = 0;
-        while (a < n) {
-            var b = a + 1;
-            while (b < n and !starts[b]) b += 1;
-            const lo = p.x[idx[a]];
-            var cx = lo;
-            for (a..b) |v| {
-                const q = order[v];
-                p.vx[idx[q]] = cx;
-                cx += p.w[idx[q]];
-                if (v + 1 < b) cx += p.gapBetween(idx[0..n], q, order[v + 1]);
-            }
-            // `idx` está na ordem do texto: o último de a..b é o fim da linha no texto.
-            for (a..b) |v| {
-                const k = idx[v];
-                p.moved[k] = true;
-                p.lo[k] = lo;
-                p.hi[k] = cx;
-                p.rtl[k] = rtl;
-                p.last[k] = v + 1 == b;
-                p.gap_lo[k] = 0;
-                p.gap_hi[k] = 0;
-                if (v + 1 == b) continue;
-                const nx = idx[v + 1];
-                if (p.vx[nx] >= p.vx[k]) {
-                    p.gap_lo[k] = p.vx[k] + p.w[k];
-                    p.gap_hi[k] = p.vx[nx];
-                } else {
-                    p.gap_lo[k] = p.vx[nx] + p.w[nx];
-                    p.gap_hi[k] = p.vx[k];
-                }
-            }
-            a = b;
-        }
-    }
-
-    /// O espaço entre duas palavras vizinhas na tela: o que havia entre elas no texto ou, se
-    /// não eram vizinhas, o da fronteira entre os trechos.
-    fn gapBetween(p: *const Plan, idx: []const u16, q: u16, r: u16) f32 {
-        const lo = @min(q, r);
-        const hi = @max(q, r);
-        const at = if (hi - lo == 1) lo else hi - 1;
-        const k = idx[at];
-        const next = idx[at + 1];
-        return @max(0, p.x[next] - (p.x[k] + p.w[k]));
-    }
-};
+/// Ordem visual das palavras de um texto com árabe ou hebraico (ver `rich_plan`).
+const Plan = @import("rich_plan.zig").Plan;
 
 var plan: Plan = .{};
 
@@ -403,7 +289,8 @@ fn wordWidth(font: *c.ImFont, size: f32, s: []const u8, wrap: f32) f32 {
     return d.width(font, size, s);
 }
 
-/// Mede (dl = null) ou desenha o texto. Retorna altura e maior largura de linha.
+/// Mede (dl = null) ou desenha o texto. Retorna altura e maior largura de linha (desenhando
+/// árabe ou hebraico, também o lugar na tela: ver `Measure`).
 pub fn layout(dl: ?*c.ImDrawList, store: *const Store, th_col: anytype, spans: []const md.Span, x0: f32, y0: f32, wrap: f32, o_in: Opts, mouse: c.ImVec2) Measure {
     var o = o_in;
     o.emoji_box = o.line_h;
@@ -433,13 +320,21 @@ pub fn layout(dl: ?*c.ImDrawList, store: *const Store, th_col: anytype, spans: [
     const planned: ?*const Plan = if (dl != null and o_in.plan == null and anyRtl(spans)) blk: {
         var po = o_in;
         po.plan = &plan;
-        plan.n = 0;
-        plan.full = false;
+        plan.reset();
         _ = layout(null, store, th_col, spans, x0, y0, wrap, po, mouse);
-        plan.resolve();
+        plan.resolve(if (o_in.align_w > 0) o_in.align_w else wrap);
         break :blk &plan;
     } else null;
     var piece: usize = 0;
+    // Com o plano: a faixa da tela que o texto ocupa, se alguma linha foi para a direita (e
+    // alguma não), e a primeira e a última linha.
+    var vis_lo: f32 = std.math.floatMax(f32);
+    var vis_hi: f32 = 0;
+    var any_right = false;
+    var any_left = false;
+    var last_line: ?Plan.Line = null;
+    var first_right = false;
+    var qa_lines: QaLines = .{};
     while (it.next()) |word_in| {
         var word = word_in;
         // Palavra maior que a linha (link, "kkkkk…"): vai em pedaços.
@@ -486,7 +381,16 @@ pub fn layout(dl: ?*c.ImDrawList, store: *const Store, th_col: anytype, spans: [
             if (o.plan) |p| p.add(x, y, w, classFor(sp, s), word.breaks > 0, line_start, sp.flags.bullet or sp.flags.block);
             // Onde o pedaço vai na tela: na ordem visual, se a linha tem texto RTL.
             const px = if (planned) |p| p.xAt(piece, x) else x;
+            const vline: ?Plan.Line = if (planned) |p| p.lineOf(piece) else null;
             piece += 1;
+            if (planned != null) {
+                if (vline != null and vline.?.right) any_right = true else any_left = true;
+                if (piece == 1) first_right = vline != null and vline.?.right;
+                vis_lo = @min(vis_lo, px);
+                vis_hi = @max(vis_hi, px + w);
+                last_line = vline;
+                if (qa.on() and o.msg_id != 0) qa_lines.add(o.msg_id, x0 + px, y0 + y, w, cur_h);
+            }
             if (dl) |l| {
                 const block_top = sp.flags.block and word.text.ptr == sp.text.ptr;
                 if (block_top) {
@@ -508,7 +412,6 @@ pub fn layout(dl: ?*c.ImDrawList, store: *const Store, th_col: anytype, spans: [
                 drawWord(l, th_col, sp, font, size, s, x0 + px, y0 + y, w, pad, ol, mouse, &syn);
                 // A seleção vem por cima: o fundo do código não pode cobri-la.
                 const sel_pad = if (sp.flags.block) pad + 4 + ol.code_gutter else pad;
-                const vline: ?Plan.Line = if (planned) |p| p.lineOf(piece - 1) else null;
                 if (o.base) |base| select(l, th_col, base, word, sp, font, size, sel_pad, x0 + px, y0 + y, w, space_w, ol, line_start, vline, x0);
                 if (block_top and o.ctx != null) copy = .{ .sp = sp, .x = x0 + px, .y = y0 + y, .at_top = y == 0 };
             }
@@ -529,8 +432,49 @@ pub fn layout(dl: ?*c.ImDrawList, store: *const Store, th_col: anytype, spans: [
         }
     }
     if (copy) |cp| copyButton(o.ctx.?, dl.?, cp.sp, cp.x, cp.y, wrap, cp.at_top, o, mouse);
-    return .{ .h = y + cur_h, .w = max_w, .last_x = x };
+    var m: Measure = .{ .h = y + cur_h, .w = max_w, .last_x = x };
+    if (any_right) {
+        // Com uma linha que ficou à esquerda, o texto ainda começa no 0.
+        m.aligned = true;
+        m.lo = if (any_left) 0 else vis_lo;
+        m.hi = vis_hi;
+        m.first_right = first_right;
+        if (last_line) |ll| if (ll.right) {
+            m.last_right = true;
+            m.last_lo = ll.lo;
+        };
+    }
+    if (planned != null and qa.on() and o.msg_id != 0) qa_lines.flush(o.msg_id);
+    return m;
 }
+
+/// QA: cada linha de um texto com o plano vira a marcação "text-line:<mensagem>:<n>", com o
+/// lugar dela na tela (qa_rtl.zig confere o alinhamento).
+const QaLines = struct {
+    n: u32 = 0,
+    open: bool = false,
+    r: d.Rect = undefined,
+
+    fn add(q: *QaLines, id: u64, x: f32, y: f32, w: f32, h: f32) void {
+        if (q.open and q.r.y == y) {
+            const right = @max(q.r.x + q.r.w, x + w);
+            q.r.x = @min(q.r.x, x);
+            q.r.w = right - q.r.x;
+            q.r.h = @max(q.r.h, h);
+            return;
+        }
+        q.flush(id);
+        q.r = .{ .x = x, .y = y, .w = w, .h = h };
+        q.open = true;
+    }
+
+    fn flush(q: *QaLines, id: u64) void {
+        if (!q.open) return;
+        qa.mark(q.r, "text-line:{d}:{d}", .{ id, q.n });
+        q.n += 1;
+        q.open = false;
+    }
+};
 
 /// Só emoji, mas personalizado sem imagem vira texto: aí não fica grande.
 fn jumboShown(spans: []const md.Span) bool {

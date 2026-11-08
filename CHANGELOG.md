@@ -58,7 +58,7 @@
 - If Discord refuses a message for coming too fast, you see how long to wait, and the message stays there to resend.
 
 **Text in any language**
-- Arabic and Hebrew display correctly, from majd-tqe's report (#9). Arabic letters are joined, and right-to-left text comes in the right order in messages, embeds and user, channel and server names. Copying still gives exactly what was written.
+- Arabic and Hebrew display correctly, from majd-tqe's report (#9). Arabic letters are joined, and right-to-left text comes in the right order in messages, embeds and user, channel and server names. Right-to-left paragraphs are right-aligned in messages and embeds, each paragraph on its own when a message mixes languages. Copying still gives exactly what was written.
 - A letter the theme's font lacks, in any script (Thai, Devanagari, Ethiopic, Georgian, Armenian, Tibetan…), comes from a system font that has it instead of `?`. Each block is looked up once, only when such text appears.
 
 **Themes**
