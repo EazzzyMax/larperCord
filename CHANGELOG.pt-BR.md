@@ -32,6 +32,7 @@
 - O seletor de GIFs tem a aba Figurinhas, com as deste servidor, as dos seus outros servidores e as do próprio Discord. Um clique envia.
 - Passe o mouse num GIF, numa mensagem ou no seletor, e clique na estrela para pôr nos seus favoritos ou tirar.
 - GIFs longos tocam todos os quadros na velocidade certa. Num teste de 16 s, a 0.6.1 guardava 25 de 400 quadros; agora tocam todos, em cerca de 8 MB.
+- Configurações → Chat → Vídeos tem Escolher a pasta do FFmpeg… para um FFmpeg 7, 8 ou 9 "shared" que você já tem: o app confere se a pasta tem o conjunto inteiro e procura nela antes de tudo. Sem o FFmpeg, a página diz o porquê: os nomes de arquivo que procurou, um `ffmpeg` no PATH que é uma versão estática, sem as bibliotecas (é o que o winget, o choco e o gyan.dev instalam), uma versão que o app não usa ou uma biblioteca que está lá e não carregou, com o motivo dado pelo sistema. No Windows o app também procura as DLLs em cada pasta do PATH. A partir do relato de DivannKokos (#10).
 
 **Sua conta**
 - Bloquear e desbloquear pelo menu da pessoa ou pelo perfil completo.
@@ -67,7 +68,7 @@
 - Para quem faz temas: `hide-below-height=`, `only-below-height=` e os itens `me`, `mic` e `deaf` da barra de status.
 
 **Rede e privacidade**
-- O proxy tem campos separados: tipo (HTTP, HTTPS, SOCKS5, SOCKS5h para o Tor), endereço, porta, login e senha, que aceitam qualquer caractere. Colar uma URL inteira preenche todos, e o proxy salvo continua valendo. A partir do relato de degger80 no #6, com a sugestão de DivannKokos.
+- O proxy tem uma página só dele, Configurações → Rede, com campos separados: tipo (HTTP, HTTPS, SOCKS5, SOCKS5h para o Tor), endereço, porta, login e senha, que aceitam qualquer caractere. Colar uma URL inteira preenche todos, e o proxy salvo continua valendo. A tela de entrada tem o mesmo formulário ("Conectar por um proxy"), que vale também para entrar, e quando a entrada não chega ao Discord ela diz o porquê e pergunta "Não consegui chegar ao Discord — tentar um proxy?". Um proxy trocado já vale na próxima tentativa de conexão. A partir do relato de degger80 no #6, com as sugestões de DivannKokos.
 - As calls de voz sempre conectam direto, mesmo com "Usar o proxy em tudo", e a configuração agora diz isso.
 - Configurações → Avançado → Depuração conta quantas vezes o Discord pediu captcha, pediu verificação da conta ou recusou a sessão.
 - Toda conexão com o Discord, inclusive a voz e os servidores de imagens dele, usa os mesmos cabeçalhos do cliente web, só por https e wss, e sempre confere o certificado.
@@ -79,6 +80,7 @@
 
 **Linux e Windows**
 - Num desktop Wayland o app roda nativo, com o X11 de reserva, de Kainoa Kanter (ThatOneCalculator) no #1.
+- Com Fechar para a bandeja ligado, como vem por padrão, o ícone fica na bandeja da abertura até sair, como no app oficial: Abrir e Sair no menu dele funcionam com a janela aberta, e no Windows o clique esquerdo mostra ou esconde a janela. Desligado, não há ícone e fechar encerra o app. No Linux o ícone é um processo pequeno à parte (cerca de 14 MB), que volta sozinho se cair. A pedido de DivannKokos (#11).
 - Uma atualização troca o arquivo que você roda de fato, com o nome que ele tiver, e reabre esse arquivo. Antes, o download para Linux continuava na versão velha e o Reiniciar podia não abrir nada.
 - O app abre num sistema sem nenhuma fonte, como um Windows ou wine sem `C:\Windows\Fonts`, com a fonte que vem dentro do Dear ImGui.
 - No Windows, as dicas do app citam as pastas do Windows e o Gerenciador de Credenciais, e o OpenSSL não lê mais um `openssl.cnf` de uma pasta que outro usuário poderia criar.

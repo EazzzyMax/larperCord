@@ -98,7 +98,7 @@ The official client is a whole browser dressed up as an app. On the same PC:
   reminders, highlights, clean links, and links and files come with the app. [Guide and API →](docs/plugins.md)
 - **Voice settings.** In Settings → Voice you pick the microphone and output (remembered by name, back to the default if they disappear, switchable mid-call), adjust volumes, see the mic level live and use "Test microphone" to hear yourself. Voice activity has an adjustable threshold on the meter or an automatic mode that learns your background noise. "Push to talk" takes a key or mouse button and works while the window is focused (SDL has no portable global shortcut). There's a high-pass against rumble, a noise gate and a sound for each call event (joining, leaving, someone else joining or leaving, mute, deafen, the ringtone), built-in or your own WAV or Ogg Opus file, each of which can be turned off. The voice panel shows ping, quality by color and when you're transmitting, and warns you if the mic doesn't open or if the server muted or deafened you. Other people's mute and deafen show in the call list.
 - **Runs on Linux and Windows.** Linux prefers native Wayland in a Wayland session, with X11 fallback. Windows 10/11 builds come from the same code; tokens stay in Credential Manager.
-- **Stays in the tray.** Closing keeps it connected in the system tray, with Open and Quit in the tray menu; "Close to tray" in Settings → Advanced turns it off. Without a tray, closing quits. Opening it a second time brings up the running window. On Linux the tray needs a StatusNotifier panel and libappindicator or ayatana.
+- **Stays in the tray.** The icon sits in the system tray from launch until you quit, with Open and Quit in its menu even while the window is open, and closing keeps the app connected there. On Windows a left click on the icon shows or hides the window. "Close to tray" in Settings → Advanced turns it all off: no icon, and closing quits. Without a tray, closing quits. Opening it a second time brings up the running window. On Linux the tray needs a StatusNotifier panel and libappindicator or ayatana.
 - **Updates itself.** Checks when opening or from Settings → Updates. One button downloads, installs and restarts. Updates are signed, and a version without the right signature isn't installed. There's a restart button and a What's new page with the changes in each version.
 - **Video volume.** The in-app player has a volume slider, remembered between runs.
 - **Microphone noise suppression.** Settings → Voice → Noise suppression (Off / RNNoise), on by default and switchable mid-call. It uses [RNNoise](https://github.com/xiph/rnnoise) 0.2 (BSD), built into the executable and running on your computer, with no internet. It reduces steady noise such as fans, hiss and air conditioning; typing and bangs may get through, other voices stay and yours may get a bit muffled. It delays your mic by 20 ms and costs about 2% to 3.5% of a core on a 2011 Core i5 while the mic is open, and less on newer processors; off, muted or with the push-to-talk key released, it costs nothing.
@@ -131,7 +131,7 @@ The official client is a whole browser dressed up as an app. On the same PC:
 - **Multiple accounts.** Your own name's menu lists the saved accounts (name and picture) and switches
   right away; "Add account" goes back to sign-in without forgetting the others. The sign-in screen
   lists them too, and a token Discord refuses is forgotten instead of being tried again.
-- **Discord-style settings** (`Ctrl+,`): 17 pages, theme switching with thumbnails,
+- **Discord-style settings** (`Ctrl+,`): 18 pages, theme switching with thumbnails,
   accent color and corners, **custom colors per theme and mode in hex**, font scale,
   compact mode, reduced motion, 12/24 h clock, spoilers…, saved in
   `~/.config/larpercord/settings.kdl` (`%APPDATA%\larpercord\settings.kdl` on Windows). If
@@ -144,14 +144,17 @@ The official client is a whole browser dressed up as an app. On the same PC:
   progress bar, sound; up to 480p and about 30 fps. Without FFmpeg, the video opens in the browser. On
   Linux it's your distro's `ffmpeg` package. Windows has none, so Settings → Chat → Videos gets it once
   (Check for FFmpeg, then Download FFmpeg): about 80 MB from github.com/BtbN/FFmpeg-Builds, checked
-  against a fixed SHA-256, about 128 MB on disk in `%LOCALAPPDATA%\larpercord\ffmpeg`. It also
-  animates old Tenor GIFs that only exist as MP4.
+  against a fixed SHA-256, about 128 MB on disk in `%LOCALAPPDATA%\larpercord\ffmpeg`. "Choose FFmpeg
+  folder…" there takes a "shared" FFmpeg build you already have, and when FFmpeg isn't found the page
+  says why (a static `ffmpeg` on PATH without the libraries, a version the app doesn't use, a library
+  that didn't load). It also animates old Tenor GIFs that only exist as MP4.
 - **Media**: spoilers and sensitive media stay covered until you click, with nothing downloaded before;
   expired Discord image links are refreshed on their own; voice messages have a player with a waveform;
   long GIFs play every frame, and a star on any GIF adds it to your favorites.
 - **Proxy** (HTTP, HTTPS, SOCKS5, SOCKS5h; Tor at `socks5h://127.0.0.1:9050`), with separate fields for
   the address, port, login and password, for media from outside Discord or for everything except voice
-  calls, which always connect directly (Settings → Privacy → Network).
+  calls, which always connect directly (Settings → Network). The sign-in screen has it too ("Connect
+  through a proxy") and offers it when it can't reach Discord.
 - Grouped messages, day separators, "pending" sends confirmed by the server,
   a typing indicator, smooth scrolling with a virtualized list.
 

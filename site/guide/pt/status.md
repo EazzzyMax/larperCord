@@ -22,7 +22,7 @@ O larperCord é um projeto jovem: versão 0.6.2, com o primeiro commit em 2 de n
 | Temas | **funciona** | 11 embutidos, cada um em claro e escuro, recarregam ao salvar |
 | Voz | parcial | Canais de voz dos servidores e calls em DM e grupo. E2EE (DAVE), mixer, mudo, seletor de dispositivo, aperte para falar, filtro passa-altas, porta de ruído e supressão de ruído com RNNoise funcionam. O aperte para falar precisa da janela em foco, e nenhum teste automático cobre uma call de verdade |
 | Permissões | parcial | Canais sem acesso ganham cadeado, voz sem permissão é bloqueada, e a caixa de mensagem diz por que você não pode enviar (sem permissão, thread trancada, castigo, modo lento). Esses canais ainda aparecem, e as reações e a lista de membros não consultam a permissão |
-| Bandeja, atualizações | **funciona** | Fechar mantém na bandeja; atualização assinada nas Configurações. No Linux a bandeja precisa de painel StatusNotifier |
+| Bandeja, atualizações | **funciona** | O ícone fica na bandeja enquanto o app roda e fechar deixa o app lá; atualização assinada nas Configurações. No Linux a bandeja precisa de painel StatusNotifier |
 | Windows | parcial | Windows 10/11 do mesmo código. Mais novo que o Linux e menos usado |
 | Notificações | parcial | Por `notify-send` no Linux e pela bandeja no Windows. O clique não abre o canal |
 | Acessibilidade | parcial | Escala da fonte, reduzir movimento, paleta e navegação estilo vim. Sem foco visível e sem alto contraste |

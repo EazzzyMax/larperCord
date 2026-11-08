@@ -7,21 +7,22 @@ Abra as configurações com `Ctrl+,`. As mudanças valem na hora e são salvas n
 | Página | O que tem |
 |---|---|
 | **Minha conta** | Dados da conta, o nome que aparece, os pronomes e o Sobre mim, e sair |
-| **Privacidade** | Indicador de digitação, animação do Tenor e do Giphy, modo streamer, registro de mensagens, guardar mensagens no disco, limpar o cache, Rich Presence, o aviso antes de entrar num servidor e o proxy de rede |
+| **Privacidade** | Indicador de digitação, animação do Tenor e do Giphy, modo streamer, registro de mensagens, guardar mensagens no disco, limpar o cache, Rich Presence, o aviso antes de entrar num servidor e um botão para a página Rede |
 | **Alertas e filtros** | Palavras de alerta, filtro de palavras, pessoas ignoradas (na conta ou neste computador) e modo foco |
 | **Aparência** | Modo (escuro, claro, seguir o sistema), tema com miniaturas e as opções dele, escala da fonte, modo compacto, avatares, relógio de 24 horas, status em anel, cor de destaque, cantos, cores personalizadas do tema, restaurar a largura dos painéis, lista de membros e barra de status |
 | **Acessibilidade** | Reduzir movimento, cores dos cargos, sublinhar links |
-| **Chat** | Reproduzir GIFs automaticamente, imagens de links, modo economia, vídeo, sempre mostrar spoilers, prévia do markdown, abrir na primeira não lida. Sem o FFmpeg, a parte de vídeo diz qual pacote instalar no Linux e tem um botão **Baixar FFmpeg** no Windows |
+| **Chat** | Reproduzir GIFs automaticamente, imagens de links, modo economia, vídeo, sempre mostrar spoilers, prévia do markdown, abrir na primeira não lida. **Escolher a pasta do FFmpeg…** aponta o app para um FFmpeg 7, 8 ou 9 "shared" que você já tem. Sem o FFmpeg, a parte de vídeo diz por que ele não foi encontrado, qual pacote instalar no Linux, e tem um botão **Baixar FFmpeg** no Windows |
 | **Voz** | Microfone e saída, volumes, detecção de voz ou aperte para falar, teste do microfone, filtros e um som para cada evento da call. Veja [Chamadas de voz](page:voice) |
 | **Notificações** | Notificações na área de trabalho e piscar na barra de tarefas |
 | **Atalhos de teclado** | A lista de atalhos e a navegação estilo vim |
 | **Idioma** | Seguir o sistema, Português (Brasil), English (US) ou 日本語 (japonês) |
+| **Rede** | O proxy (tipo, endereço, porta, login e senha) e **Usar o proxy em tudo**. A tela de entrada tem o mesmo formulário em **Conectar por um proxy**. Veja [Proxy](page:privacy#proxy) |
 | **Avançado** | Modo desenvolvedor (IDs das mensagens, "Copiar ID"), recarregar temas ao salvar, fechar para a bandeja, peso do texto, o registro de depuração e quantas vezes o Discord pediu captcha ou verificação |
 | **Desempenho** | RAM, CPU por quadro, CPU parado e mensagens por canal |
 | **Plugins** | Um cartão para cada plugin (o que ele é e o que pede), ligar e desligar, erros, aprovação de hosts, o painel dele, Recarregar e Instalar os incluídos |
 | **Sobre** | Versão e com o que foi feito |
 
-**Fechar para a bandeja** vem ligado: fechar a janela deixa o app conectado, e **Sair** no menu do ícone da bandeja fecha de verdade. O Windows sempre tem bandeja. No Linux ela precisa de um painel com bandeja StatusNotifier, e sem ele fechar a janela encerra o app.
+**Fechar para a bandeja** vem ligado: o ícone do larperCord fica na bandeja do sistema da abertura até sair, com **Abrir o larperCord** e **Sair** no menu dele mesmo com a janela aberta, e fechar a janela deixa o app conectado lá. No Windows, o clique esquerdo no ícone mostra ou esconde a janela e o direito abre o menu; no Linux o painel abre o menu com qualquer clique. Desligado, não há ícone nenhum e fechar a janela encerra o app. O Windows sempre tem bandeja. No Linux ela precisa de um painel com bandeja StatusNotifier: sem ele a opção fica apagada, com o motivo, e fechar a janela encerra o app. No Linux o ícone mora num processo pequeno à parte (cerca de 14 MB), que volta sozinho se cair.
 
 **Salvar registro de depuração** grava o `debug.log` na pasta de cache (`~/.cache/larpercord/` no Linux, `%LOCALAPPDATA%\larpercord\` no Windows) até você desligar ou fechar o app. **Abrir a pasta do registro** e **Copiar o caminho do arquivo** levam até ele. O token nunca entra no arquivo. No Windows é assim que se vê o registro do app, porque a versão para Windows não tem console.
 

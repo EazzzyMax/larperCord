@@ -63,8 +63,9 @@
 <p>Os downloads de mídia só vão para hosts permitidos, os redirecionamentos são conferidos, as imagens são limitadas a 8192 pixels por lado, e os downloads param em 32 MB para imagens e 64 MB para vídeo.</p>
 <p>O app não tem telemetria nem análise de uso.</p>
 <h2 id="proxy"><a class="anchor" href="#proxy" aria-hidden="true">#</a>Proxy</h2>
-<p>Configurações → Privacidade → Rede tem tipo (HTTP, HTTPS, SOCKS5 ou SOCKS5h), endereço, porta, login e senha. Login e senha aceitam qualquer caractere, e colar uma URL inteira como <code>socks5://usuario:senha@host:1080</code> no endereço preenche todos os campos. Para o Tor, use SOCKS5h em <code>127.0.0.1</code>, porta <code>9050</code>.</p>
+<p>Configurações → Rede tem tipo (HTTP, HTTPS, SOCKS5 ou SOCKS5h), endereço, porta, login e senha. Login e senha aceitam qualquer caractere, e colar uma URL inteira como <code>socks5://usuario:senha@host:1080</code> no endereço preenche todos os campos. Para o Tor, use SOCKS5h em <code>127.0.0.1</code>, porta <code>9050</code>.</p>
 <p>Por padrão, o proxy vale para a mídia de fora do Discord. <strong>Usar o proxy em tudo</strong> também passa a API, as imagens, os vídeos e o gateway por ele (o gateway a partir da próxima conexão).</p>
+<p>A tela de entrada tem o mesmo formulário em <strong>Conectar por um proxy</strong>. Salvar ali também liga <strong>Usar o proxy em tudo</strong>, para a própria entrada passar pelo proxy. Se a entrada não chega ao Discord (o endereço não é encontrado, a conexão é recusada, demora demais ou falha no TLS, ou o proxy não responde), o cartão da entrada mostra "Não consegui chegar ao Discord — tentar um proxy?" com o motivo e um botão que abre o formulário.</p>
 <p>As calls de voz nunca passam pelo proxy, nem com <strong>Usar o proxy em tudo</strong> ligado. Elas conectam direto nos servidores de voz do Discord, que veem o seu IP. Se o seu IP precisa ficar escondido, não entre em calls.</p>
 <h2 id="plugins"><a class="anchor" href="#plugins" aria-hidden="true">#</a>Plugins</h2>
 <p>Os plugins rodam com a sua conta, então só use arquivos que você leu e entende. O sandbox limita o que eles podem fazer:</p>

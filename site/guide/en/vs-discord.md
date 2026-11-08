@@ -27,7 +27,7 @@ Some items here are how larperCord stays light, and the official app may do simi
 
 - **[Open source](https://github.com/RshaCuDeVidro/larperCord)** under GPL-3.0. You can read every line and build it yourself.
 - **[No telemetry or analytics](page:privacy#what-goes-over-the-network)** in the app, so there's nothing to opt out of.
-- **[A proxy setting](page:privacy#proxy)** for HTTP, HTTPS, SOCKS5 and Tor, with login and password, for media from outside Discord only, or also for Discord's API, gateway and media. Voice calls always connect directly.
+- **[A proxy setting](page:privacy#proxy)** for HTTP, HTTPS, SOCKS5 and Tor, with login and password, for media from outside Discord only, or also for Discord's API, gateway and media, and on the sign-in screen too. Voice calls always connect directly.
 - **[Data saver](page:features#media).** Images, attachments and even profile pictures wait for a click, one at a time, and custom emoji show as `:name:`.
 - **[Settings in one text file](page:settings#files-on-disk).** `settings.kdl` is plain text you can read, edit and back up.
 

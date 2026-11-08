@@ -99,7 +99,7 @@ O cliente oficial é um navegador inteiro disfarçado de app. No mesmo PC:
   tradução, lembretes, destaques, links limpos, e links e arquivos vêm com o app. [Guia e API →](docs/plugins.pt-BR.md)
 - **Voz:** em Configurações → Voz você escolhe microfone e saída (lembrados pelo nome, voltam ao padrão se sumirem, trocam em plena call), ajusta os volumes, vê o nível do microfone ao vivo e usa "Testar microfone" para ouvir a si mesmo. A detecção de voz tem limiar ajustável sobre a barra ou modo automático que aprende o ruído de fundo. O modo "aperte para falar" aceita tecla ou botão do mouse e funciona com a janela em foco (atalho global não é portável pelo SDL). Há passa-altas contra ronco, porta de ruído e um som para cada evento da call (entrar, sair, outra pessoa entrar ou sair, mudo, ensurdecer, o toque), embutido ou um arquivo seu em WAV ou Ogg Opus, cada um desligável. O painel de voz mostra ping, qualidade por cor, quando você está transmitindo e avisa se o microfone não abrir ou se o servidor te mutou ou ensurdeceu; mudo e surdo dos outros aparecem na lista da call.
 - **Roda no Linux e no Windows.** No Linux, prefere Wayland nativo numa sessão Wayland, com X11 como alternativa. O Windows 10/11 sai do mesmo código; os tokens ficam no Gerenciador de Credenciais.
-- **Fica na bandeja.** Fechar mantém a conexão na bandeja do sistema, com Abrir e Sair no menu dela; "Fechar para a bandeja" em Configurações → Avançado desliga isso. Sem bandeja, fechar encerra. Abrir de novo traz a janela que já está rodando. No Linux a bandeja precisa de um painel StatusNotifier e de libappindicator ou ayatana.
+- **Fica na bandeja.** O ícone fica na bandeja do sistema da abertura até sair, com Abrir e Sair no menu dele mesmo com a janela aberta, e fechar mantém o app conectado lá. No Windows, o clique esquerdo no ícone mostra ou esconde a janela. "Fechar para a bandeja" em Configurações → Avançado desliga tudo isso: sem ícone, e fechar encerra. Sem bandeja, fechar encerra. Abrir de novo traz a janela que já está rodando. No Linux a bandeja precisa de um painel StatusNotifier e de libappindicator ou ayatana.
 - **Atualiza sozinho.** Verifica ao abrir ou em Configurações → Atualizações. Um botão baixa, instala e reinicia. As atualizações são assinadas, e uma versão sem a assinatura certa não é instalada. Há botão de reiniciar e uma página de Novidades com o que mudou em cada versão.
 - **Volume dos vídeos.** O player do app tem um controle de volume, lembrado entre uma vez e outra.
 - **Supressão de ruído no microfone.** Configurações → Voz → Supressão de ruído (Desligada / RNNoise), ligada por padrão e trocável em plena call. Usa o [RNNoise](https://github.com/xiph/rnnoise) 0.2 (BSD), embutido no executável e rodando neste computador, sem internet. Reduz ruído constante como ventilador, chiado e ar-condicionado; teclado e pancadas podem passar, outras vozes continuam e a sua pode abafar um pouco. Atrasa o microfone em 20 ms e custa de 2% a 3,5% de um núcleo num Core i5 de 2011 com o microfone aberto, e menos em processadores mais novos; desligada, no mudo ou com a tecla do aperte para falar solta, não custa nada.
@@ -132,7 +132,7 @@ O cliente oficial é um navegador inteiro disfarçado de app. No mesmo PC:
 - **Várias contas.** O menu do próprio nome lista as contas guardadas (nome e foto) e troca na
   hora; "Adicionar conta" volta ao login sem esquecer as outras. A tela de login também lista
   as contas, e um token recusado pelo Discord é esquecido em vez de ser tentado de novo.
-- **Configurações no estilo Discord** (`Ctrl+,`): 17 páginas, troca de tema com miniaturas,
+- **Configurações no estilo Discord** (`Ctrl+,`): 18 páginas, troca de tema com miniaturas,
   cor de destaque/cantos, **cores personalizadas por tema e modo em hex**, escala de fonte,
   modo compacto, reduzir movimento, relógio 12/24 h, spoilers…, salvas em
   `~/.config/larpercord/settings.kdl` (`%APPDATA%\larpercord\settings.kdl` no Windows). Se
@@ -145,14 +145,17 @@ O cliente oficial é um navegador inteiro disfarçado de app. No mesmo PC:
   barra de progresso, som; até 480p e ~30 qps. Sem FFmpeg, o vídeo abre no navegador. No Linux, é o
   pacote `ffmpeg` da distro. O Windows não tem, então Configurações → Chat → Vídeos busca uma vez
   (Verificar se tem FFmpeg, depois Baixar FFmpeg): cerca de 80 MB de github.com/BtbN/FFmpeg-Builds,
-  conferidos com um SHA-256 fixo, cerca de 128 MB em disco em `%LOCALAPPDATA%\larpercord\ffmpeg`. Também
-  anima os GIFs antigos do Tenor que só existem em MP4.
+  conferidos com um SHA-256 fixo, cerca de 128 MB em disco em `%LOCALAPPDATA%\larpercord\ffmpeg`.
+  "Escolher a pasta do FFmpeg…" ali aceita uma versão "shared" do FFmpeg que você já tem, e sem o
+  FFmpeg a página diz o porquê (um `ffmpeg` estático no PATH, sem as bibliotecas, uma versão que o app
+  não usa, uma biblioteca que não carregou). Também anima os GIFs antigos do Tenor que só existem em MP4.
 - **Mídia**: spoilers e mídias sensíveis ficam cobertos até você clicar, sem baixar nada antes; links de
   imagem do Discord vencidos são renovados sozinhos; mensagens de voz têm um player com a onda; GIFs
   longos tocam todos os quadros, e uma estrela em qualquer GIF põe nos seus favoritos.
 - **Proxy** (HTTP, HTTPS, SOCKS5, SOCKS5h; Tor em `socks5h://127.0.0.1:9050`), com campos separados para
   endereço, porta, login e senha, para a mídia de fora do Discord ou para tudo menos as calls de voz, que
-  sempre conectam direto (Configurações → Privacidade → Rede).
+  sempre conectam direto (Configurações → Rede). A tela de entrada também tem ("Conectar por um
+  proxy") e oferece o proxy quando não chega ao Discord.
 - Mensagens agrupadas, separadores de dia, envio "pendente" confirmado pelo servidor,
   indicador de digitação, rolagem suave com lista virtualizada.
 

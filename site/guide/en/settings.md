@@ -7,21 +7,22 @@ Open settings with `Ctrl+,`. Changes apply right away and are saved in `settings
 | Page | What's there |
 |---|---|
 | **My Account** | Account details, your display name, pronouns and About me, and log out |
-| **Privacy** | Typing indicator, Tenor and Giphy animation, streamer mode, message log, keep messages on disk, clear cache, Rich Presence, the warning before joining a server, and the network proxy |
+| **Privacy** | Typing indicator, Tenor and Giphy animation, streamer mode, message log, keep messages on disk, clear cache, Rich Presence, the warning before joining a server, and a button to the Network page |
 | **Alerts & Filters** | Alert words, word filter, ignored people (on your account or this computer) and focus mode |
 | **Appearance** | Mode (dark, light, follow the system), theme with thumbnails and its options, font scale, compact mode, avatars, 24-hour clock, status ring, accent color, corners, custom theme colors, member list, status bar and resetting panel sizes |
 | **Accessibility** | Reduce motion, role colors, underline links |
-| **Chat** | Autoplay GIFs, images from links, data saver, video, always show spoilers, markdown preview, open at the first unread. Without FFmpeg, the video section says which package to install on Linux and has a **Download FFmpeg** button on Windows |
+| **Chat** | Autoplay GIFs, images from links, data saver, video, always show spoilers, markdown preview, open at the first unread. **Choose FFmpeg folder…** points the app at a "shared" FFmpeg 7, 8 or 9 you already have. Without FFmpeg, the video section says why it wasn't found, which package to install on Linux, and has a **Download FFmpeg** button on Windows |
 | **Voice** | Microphone and output, volumes, voice activity or push-to-talk, microphone test, filters and a sound for each call event. See [Voice calls](page:voice) |
 | **Notifications** | Desktop notifications and taskbar flashing |
 | **Keybinds** | The shortcut list and vim navigation |
 | **Language** | Follow the system, Português (Brasil), English (US) or 日本語 (Japanese) |
+| **Network** | The proxy (type, address, port, login and password) and **Use the proxy for everything**. The sign-in screen has the same form under **Connect through a proxy**. See [Proxy](page:privacy#proxy) |
 | **Advanced** | Developer mode (message IDs, "Copy ID"), reload themes on save, close to tray, text weight, the debug log, and how often Discord asked for a captcha or verification |
 | **Performance** | RAM, CPU per frame, idle CPU and messages per channel |
 | **Plugins** | A card for each plugin (what it is and what it asks for), on/off, errors, host approvals, its panel, Reload and Install bundled plugins |
 | **About** | Version and what it's built with |
 
-**Close to tray** is on by default: closing the window keeps the app connected, and **Quit** in the tray icon's menu really closes it. Windows always has a tray. On Linux it needs a panel with a StatusNotifier tray, and without one closing the window quits.
+**Close to tray** is on by default: the larperCord icon stays in the system tray from launch until you quit, with **Open larperCord** and **Quit** in its menu even while the window is open, and closing the window keeps the app connected there. On Windows, left-clicking the icon shows or hides the window and right-clicking opens the menu; on Linux the panel opens the menu on any click. Turned off, there's no icon at all and closing the window quits. Windows always has a tray. On Linux it needs a panel with a StatusNotifier tray: without one the switch is greyed out with the reason and closing the window quits. On Linux the icon lives in a small separate process (about 14 MB), which comes back on its own if it dies.
 
 **Save debug log** writes `debug.log` in the cache folder (`~/.cache/larpercord/` on Linux, `%LOCALAPPDATA%\larpercord\` on Windows) until you turn it off or close the app. **Open the log folder** and **Copy the file path** take you to it. The token never goes in the file. On Windows this is how you see the app's log, since the Windows build has no console.
 

@@ -70,7 +70,7 @@ Buttons and select menus talk to the bot, with a loading indicator and "This int
 - **Spoilers and sensitive media** stay behind a cover until you click, with nothing downloaded before. Images whose Discord link expired are refreshed on their own.
 - **Voice messages** have a player with a waveform to seek. Recording them isn't supported yet.
 - **Embeds** as cards: color, author, title, description in markdown, fields, image, thumbnail and footer.
-- **Video in the chat** for attachments and direct `.mp4`/`.webm` links, through FFmpeg 7, 8 or 9, which is only loaded on the first play. On Linux it's your system's FFmpeg (older distros ship an older one, which is ignored). On Windows, Settings → Chat → **Download FFmpeg** downloads and installs it (about 80 MB, checked against a SHA-256), or the app uses FFmpeg DLLs it finds next to `larpercord.exe` or on `PATH`. Play and pause, a progress bar and sound, up to 854×480 at about 30 fps. Off-screen video pauses, and 30 seconds later everything is released. Without FFmpeg, it opens in the browser.
+- **Video in the chat** for attachments and direct `.mp4`/`.webm` links, through FFmpeg 7, 8 or 9, which is only loaded on the first play. On Linux it's your system's FFmpeg (older distros ship an older one, which is ignored). On Windows, Settings → Chat → **Download FFmpeg** downloads and installs it (about 80 MB, checked against a SHA-256), or the app uses FFmpeg DLLs it finds next to `larpercord.exe` or in any `PATH` folder. On both systems, **Choose FFmpeg folder…** in the same place takes a "shared" FFmpeg build you already have, and when FFmpeg isn't found the page says why: a static `ffmpeg` on `PATH` without the libraries (what winget, choco and gyan.dev install), a version the app doesn't use, or a library that didn't load and the system's reason. Play and pause, a progress bar and sound, up to 854×480 at about 30 fps. Off-screen video pauses, and 30 seconds later everything is released. Without FFmpeg, it opens in the browser.
 - **Data saver**: images, avatars and attachments only download when you click.
 
 ## Finding things
@@ -137,7 +137,7 @@ Real voice with end-to-end encryption, a per-person mixer, device picker, push-t
 
 ## Network and languages
 
-- **Proxy** for HTTP, HTTPS, SOCKS5 and SOCKS5h (Tor at `127.0.0.1:9050`), with separate fields for the address, port, login and password, for external media only or for everything except voice calls, which always connect directly.
+- **Proxy** for HTTP, HTTPS, SOCKS5 and SOCKS5h (Tor at `127.0.0.1:9050`), with separate fields for the address, port, login and password, for external media only or for everything except voice calls, which always connect directly. It's in Settings → Network and on the sign-in screen, which offers it when it can't reach Discord.
 - **English and Portuguese** across the UI, network notices, demo data and theme options, and the interface in **Japanese**, with English where a translation is still missing. It follows your system by default.
 - **Text in any language**: Arabic letters are joined and right-to-left text comes in the right order. A letter the theme's font lacks, in any script, comes from a system font that has it. Typed right-to-left text still goes left to right in the message box, and scripts that need shaping, like Devanagari or Thai, show their letters one by one.
 

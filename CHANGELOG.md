@@ -32,6 +32,7 @@
 - The GIF picker has a Stickers tab with this server's stickers, your other servers' and Discord's own. One click sends.
 - Hover a GIF, in a message or in the picker, and click the star to add it to your favorites or take it out.
 - Long GIFs play every frame at their real speed. In a 16 s test, 0.6.1 kept 25 of 400 frames; now all of them play, in about 8 MB.
+- Settings → Chat → Videos has Choose FFmpeg folder… for a "shared" FFmpeg 7, 8 or 9 you already have: the app checks the folder has the whole set and looks there first. When FFmpeg isn't found, the page says why: the file names it looked for, an `ffmpeg` on PATH that's a static build without the libraries (what winget, choco and gyan.dev install), a version the app doesn't use, or a library that's there but didn't load, with the system's reason. On Windows the app also looks for the DLLs in every PATH folder. From DivannKokos's report (#10).
 
 **Your account**
 - Block and unblock from a person's menu or full profile.
@@ -67,7 +68,7 @@
 - For theme authors: `hide-below-height=`, `only-below-height=` and the `me`, `mic` and `deaf` status bar items.
 
 **Network and privacy**
-- The proxy has separate fields: type (HTTP, HTTPS, SOCKS5, SOCKS5h for Tor), address, port, login and password, which can hold any character. Pasting a full URL fills them all, and the saved proxy carries over. From degger80's report in #6, with DivannKokos's suggestion.
+- The proxy has its own page, Settings → Network, with separate fields: type (HTTP, HTTPS, SOCKS5, SOCKS5h for Tor), address, port, login and password, which can hold any character. Pasting a full URL fills them all, and the saved proxy carries over. The sign-in screen has the same form ("Connect through a proxy"), which covers signing in too, and when signing in can't reach Discord it says why and asks "Can't reach Discord — try a proxy?". A changed proxy is used on the next connection attempt right away. From degger80's report in #6, with DivannKokos's suggestions.
 - Voice calls always connect directly, even with "Use the proxy for everything", and the setting now says so.
 - Settings → Advanced → Debug counts how often Discord asked for a captcha, asked to verify the account or refused the session.
 - Every connection to Discord, voice and its image servers included, uses the same web client headers, only over https and wss, and always checks the certificate.
@@ -79,6 +80,7 @@
 
 **Linux and Windows**
 - On a Wayland desktop the app runs natively, with X11 as the fallback, from Kainoa Kanter (ThatOneCalculator) in #1.
+- With Close to tray on, as it is by default, the tray icon stays from launch until you quit, like in the official app: Open and Quit in its menu work with the window open, and on Windows a left click shows or hides the window. Turned off, there's no icon and closing quits. On Linux the icon is a small separate process (about 14 MB) that comes back on its own if it dies. From DivannKokos's request (#11).
 - An update replaces the file you actually run, whatever its name, and reopens it. Before, the Linux download kept the old version and Restart could open nothing.
 - The app opens on a system with no fonts at all, such as a Windows or wine install without `C:\Windows\Fonts`, with the font built into Dear ImGui.
 - On Windows, the app's hints name the Windows folders and Credential Manager, and OpenSSL no longer reads an `openssl.cnf` from a folder another user could create.

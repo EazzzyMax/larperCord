@@ -70,7 +70,7 @@ Botões e menus de seleção falam com o bot, com um indicador de carregando e "
 - **Spoilers e mídias sensíveis** ficam atrás de uma capa até você clicar, sem baixar nada antes. Imagens com o link do Discord vencido são renovadas sozinhas.
 - **Mensagens de voz** têm um player com a onda para pular. Gravar ainda não tem suporte.
 - **Embeds** como cartões: cor, autor, título, descrição em markdown, campos, imagem, miniatura e rodapé.
-- **Vídeo na conversa** para anexos e links diretos `.mp4`/`.webm`, pelo FFmpeg 7, 8 ou 9, que só é carregado no primeiro play. No Linux é o FFmpeg do sistema (distros antigas trazem um mais velho, que é ignorado). No Windows, Configurações → Chat → **Baixar FFmpeg** baixa e instala (cerca de 80 MB, conferidos por SHA-256), ou o app usa as DLLs do FFmpeg que achar ao lado do `larpercord.exe` ou no `PATH`. Play e pausa, barra de progresso e som, até 854×480 a cerca de 30 qps. O vídeo fora da tela pausa, e 30 segundos depois tudo é liberado. Sem o FFmpeg, ele abre no navegador.
+- **Vídeo na conversa** para anexos e links diretos `.mp4`/`.webm`, pelo FFmpeg 7, 8 ou 9, que só é carregado no primeiro play. No Linux é o FFmpeg do sistema (distros antigas trazem um mais velho, que é ignorado). No Windows, Configurações → Chat → **Baixar FFmpeg** baixa e instala (cerca de 80 MB, conferidos por SHA-256), ou o app usa as DLLs do FFmpeg que achar ao lado do `larpercord.exe` ou em qualquer pasta do `PATH`. Nos dois sistemas, **Escolher a pasta do FFmpeg…** no mesmo lugar aceita uma versão "shared" do FFmpeg que você já tem, e sem o FFmpeg a página diz o porquê: um `ffmpeg` estático no `PATH`, sem as bibliotecas (é o que o winget, o choco e o gyan.dev instalam), uma versão que o app não usa ou uma biblioteca que não carregou, com o motivo dado pelo sistema. Play e pausa, barra de progresso e som, até 854×480 a cerca de 30 qps. O vídeo fora da tela pausa, e 30 segundos depois tudo é liberado. Sem o FFmpeg, ele abre no navegador.
 - **Modo economia**: imagens, fotos de perfil e anexos só baixam quando você clica.
 
 ## Achando as coisas
@@ -137,7 +137,7 @@ Voz de verdade com criptografia de ponta a ponta, mixer por pessoa, seletor de d
 
 ## Rede e idiomas
 
-- **Proxy** para HTTP, HTTPS, SOCKS5 e SOCKS5h (Tor em `127.0.0.1:9050`), com campos separados para endereço, porta, login e senha, só para mídia externa ou para tudo menos as calls de voz, que sempre conectam direto.
+- **Proxy** para HTTP, HTTPS, SOCKS5 e SOCKS5h (Tor em `127.0.0.1:9050`), com campos separados para endereço, porta, login e senha, só para mídia externa ou para tudo menos as calls de voz, que sempre conectam direto. Fica em Configurações → Rede e na tela de entrada, que oferece o proxy quando não chega ao Discord.
 - **Inglês e português** em toda a interface, nos avisos de rede, nos dados de demonstração e nas opções dos temas, e a interface em **japonês**, com inglês onde ainda falta tradução. Por padrão, segue o seu sistema.
 - **Texto em qualquer idioma**: as letras árabes saem ligadas e o texto da direita para a esquerda vem na ordem certa. Uma letra que falta na fonte do tema, em qualquer escrita, vem de uma fonte do sistema que a tenha. Texto da direita para a esquerda digitado ainda vai da esquerda para a direita na caixa de mensagem, e escritas que precisam de composição, como devanágari ou tailandês, mostram as letras uma a uma.
 

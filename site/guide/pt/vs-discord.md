@@ -27,7 +27,7 @@ Alguns itens aqui são o jeito como o larperCord fica leve, e o app oficial pode
 
 - **[Código aberto](https://github.com/RshaCuDeVidro/larperCord)**, sob a GPL-3.0. Dá para ler cada linha e compilar você mesmo.
 - **[Sem telemetria nem análise de uso](page:privacy#o-que-passa-pela-rede)** no app, então não há nada para desligar.
-- **[Proxy nas configurações](page:privacy#proxy)** para HTTP, HTTPS, SOCKS5 e Tor, com login e senha, só para a mídia de fora do Discord ou também para a API, o gateway e a mídia do Discord. As calls de voz sempre conectam direto.
+- **[Proxy nas configurações](page:privacy#proxy)** para HTTP, HTTPS, SOCKS5 e Tor, com login e senha, só para a mídia de fora do Discord ou também para a API, o gateway e a mídia do Discord, e também na tela de entrada. As calls de voz sempre conectam direto.
 - **[Modo economia](page:features#midia).** Imagens, anexos e até fotos de perfil esperam um clique, uma por uma, e os emojis personalizados aparecem como `:nome:`.
 - **[Configurações num arquivo de texto](page:settings#arquivos-no-disco).** O `settings.kdl` é texto simples: dá para ler, editar e fazer backup.
 

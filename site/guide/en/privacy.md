@@ -45,9 +45,11 @@ There's no telemetry or analytics in the app.
 
 ## Proxy
 
-Settings → Privacy → Network has a type (HTTP, HTTPS, SOCKS5 or SOCKS5h), address, port, login and password. The login and password can hold any character, and pasting a full URL like `socks5://user:pass@host:1080` into the address fills every field. For Tor, use SOCKS5h at `127.0.0.1` port `9050`.
+Settings → Network has a type (HTTP, HTTPS, SOCKS5 or SOCKS5h), address, port, login and password. The login and password can hold any character, and pasting a full URL like `socks5://user:pass@host:1080` into the address fills every field. For Tor, use SOCKS5h at `127.0.0.1` port `9050`.
 
 By default, the proxy applies to media from outside Discord. **Use the proxy for everything** also routes the API, images, videos and the gateway through it (the gateway from the next connection on).
+
+The sign-in screen has the same form under **Connect through a proxy**. Saving it there also turns on **Use the proxy for everything**, so signing in goes through the proxy too. If signing in can't reach Discord (the address isn't found, the connection is refused, times out or fails TLS, or the proxy doesn't answer), the sign-in card says "Can't reach Discord — try a proxy?" with the reason and a button that opens the form.
 
 Voice calls never go through the proxy, not even with **Use the proxy for everything** on. They connect straight to Discord's voice servers, which see your IP. If your IP must stay hidden, don't join calls.
 

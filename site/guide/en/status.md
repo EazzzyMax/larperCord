@@ -22,7 +22,7 @@ larperCord is a young project: version 0.6.2, with its first commit on November 
 | Themes | **works** | 11 built-in, each light and dark, reload on save |
 | Voice | partial | Server voice channels and DM and group calls. E2EE (DAVE), mixer, mute, device picker, push-to-talk, high-pass filter, noise gate and RNNoise noise suppression work. Push-to-talk needs the window focused, and no automated test covers a real call |
 | Permissions | partial | Channels without access get a padlock, voice without permission is blocked, and the message box says why you can't send (no permission, a locked thread, a timeout, slowmode). Those channels still appear, and reactions and the member list don't check permissions |
-| System tray, updates | **works** | Closing keeps it in the tray; signed updates from Settings. On Linux the tray needs a StatusNotifier panel |
+| System tray, updates | **works** | The icon stays in the tray while the app runs and closing keeps it there; signed updates from Settings. On Linux the tray needs a StatusNotifier panel |
 | Windows | partial | Windows 10/11 from the same code. Newer than Linux and less used |
 | Notifications | partial | Through `notify-send` on Linux and the tray on Windows. Clicking doesn't open the channel |
 | Accessibility | partial | Font scale, reduced motion, palette and vim navigation. No visible focus and no high contrast |

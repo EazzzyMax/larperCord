@@ -12,7 +12,7 @@ O larperCord é um cliente de Discord nativo para Linux e Windows, escrito em Zi
 | Sistema | x86_64 com glibc 2.34 ou mais nova, distros de 2022 para cá (testado todo dia no Arch com Hyprland) | Windows 10 ou 11, x64 |
 | Para rodar o download | FreeType, fontconfig, libwebp, Opus e zlib do sistema; uma distro de desktop costuma já ter. SDL3, libcurl e OpenSSL vêm dentro do arquivo | Nada além dele: SDL3, libcurl e OpenSSL vêm como DLLs ao lado do `larpercord.exe` |
 | Fontes | Inter, JetBrains Mono e Noto Color Emoji são recomendadas. O fontconfig escolhe substitutas se faltar alguma | Nada para instalar: Segoe UI, Consolas, Georgia e Segoe UI Emoji de `C:\Windows\Fonts` ([por quê](page:themes#fontes-no-windows)) |
-| Vídeo dentro do app (opcional) | FFmpeg 7, 8 ou 9 (libavformat 61–63) da distro. Qualquer outra versão é ignorada e os vídeos abrem no navegador | Configurações → Chat → **Baixar FFmpeg**, cerca de 80 MB, conferidos com um SHA-256 fixo |
+| Vídeo dentro do app (opcional) | FFmpeg 7, 8 ou 9 (libavformat 61–63) da distro. Qualquer outra versão é ignorada e os vídeos abrem no navegador | Configurações → Chat → **Baixar FFmpeg**, cerca de 80 MB, conferidos com um SHA-256 fixo, ou **Escolher a pasta do FFmpeg…** para uma versão shared que você já tem |
 | Para compilar | Zig 0.17, SDL3, FreeType, fontconfig, libcurl (com suporte a WebSocket, 7.86 ou mais nova), zlib, libwebp, Opus, OpenSSL | Compilado a partir do Linux com Zig 0.17: o `tools/windows_deps.sh` baixa as bibliotecas do Windows |
 
 ## Instalar

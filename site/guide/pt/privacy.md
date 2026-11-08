@@ -45,9 +45,11 @@ O app não tem telemetria nem análise de uso.
 
 ## Proxy
 
-Configurações → Privacidade → Rede tem tipo (HTTP, HTTPS, SOCKS5 ou SOCKS5h), endereço, porta, login e senha. Login e senha aceitam qualquer caractere, e colar uma URL inteira como `socks5://usuario:senha@host:1080` no endereço preenche todos os campos. Para o Tor, use SOCKS5h em `127.0.0.1`, porta `9050`.
+Configurações → Rede tem tipo (HTTP, HTTPS, SOCKS5 ou SOCKS5h), endereço, porta, login e senha. Login e senha aceitam qualquer caractere, e colar uma URL inteira como `socks5://usuario:senha@host:1080` no endereço preenche todos os campos. Para o Tor, use SOCKS5h em `127.0.0.1`, porta `9050`.
 
 Por padrão, o proxy vale para a mídia de fora do Discord. **Usar o proxy em tudo** também passa a API, as imagens, os vídeos e o gateway por ele (o gateway a partir da próxima conexão).
+
+A tela de entrada tem o mesmo formulário em **Conectar por um proxy**. Salvar ali também liga **Usar o proxy em tudo**, para a própria entrada passar pelo proxy. Se a entrada não chega ao Discord (o endereço não é encontrado, a conexão é recusada, demora demais ou falha no TLS, ou o proxy não responde), o cartão da entrada mostra "Não consegui chegar ao Discord — tentar um proxy?" com o motivo e um botão que abre o formulário.
 
 As calls de voz nunca passam pelo proxy, nem com **Usar o proxy em tudo** ligado. Elas conectam direto nos servidores de voz do Discord, que veem o seu IP. Se o seu IP precisa ficar escondido, não entre em calls.
 
