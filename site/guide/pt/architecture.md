@@ -18,7 +18,7 @@ src/
               caixa de entrada, mensagens salvas, filtros, consultas de busca, formato do cache
   net/        o gateway real (Discord) e o de demonstração, filas, voz,
               protobuf das configurações, cache de mensagens, proxy, URLs de mídia
-  theme/      parser KDL, cores, carregador de tema, motor de layout, gerenciador + inotify
+  theme/      parser KDL, cores, carregador de tema, motor de layout, gerenciador + vigia de arquivos
   ui/         componentes, texto rico, paleta, configurações, animações, imagens, vídeo
   plugins/    o motor Lua e o seu host
   platform/   janela, renderizador, acordar o laço, carregamento do FFmpeg. O único
@@ -38,7 +38,7 @@ tools/        QA, benchmark de memória, capturas de tela, geradores de logo e d
 | Gateway | Com token | WebSocket com heartbeat, RESUME, zlib-stream e reconexão, mais o REST, uma requisição por vez |
 | Gateway de demonstração | Sem token | Servidores, pessoas e mensagens falsos |
 | Mídia | Sempre, quase sempre dormindo | Baixa e decodifica imagens com baixa prioridade, no máximo 2 decodificações por vez |
-| Vigia de temas | A menos que desligada | Espera o inotify avisar de mudanças nos arquivos de tema e nas cores do pywal |
+| Vigia de temas | A menos que desligada | Espera mudanças nos arquivos de tema: inotify no Linux (também nas cores do pywal), aviso de mudança na pasta (FindFirstChangeNotification) no Windows (só as pastas de tema) |
 | Vídeo | Enquanto toca | Uma thread baixa, outra decodifica num anel de 3 quadros |
 | Voz | Durante uma call | Gateway de voz, UDP, Opus e DAVE |
 
@@ -50,7 +50,7 @@ O gateway usa WebSocket (`v=10`, JSON, `zlib-stream`) com heartbeat, RESUME de s
 
 Tudo é desenhado com o `ImDrawList` do Dear ImGui sobre o SDL_Renderer, e o FreeType renderiza o texto. O ImGui é uma biblioteca de modo imediato, então o custo normal dela é redesenhar o tempo todo. Aqui, o laço só desenha quando algo muda:
 
-- **Entrada, rede, inotify e o relógio** acordam o laço por eventos.
+- **Entrada, rede, mudanças nos arquivos e o relógio** acordam o laço por eventos.
 - **Animações** pedem quadros só enquanto estão rodando.
 - **Listas** usam busca binária para achar o primeiro item visível e desenham só o que está na tela.
 - **Markdown** é interpretado uma vez, quando a mensagem chega, com cache de altura por largura.

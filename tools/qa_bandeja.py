@@ -153,6 +153,9 @@ class Panel:
                 self.watcher.owner_match.remove()
                 self.watcher.remove_from_connection()
                 self.bus.release_name(WATCHER)
+                # O dbus-python guarda o BusName pelo nome: sem tirar daqui, subir o
+                # painel de novo devolveria o antigo, já solto, e o nome ficaria sem dono.
+                self.bus._bus_names.pop(WATCHER, None)
                 self.watcher = None
 
         self.call(go)
@@ -340,9 +343,11 @@ def no_windows():
     wait_until(lambda: not windows(), 5)
 
 
-def fresh_home():
+def fresh_home(settings=None):
     d = Path(tempfile.mkdtemp(prefix="larper-qa-"))
     (d / "config" / "larpercord").mkdir(parents=True)
+    if settings:
+        (d / "config/larpercord/settings.kdl").write_text(f"settings {settings}\n")
     return d
 
 
@@ -361,6 +366,18 @@ def cpu_percent(a, seconds):
     return (a.cpu_ticks() - t0) / os.sysconf("SC_CLK_TCK") / seconds * 100
 
 
+def ticks_of(pid):
+    f = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    return int(f[11]) + int(f[12])
+
+
+def rss_of(pid):
+    for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+        if line.startswith("VmRSS:"):
+            return int(line.split()[1])
+    return 0
+
+
 panel = Panel()
 
 
@@ -374,6 +391,8 @@ def no_panel():
     home = fresh_home()
     a = start(home)
     check("a janela abriu", bool(mapped()))
+    time.sleep(2.5)
+    check("com fechar para a bandeja ligado (o padrão): nenhum processo do ícone", not helpers(a), str(helpers(a)))
     t = time.time()
     close_window()
     code = a.wait(5)
@@ -384,12 +403,14 @@ def no_panel():
 
 
 def option_off():
-    section("com painel e a opção desligada")
+    section("com painel e fechar para a bandeja desligado")
     panel.up()
     panel.clear()
-    home = fresh_home()
-    (home / "config/larpercord/settings.kdl").write_text("settings close_to_tray=#false\n")
+    home = fresh_home("close_to_tray=#false")
     a = start(home)
+    time.sleep(2.5)
+    check("nenhum processo do ícone com a janela aberta", not helpers(a), str(helpers(a)))
+    check("e nenhum ícone no painel", not panel.items())
     close_window()
     code = a.wait(5)
     check("fechar encerra o processo", code == 0, f"código {code}")
@@ -399,55 +420,67 @@ def option_off():
 
 
 def full_flow():
-    section("com painel: fechar, voltar e sair")
+    section("fechar para a bandeja (o padrão): o ícone da abertura até sair")
     panel.up()
     panel.clear()
-    home = fresh_home()
+    # Um settings.kdl de um build de desenvolvimento, ainda com o tray_always: a chave é ignorada.
+    home = fresh_home("tray_always=#false")
+    t_start = time.time()
     a = start(home)
-    check("janela aberta: sem ícone", not panel.items())
-    # O "digitando" da demonstração anima nos primeiros 10 s.
-    time.sleep(12)
-    pss_open = a.pss_kb()
-    cpu_open = cpu_percent(a, 5)
-
-    close_window()
-    item = wait_until(panel.items, ICON_MAX_S)
-    check("fechar põe o ícone na bandeja", bool(item))
-    check("a janela some", wait_until(lambda: not mapped()) is True or not mapped())
-    check("o processo continua", a.alive())
-    if not item:
+    items = wait_until(panel.items, ICON_MAX_S)
+    check("o ícone aparece com a janela aberta (o tray_always=#false de um arquivo antigo não conta)", bool(items) and bool(mapped()), f"{len(panel.items())} ícone(s)")
+    if not items:
         a.kill()
         return
-    item = item[-1]
+    item = items[-1]
     icon = panel.prop(item, "IconName")
     theme = panel.prop(item, "IconThemePath")
     check("o ícone é o nosso PNG", bool(icon), f"{theme}/{icon}")
     labels = panel.menu(item)
     check("o menu tem Abrir e Sair", len(labels) == 2, ", ".join(labels))
+    open_id = next(v for k, v in labels.items() if "larperCord" in k)
+    kids = helpers(a)
+    check("um processo só para o ícone", len(kids) == 1, str(kids))
+    check("o GTK fica fora do app", "libgtk-3" not in Path(f"/proc/{a.p.pid}/maps").read_text())
 
+    # O custo do ícone o tempo todo: o processo dele e o app parados, 20 s (o
+    # "digitando" da demonstração anima nos primeiros 10 s).
+    time.sleep(max(0.0, 12 - (time.time() - t_start)))
+    pss_open = a.pss_kb()
+    hz = os.sysconf("SC_CLK_TCK")
+    h0, a0 = (ticks_of(kids[0]) if kids else 0), a.cpu_ticks()
+    time.sleep(20)
+    cpu_open = (a.cpu_ticks() - a0) / hz / 20 * 100
+    if kids:
+        cpu_h = (ticks_of(kids[0]) - h0) / hz / 20 * 100
+        print(f"       custo do ícone: processo do ícone RSS {rss_of(kids[0])} KB, PSS {pss_of(kids[0])} KB, CPU {cpu_h:.2f}% em 20 s parado; app no mesmo tempo {cpu_open:.2f}% de CPU, PSS {pss_open} KB")
+        check("parado, o processo do ícone quase não usa CPU", cpu_h < 1.0, f"{cpu_h:.2f}%")
+
+    section("fechar, Abrir e um segundo larperCord")
+    close_window()
+    check("fechar esconde a janela", wait_until(lambda: not mapped(), 3) is True)
+    time.sleep(0.3)
+    check("e o mesmo ícone fica, no mesmo processo", panel.items() == [item] and helpers(a) == kids, f"{panel.items()} {helpers(a)}")
+    check("o processo continua", a.alive())
     time.sleep(2)
     cpu_hidden = cpu_percent(a, 10)
     check("escondido: quase nada de CPU", cpu_hidden < 1.0, f"{cpu_hidden:.2f}% com a janela escondida, {cpu_open:.2f}% com ela aberta")
-    pss_hidden = a.pss_kb()
-    print(f"       RAM (PSS): {pss_open} KB aberta, {pss_hidden} KB na bandeja")
-
-    open_id = next(v for k, v in labels.items() if "larperCord" in k)
-    quit_id = next(v for k, v in labels.items() if "larperCord" not in k)
+    print(f"       RAM (PSS): {pss_open} KB aberta, {a.pss_kb()} KB na bandeja")
     panel.click(item, open_id)
     check("Abrir volta a janela", bool(wait_until(mapped, 5)))
     time.sleep(1.0)
     check("voltou desenhada, não em branco", painted(), "")
+    check("e o ícone fica", panel.items() == [item] and helpers(a) == kids)
     cpu_back = cpu_percent(a, 5)
-    check("aberta de novo, sem o ícone, volta ao custo de antes", cpu_back < cpu_open + 0.5, f"{cpu_back:.2f}% agora, {cpu_open:.2f}% antes de ir para a bandeja")
-
-    section("segundo larperCord")
+    check("aberta de novo, volta ao custo de antes", cpu_back < cpu_open + 0.5, f"{cpu_back:.2f}% agora, {cpu_open:.2f}% antes de ir para a bandeja")
+    panel.click(item, open_id)
+    time.sleep(0.5)
+    check("Abrir com a janela aberta: continua uma janela só, aberta", len(mapped()) == 1 and len(windows()) == 1)
     b = App(home)
     code = b.wait(8)
-    check("com a janela aberta: o segundo sai sem abrir outra", code == 0 and len(mapped()) == 1, f"código {code}")
-    panel.clear()
+    check("um segundo larperCord com a janela aberta sai sem abrir outra", code == 0 and len(mapped()) == 1, f"código {code}")
     close_window()
-    wait_until(panel.items, ICON_MAX_S)
-    check("escondeu de novo", wait_until(lambda: not mapped()) is True or not mapped())
+    check("escondeu de novo", wait_until(lambda: not mapped(), 3) is True)
     t = time.time()
     b = App(home)
     code = b.wait(8)
@@ -459,10 +492,8 @@ def full_flow():
     section("idas e voltas")
     ok = True
     icons = []
-    panel.clear()
     for _ in range(5):
         ok = ok and close_window()
-        ok = ok and bool(wait_until(panel.items, ICON_MAX_S))
         ok = ok and wait_until(lambda: not mapped(), 3) is True
         icons.append(len(panel.items()))
         b = App(home)
@@ -470,53 +501,75 @@ def full_flow():
         ok = ok and bool(wait_until(mapped, 5))
         time.sleep(0.3)
         icons.append(len(panel.items()))
-    check("5 vezes para a bandeja e de volta", ok and a.alive())
-    check("nunca sobra ícone: um na bandeja, nenhum com a janela aberta", icons == [1, 0] * 5, str(icons))
+    check("5 vezes para a bandeja e de volta pelo segundo larperCord", ok and a.alive())
+    check("sempre o mesmo ícone, nos dois estados", icons == [1, 1] * 5 and panel.items() == [item] and helpers(a) == kids, str(icons))
 
-    section("o processo do ícone")
-    close_window()
-    wait_until(panel.items, ICON_MAX_S)
-    wait_until(lambda: not mapped(), 3)
-    kids = helpers(a)
-    check("na bandeja: um processo só para o ícone", len(kids) == 1, str(kids))
-    gtk = "libgtk-3" in Path(f"/proc/{a.p.pid}/maps").read_text()
-    check("o GTK fica fora do app", not gtk)
+    section("o painel reinicia com a janela aberta")
+    panel.down()
+    time.sleep(1.0)
+    panel.up()
+    back = wait_until(panel.items, 10)
+    check("o ícone volta ao painel, sem outro processo", bool(back) and helpers(a) == kids, f"{back} {helpers(a)}")
+    check("a janela continua aberta", bool(mapped()) and a.alive())
+    if back:
+        item = back[-1]
+
+    section("o processo do ícone morre")
     if kids:
-        print(f"       RAM (PSS) do processo do ícone: {pss_of(kids[0])} KB")
         os.kill(kids[0], signal.SIGKILL)
-    check("o processo do ícone morreu: a janela volta", bool(wait_until(mapped, 5)))
-    check("e o ícone sai do painel", wait_until(lambda: not panel.items(), 3) is True)
-    check("o app segue vivo", a.alive())
-    time.sleep(0.3)
-
-    section("Sair no menu")
-    panel.clear()
+    check("com a janela aberta: ela continua e o app segue", wait_until(lambda: not panel.items(), 3) is True and bool(mapped()) and a.alive())
+    back = wait_until(panel.items, 8)
+    kids = helpers(a)
+    check("e o ícone volta sozinho, num processo novo", bool(back) and len(kids) == 1, f"{back} {kids}")
+    if back:
+        item = back[-1]
     close_window()
-    item = wait_until(panel.items, ICON_MAX_S)[-1]
+    wait_until(lambda: not mapped(), 3)
+    if kids:
+        os.kill(kids[0], signal.SIGKILL)
+    check("com a janela escondida: ela volta", bool(wait_until(mapped, 5)) and a.alive())
+    # Duas quedas seguidas: a segunda espera a próxima tentativa (até 10 s).
+    back = wait_until(panel.items, 15)
+    check("e o ícone também", bool(back) and len(helpers(a)) == 1, f"{back} {helpers(a)}")
+    if back:
+        item = back[-1]
+    time.sleep(0.5)
+
+    section("Sair no menu com a janela aberta")
     labels = panel.menu(item)
     quit_id = next(v for k, v in labels.items() if "larperCord" not in k)
+    check("janela aberta antes de sair", bool(mapped()))
     threads = a.threads()
     t = time.time()
     panel.click(item, quit_id)
     code = a.wait(5)
-    check("Sair encerra tudo", code == 0, f"código {code}, {time.time() - t:.2f} s, {threads} threads antes")
+    check("Sair no menu encerra tudo sem fechar a janela antes", code == 0, f"código {code}, {time.time() - t:.2f} s, {threads} threads antes")
     check("sem passar pelo vigia", "encerramento demorou" not in a.output())
     check("sem erro na saída", "panic" not in a.output() and "Segmentation" not in a.output(), a.output()[-200:] if "panic" in a.output() else "")
+    check("e o ícone sai do painel", wait_until(lambda: not panel.items(), 3) is True)
     a.kill()
-
     kdl = (home / "config/larpercord/settings.kdl").read_text()
-    check("as configurações ficaram salvas", "close_to_tray=#true" in kdl and "video_volume=100" in kdl)
+    check("as configurações ficaram salvas, sem o tray_always antigo", "close_to_tray=#true" in kdl and "video_volume=100" in kdl and "tray_always" not in kdl)
 
     section("depois de sair: a trava não fica presa")
     a = start(home)
     check("abre de novo normalmente", a.alive() and bool(mapped()))
+    close_window()
+    wait_until(lambda: not mapped(), 3)
+    item = wait_until(panel.items, ICON_MAX_S)
+    if item:
+        labels = panel.menu(item[-1])
+        panel.click(item[-1], next(v for k, v in labels.items() if "larperCord" not in k))
+    check("Sair no menu com a janela escondida também", a.wait(5) == 0)
+    a.kill()
+    a = start(home)
     a.p.kill()
     a.p.wait()
     no_windows()
     a = start(home)
     check("depois de um kill -9, também", a.alive() and bool(mapped()))
     close_window()
-    wait_until(panel.items, ICON_MAX_S)
+    wait_until(lambda: not mapped(), 3)
     a.p.send_signal(signal.SIGTERM)
     check("SIGTERM com a janela escondida sai", a.wait(5) == 0)
     a.kill()
@@ -544,15 +597,15 @@ def restarted():
     panel.clear()
     home = fresh_home()
     a = start(home)
+    # O ícone do antigo (o novo põe o dele só depois de assumir).
+    item = (wait_until(panel.items, ICON_MAX_S) or [None])[-1]
     close_window()
-    wait_until(panel.items, ICON_MAX_S)
     wait_until(lambda: not mapped())
     # Toma o lugar do antigo sem chamar por ele: o antigo continua escondido.
     b = App(home, "--restarted")
     time.sleep(2)
     check("não acorda o antigo", not mapped() and b.alive())
     # O antigo sai (como depois de `restart_wanted`).
-    item = panel.items()[-1]
     labels = panel.menu(item)
     t = time.time()
     panel.click(item, next(v for k, v in labels.items() if "larperCord" not in k))
@@ -566,9 +619,7 @@ def restarted():
 
     # O antigo não sai nunca: depois dos 5 s o reiniciado desiste e chama por ele.
     a = start(home)
-    panel.clear()
     close_window()
-    wait_until(panel.items, ICON_MAX_S)
     wait_until(lambda: not mapped())
     t = time.time()
     b = App(home, "--restarted")
@@ -598,8 +649,8 @@ def panel_dies():
     panel.clear()
     home = fresh_home()
     a = start(home)
-    close_window()
     wait_until(panel.items, ICON_MAX_S)
+    close_window()
     wait_until(lambda: not mapped())
     panel.down()
     t = time.time()

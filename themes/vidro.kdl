@@ -2,7 +2,7 @@
 // é transparente: o compositor (Hyprland, KDE…) aplica o blur de verdade.
 // Exclusivo: reflexo de luz no topo de cada cartão, grão de vidro fosco e uma
 // aurora opcional que passa por trás de tudo.
-theme "vidro" description="Cartões de vidro sobre o wallpaper, com blur do compositor e reflexo." description-en="Glass cards over the wallpaper, with compositor blur and a sheen." author="larperCord" preview=glass
+theme "vidro" description="Cartões de vidro sobre o wallpaper, com reflexo. No Linux, o compositor desfoca o que está atrás." description-en="Glass cards over the wallpaper, with a sheen. On Linux your compositor blurs what's behind." author="larperCord" preview=glass
 palette "wal"
 window transparent=#true
 
@@ -11,7 +11,7 @@ options {
     option "aurora" label="Aurora ao fundo" description="Uma cortina de luz nas cores do tema atrás dos cartões. Parada: gerada uma vez." label-en="Aurora backdrop" description-en="A curtain of light in the theme colors behind the cards. Still: generated once." default=#true
     option "abas" label="Abas de canal" description="Mostra os canais abertos em abas acima da conversa." label-en="Channel tabs" description-en="Shows open channels as tabs above the conversation." default=#true
     option "banner" label="Banner do servidor" description="Faixa com o nome do servidor no topo dos canais." label-en="Server banner" description-en="A strip with the server name above the channels." default=#false
-    option "opaco" label="Fundo opaco" description="Sem blur do compositor: os cartões ficam sólidos (mais leve)." label-en="Opaque background" description-en="No compositor blur: solid cards (lighter)." default=#false
+    option "opaco" label="Fundo opaco" description="Sem transparência: os cartões ficam sólidos (mais leve). O melhor visual no Windows, que não tem blur." label-en="Opaque background" description-en="No transparency: solid cards (lighter). The best look on Windows, which has no blur." default=#false
     option "crt" label="Efeito CRT" description="Scanlines discretas por cima do vidro." label-en="CRT effect" description-en="Subtle scanlines over the glass." default=#false
 }
 

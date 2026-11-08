@@ -32,6 +32,9 @@ const i18n = @import("ui/i18n.zig");
 const widgets = @import("ui/widgets.zig");
 const settings_state = @import("ui/settings_state.zig");
 const settings_voz = @import("ui/settings_voz.zig");
+const settings_video = @import("ui/settings_video.zig");
+const ffmpeg = @import("platform/ffmpeg.zig");
+const proxy = @import("net/proxy.zig");
 const kdl = @import("theme/kdl.zig");
 const custom = @import("theme/custom.zig");
 const guild_color = @import("ui/guild_color.zig");
@@ -64,7 +67,8 @@ const quadro = @import("ui/quadro.zig");
 const send_limits = @import("ui/composer_limits.zig");
 const Debounce = @import("core/debounce.zig").Debounce;
 
-/// Op 14 do canal aberto: espera a escolha parar (Ctrl+Tab, cliques em sequência).
+/// Op 14 do canal aberto: o canal escolhido depois de uma pausa pede na hora;
+/// trocas seguidas (Ctrl+Tab, cliques em sequência) esperam a escolha parar.
 const sub_delay_ms = 250;
 const SubReq = struct { guild: types.Id, channel: types.Id, thread: types.Id };
 
@@ -109,6 +113,12 @@ fn wakeTheme() void {
     platform.Window.wake(wake_type_global, .theme);
 }
 
+/// Hora de tentar de novo o ícone da bandeja (ver App.syncTray).
+fn trayRetryWake(_: ?*anyopaque, _: c.SDL_TimerID, _: u32) callconv(.c) u32 {
+    platform.Window.wake(wake_type_global, .tick);
+    return 0;
+}
+
 /// `none`: ainda na tela de login, sem conexão nenhuma.
 const Net = union(enum) { none, fake: Gateway, real: discord.Gateway };
 
@@ -141,6 +151,23 @@ pub const App = struct {
     restart_wanted: bool = false,
     /// Verificações seguidas sem painel com a janela escondida.
     tray_misses: u8 = 0,
+    /// A janela está escondida na bandeja (fechou, ou clicou no ícone).
+    in_tray: bool = false,
+    /// O ícone que está lá é o de "Fechar para a bandeja", que fica da abertura até
+    /// sair (ver `syncTray`).
+    tray_kept: bool = false,
+    /// A opção como estava na volta anterior do laço: ligar tenta na hora.
+    tray_on_was: bool = false,
+    /// Idioma dos rótulos do menu do ícone que está lá.
+    tray_lang: i18n.Lang = .pt,
+    /// Quando tentar pôr o ícone de novo (SDL_GetTicks) e quantas vezes já tentou.
+    tray_retry_ms: u64 = 0,
+    tray_tries: u8 = 0,
+    /// A tentativa para a qual já há um alarme (ver `syncTray`).
+    tray_wake_at: u64 = 0,
+    /// O que o último clique no ícone fez (o QA confere: minimizar não muda as
+    /// flags da janela no driver offscreen).
+    tray_click: ?janela.Clique = null,
     images: images.Cache = undefined,
     /// Arquivos escolhidos no seletor (o SDL pode responder de outra thread).
     picked: Queue([:0]u8) = undefined,
@@ -162,6 +189,8 @@ pub const App = struct {
     trim_wanted: std.atomic.Value(bool) = .init(false),
     /// Guardar o token quando o Discord aceitar (o "Lembrar" do login).
     save_token: bool = false,
+    /// O proxy do Discord da última vez que o quadro olhou (net/proxy.zig `generation`).
+    proxy_gen: u32 = 0,
     /// Último aviso da rede (vira a mensagem de erro do login).
     last_notice: [200]u8 = undefined,
     last_notice_len: usize = 0,
@@ -175,7 +204,8 @@ pub const App = struct {
     qa_blur: bool = false,
     /// O QA quer o portão dos quadros valendo (não vai ler os pixels nesse trecho).
     qa_real_gate: bool = false,
-    /// A lista de membros do canal aberto (op 14) que ainda espera a escolha parar.
+    /// A lista de membros do canal aberto (op 14): sai na hora depois de uma
+    /// pausa, ou espera a escolha parar numa rajada de trocas.
     sub_wait: Debounce(SubReq) = .{},
 
     pub fn create(gpa: std.mem.Allocator, opts: Options) !*App {
@@ -234,6 +264,10 @@ pub const App = struct {
             var dbuf: [512]u8 = undefined;
             if (draftsPath(&dbuf)) |p| app.st.drafts.load(gpa, p);
         }
+        // Antes da rede: a primeira conexão com um token salvo já vai pelo proxy, e um
+        // vídeo que toque antes do primeiro quadro já acha a pasta do FFmpeg.
+        proxy.set(app.st.settings.proxy.slice(), app.st.settings.proxy_all);
+        ffmpeg.setDir(app.st.settings.ffmpeg_dir.slice());
         // No QA e nos prints ninguém abre o microfone de verdade.
         voz_audio.force_dummy = opts.qa or opts.shot != null;
         voz_audio.qa_sounds_dir = opts.qa or opts.shot != null;
@@ -285,6 +319,10 @@ pub const App = struct {
         updater.offline = opts.qa;
         updater.cleanLeftovers();
         if (opts.qa) tray.fake = false;
+        // O ícone da bandeja espera a janela aparecer: perguntar pelo painel e abrir
+        // o processo do ícone não atrasam o primeiro quadro.
+        app.tray_on_was = app.st.settings.close_to_tray;
+        app.tray_retry_ms = c.SDL_GetTicks() + 1500;
         timeline.mark(.create_fim);
         return app;
     }
@@ -296,8 +334,9 @@ pub const App = struct {
         if (app.opts.shot != null or app.restart_wanted) return false;
         const logged_in = app.store.ready and !app.login.visible();
         if (!janela.wantsTray(app.st.settings.close_to_tray, logged_in)) return false;
-        if (!tray.show(app.win.wake_type, i18n.trZ("Abrir o larperCord", "Open larperCord").ptr, i18n.trZ("Sair", "Quit").ptr)) return false;
+        if (!app.trayShow(true)) return false;
         _ = c.SDL_HideWindow(app.win.window);
+        app.in_tray = true;
         // Sem quadros daqui em diante: o que depende do quadro fica certo agora.
         // Ninguém está olhando: confirmar leitura e o medidor do microfone param,
         // e o vídeo (a imagem também parou) pausa em vez de cortar o som depois de 1 s.
@@ -314,13 +353,86 @@ pub const App = struct {
         return true;
     }
 
-    /// Volta da bandeja (ou traz para a frente, se a janela já estava aberta).
+    /// Volta da bandeja (ou traz para a frente, se a janela já estava aberta). Com
+    /// "Fechar para a bandeja" ligado o ícone fica; desligado, não há ícone para tirar.
     fn showWindow(app: *App) void {
-        tray.hide();
+        if (!app.st.settings.close_to_tray) tray.hide();
+        app.in_tray = false;
         app.tray_misses = 0;
         _ = c.SDL_ShowWindow(app.win.window);
         _ = c.SDL_RestoreWindow(app.win.window);
         _ = c.SDL_RaiseWindow(app.win.window);
+    }
+
+    /// Põe o ícone, com o menu no idioma de agora (ver tray.show).
+    fn trayShow(app: *App, wait: bool) bool {
+        app.tray_lang = i18n.current();
+        return tray.show(app.win.wake_type, i18n.trZ("Abrir o larperCord", "Open larperCord").ptr, i18n.trZ("Sair", "Quit").ptr, wait);
+    }
+
+    /// Clique no ícone da bandeja: alterna a janela (ver janela.trayClick).
+    fn toggleWindow(app: *App) void {
+        const flags = c.SDL_GetWindowFlags(app.win.window);
+        const vista: janela.Vista = if (app.in_tray or flags & c.SDL_WINDOW_HIDDEN != 0)
+            .na_bandeja
+        else if (flags & (c.SDL_WINDOW_MINIMIZED | c.SDL_WINDOW_OCCLUDED) != 0)
+            .minimizada
+        else
+            .aberta;
+        const logged_in = app.store.ready and !app.login.visible();
+        app.tray_click = janela.trayClick(vista, app.st.settings.close_to_tray, logged_in);
+        switch (app.tray_click.?) {
+            .mostrar => app.showWindow(),
+            .para_bandeja => if (!app.hideToTray()) {
+                // O ícone sumiu bem agora: minimiza, como com a opção desligada.
+                app.tray_click = .minimizar;
+                _ = c.SDL_MinimizeWindow(app.win.window);
+            },
+            .minimizar => _ = c.SDL_MinimizeWindow(app.win.window),
+        }
+    }
+
+    /// "Fechar para a bandeja": com a opção ligada o ícone aparece na abertura (depois
+    /// do primeiro quadro) e fica até sair; desligar tira o ícone e o processo dele.
+    /// Desligada desde o começo, aqui só se compara: nenhum ícone, e fechar sai.
+    fn syncTray(app: *App) void {
+        if (app.opts.shot != null or app.restart_wanted) return;
+        const on = app.st.settings.close_to_tray;
+        if (on != app.tray_on_was) {
+            // Acabou de mudar nas Configurações: tenta já, do zero.
+            app.tray_on_was = on;
+            app.tray_retry_ms = 0;
+            app.tray_tries = 0;
+        }
+        const active = tray.active();
+        // O ícone de uma ida à bandeja vira o da opção.
+        if (on and active and !app.in_tray) app.tray_kept = true;
+        switch (janela.trayIcon(on, app.tray_kept, app.in_tray, active, app.tray_lang != i18n.current())) {
+            .nada => {},
+            .tirar => {
+                tray.hide();
+                app.tray_kept = false;
+            },
+            .refazer => {
+                tray.hide();
+                app.tray_kept = app.trayShow(false);
+            },
+            .criar => {
+                // Sem painel (ou o processo do ícone caiu): tenta de novo mais tarde.
+                const t = c.SDL_GetTicks();
+                if (t < app.tray_retry_ms) {
+                    // Parado, o laço só acorda com a rede ou a cada minuto: um alarme para a hora.
+                    if (app.tray_wake_at != app.tray_retry_ms) {
+                        app.tray_wake_at = app.tray_retry_ms;
+                        _ = c.SDL_AddTimer(@intCast(app.tray_retry_ms - t), trayRetryWake, null);
+                    }
+                    return;
+                }
+                app.tray_retry_ms = t + @as(u64, @intCast(janela.trayRetryMs(app.tray_tries)));
+                app.tray_tries +|= 1;
+                app.tray_kept = app.trayShow(false);
+            },
+        }
     }
 
     /// Pontos da interface para pixels da janela: o único fator de escala do app.
@@ -517,6 +629,17 @@ pub const App = struct {
         pickedCb(data, list, filter);
     }
 
+    /// A pasta com as bibliotecas do FFmpeg (ui/settings_video.zig confere).
+    fn pickFolder(app: *App) void {
+        if (app.opts.qa) return;
+        c.SDL_ShowOpenFolderDialog(pickedFolderCb, app, app.win.window, null, false);
+    }
+
+    fn pickedFolderCb(data: ?*anyopaque, list: [*c]const [*c]const u8, filter: c_int) callconv(.c) void {
+        if (list == null or list[0] == null) settings_video.cancelPick();
+        pickedCb(data, list, filter);
+    }
+
     /// Só uma imagem, para o ícone ou o banner (ui/edit_place.zig).
     fn pickImage(app: *App) void {
         if (app.opts.qa) return;
@@ -597,6 +720,36 @@ pub const App = struct {
         st.selection = .{};
         @memset(&st.input, 0);
         st.input_sync = true;
+    }
+
+    /// O formulário do proxy das Configurações (ui/settings_rede.zig) no cartão da tela
+    /// de entrada: o mesmo código, com as cores e a fonte da tela de entrada.
+    fn loginProxyForm(ptr: *anyopaque, area: login_mod.Area) f32 {
+        const app: *App = @ptrCast(@alignCast(ptr));
+        var th = app.themes.theme_().*;
+        login_mod.paint(&th, area.light);
+        const inter = app.uiFamily("Inter");
+        var ctx: d.Ctx = .{
+            .th = &th,
+            .theme_name = app.themes.name(),
+            .theme_names = app.themes.names.items,
+            .theme_index = app.themes.current,
+            .store = &app.store,
+            .st = &app.st,
+            .fonts = &app.fonts,
+            .ui = inter,
+            .mono = inter,
+            .dl = area.dl,
+            .fg = c.ImGui_GetForegroundDrawList(),
+            .io = app.io,
+            .mouse = app.io.*.MousePos,
+            .now_ms = now(),
+            .actions = &app.actions,
+            .stats = &app.stats,
+            .images = &app.images,
+            .win = area.win,
+        };
+        return @import("ui/settings.zig").proxyPanel(&ctx, area.dl, area.x, area.y, area.w);
     }
 
     /// O que a tela de login pediu.
@@ -970,17 +1123,22 @@ pub const App = struct {
 
     /// Lista de membros do servidor, vista deste canal. Numa thread, a do
     /// canal pai (ela não tem lista própria no op 14), mais quem está nela.
-    /// Sai `sub_delay_ms` depois da última troca: passando por vários canais
-    /// em seguida, só o que ficou aberto pede.
+    /// Depois de `sub_delay_ms` sem trocar de canal, pede na hora (a lista não
+    /// fica em "carregando" à toa); passando por vários canais em seguida, o
+    /// resto espera e só o que ficou aberto pede.
     fn subscribeTo(app: *App, cs: anytype) void {
         if (cs.info.guild == 0) return;
         const parent = if (cs.info.thread != null) cs.info.parent orelse cs.info.id else cs.info.id;
-        app.sub_wait.set(.{ .guild = cs.info.guild, .channel = parent, .thread = if (cs.info.thread != null) cs.info.id else 0 }, now(), sub_delay_ms);
+        const req: SubReq = .{ .guild = cs.info.guild, .channel = parent, .thread = if (cs.info.thread != null) cs.info.id else 0 };
+        if (app.sub_wait.push(req, now(), sub_delay_ms)) |sr| app.sendSubscribe(sr);
     }
 
-    /// O pedido do op 14 que já esperou o bastante.
+    /// O fim de uma rajada de trocas, quando a escolha parou.
     fn flushSubscribe(app: *App) void {
-        const sr = app.sub_wait.take(now()) orelse return;
+        if (app.sub_wait.take(now())) |sr| app.sendSubscribe(sr);
+    }
+
+    fn sendSubscribe(app: *App, sr: SubReq) void {
         app.cmd(.{ .subscribe_guild = .{ .guild = sr.guild, .channel = sr.channel, .thread = sr.thread } });
     }
 
@@ -1558,6 +1716,7 @@ pub const App = struct {
             .delete_thread => |id| app.cmd(.{ .delete_thread = id }),
             .pick_image => app.pickImage(),
             .pick_sound => app.pickSound(),
+            .pick_ffmpeg_dir => app.pickFolder(),
             .restart => if (app.opts.qa) st.showToast(now(), false, "reiniciando", "restarting", .{}) else {
                 app.restart_wanted = true;
             },
@@ -1919,6 +2078,7 @@ pub const App = struct {
             if (e == .voice_audio) app.voiceAudio(e.voice_audio.mic_ok, e.voice_audio.out_ok);
             if (e == .history) timeline.mark(.historico);
             if (e == .status and e.status == .failed) failed = true;
+            if (e == .net_fail and app.login.phase == .connecting) app.login.net_fail = e.net_fail;
             if (e == .status and e.status == .rejected) token_dead = true;
             // Antes de o Store ficar com a mensagem (se o canal não existe, ele a libera).
             const quiet: ?types.Id = if (e == .message_create and app.store.ready) app.incoming(e.message_create) else null;
@@ -2482,8 +2642,10 @@ pub const App = struct {
                             // Por garantia: um aviso dos plugins pode ter se perdido com a fila cheia.
                             app.plugins.drain();
                             // O painel sumiu com a janela escondida (fechou, travou):
-                            // a janela volta em vez de ficar sem caminho de volta.
-                            if (tray.active()) {
+                            // a janela volta em vez de ficar sem caminho de volta. Com a
+                            // janela aberta não se pergunta: o ícone de "Fechar para a
+                            // bandeja" volta sozinho ao painel quando ele voltar.
+                            if (app.in_tray) {
                                 app.tray_misses = if (tray.hostAvailable()) 0 else app.tray_misses + 1;
                                 if (app.tray_misses >= janela.tray_misses_max) app.showWindow();
                             }
@@ -2499,7 +2661,26 @@ pub const App = struct {
                             app.gate.redraw();
                             pending = 3;
                         },
-                        .quit => running = false,
+                        .toggle => {
+                            app.toggleWindow();
+                            app.gate.redraw();
+                            pending = 3;
+                        },
+                        .tray_gone => if (tray.reap()) {
+                            app.tray_kept = false;
+                            // Escondida, a janela volta: o ícone era o caminho de volta.
+                            if (app.in_tray) {
+                                app.showWindow();
+                                app.gate.redraw();
+                                pending = 3;
+                            }
+                        },
+                        // Sair do menu da bandeja, até com a janela aberta: some da tela na
+                        // hora, como ao fechar; o resto do encerramento é por trás.
+                        .quit => {
+                            running = false;
+                            _ = c.SDL_HideWindow(app.win.window);
+                        },
                         .plugins => {
                             app.plugins.drain();
                             pending = @max(pending, 2);
@@ -2549,6 +2730,7 @@ pub const App = struct {
             }
             if (app.notifiers.items.len > 0) app.reapNotifiers();
             app.flushSubscribe();
+            if (running) app.syncTray();
 
             app.images.now_ms = now();
             if (app.images.pump()) bg_dirty = true;
@@ -2564,10 +2746,15 @@ pub const App = struct {
                 var picked: std.ArrayList([:0]u8) = .empty;
                 defer picked.deinit(std.heap.c_allocator);
                 settings_voz.pollCancel();
+                settings_video.pollCancel();
                 app.picked.drain(&picked);
                 for (picked.items) |p| {
                     defer std.heap.c_allocator.free(p);
                     if (settings_voz.takePicked(&app.st, now(), p)) {
+                        app.saveSettings();
+                        continue;
+                    }
+                    if (settings_video.takePicked(&app.st, now(), p)) {
                         app.saveSettings();
                         continue;
                     }
@@ -2683,7 +2870,13 @@ pub const App = struct {
             }
             anim.instant = set.reduce_motion;
             @import("net/media_url.zig").allow_gif_hosts.store(set.gif_hosts, .release);
-            @import("net/proxy.zig").set(set.proxy.slice(), set.proxy_all);
+            proxy.set(set.proxy.slice(), set.proxy_all);
+            // Proxy novo (o da tela de entrada): o erro de rede era da tentativa sem ele.
+            if (proxy.generation() != app.proxy_gen) {
+                app.proxy_gen = proxy.generation();
+                app.login.net_fail = null;
+            }
+            ffmpeg.setDir(set.ffmpeg_dir.slice());
             voz_audio.apply(set);
             lsp_ui.apply(set);
             app_presenca.frame(app);
@@ -2756,6 +2949,8 @@ pub const App = struct {
                     .reduce = set.reduce_motion,
                     .dt = if (record_dir != null) 1.0 / 30.0 else anim.dt,
                     .accounts = app_accounts.others(&login_accounts),
+                    .proxy = .{ .ctx = app, .draw = loginProxyForm },
+                    .proxy_on = set.proxy.len > 0,
                 });
                 _ = th;
                 if (result) |r| login_result = r;
@@ -2957,7 +3152,7 @@ pub const App = struct {
                         wl.pending = @max(wl.pending, 2);
                     },
                     .quit => return false,
-                    .theme, .token, .show => {},
+                    .theme, .token, .show, .toggle, .tray_gone => {},
                 }
                 continue;
             }

@@ -12,11 +12,13 @@ test {
     _ = @import("core/gif_quadros.zig");
     _ = @import("core/entrada.zig");
     _ = @import("platform/debug_log.zig");
+    _ = @import("platform/ffmpeg_busca.zig");
     _ = @import("core/types.zig");
     _ = @import("core/ritmo.zig");
     _ = @import("core/mem_use.zig");
     _ = @import("core/image_uri.zig");
     _ = @import("core/version.zig");
+    _ = @import("core/atualizacao.zig");
     _ = @import("core/sort.zig");
     _ = @import("core/markdown.zig");
     _ = @import("core/changelog.zig");

@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Voice calls · larperCord</title>
-<meta name="description" content="larperCord joins real Discord voice channels, with end-to-end encryption. Everything voice-related runs on its own thread, created only when you join a cal">
+<meta name="description" content="larperCord joins real Discord voice channels and calls in DMs and groups, with end-to-end encryption. Everything voice-related runs on its own thread, crea">
 <meta name="color-scheme" content="dark light">
 <link rel="canonical" href="https://rshacudevidro.github.io/larperCord/guide/voice.html">
 <link rel="alternate" hreflang="en" href="https://rshacudevidro.github.io/larperCord/guide/voice.html">
 <link rel="alternate" hreflang="pt-BR" href="https://rshacudevidro.github.io/larperCord/pt/guide/voice.html">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Voice calls · larperCord">
-<meta property="og:description" content="larperCord joins real Discord voice channels, with end-to-end encryption. Everything voice-related runs on its own thread, created only when you join a cal">
+<meta property="og:description" content="larperCord joins real Discord voice channels and calls in DMs and groups, with end-to-end encryption. Everything voice-related runs on its own thread, crea">
 <meta property="og:image" content="https://rshacudevidro.github.io/larperCord/assets/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="../assets/icon-live.svg">
@@ -46,15 +46,17 @@
 </aside>
 <main id="main" class="prose">
 <h1>Voice calls</h1>
-<p>larperCord joins real Discord voice channels, with end-to-end encryption. Everything voice-related runs on its own thread, created only when you join a call. Outside a call, the module uses no CPU and the app doesn't initialize audio, unless you open Settings → Voice, which reads the microphone for its level meter while it's open.</p>
+<p>larperCord joins real Discord voice channels and calls in DMs and groups, with end-to-end encryption. Everything voice-related runs on its own thread, created only when you join a call. Outside a call, the module uses no CPU and the app doesn't initialize audio, unless you open Settings → Voice, which reads the microphone for its level meter while it's open.</p>
 <h2 id="using-it"><a class="anchor" href="#using-it" aria-hidden="true">#</a>Using it</h2>
 <p>Click a voice channel to join. The panel above your user shows the call, with mute, deafen and disconnect. You can also leave through "Leave call" when you right-click the voice channel. Whoever is talking gets a ring around their avatar.</p>
+<p>In a DM or group DM, the phone button in the header starts a call; terminal themes show <code>[call]</code>. The header shows who's in the call and who's still being rung. An incoming call shows a card with <strong>Accept</strong> and <strong>Decline</strong> and rings until you answer, with a system notification and a taskbar flash, even with the app in the tray. In Do Not Disturb, or in a muted conversation, the card comes without the ringtone. Ringing stops when you answer on another device or the caller hangs up.</p>
+<p>Right-click the microphone or headphone button, or the small arrow that shows on hover, to switch the device and its volume, mid-call too; during a call, right-clicking the voice panel shows both. <code>Ctrl+Shift+M</code> mutes and <code>Ctrl+Shift+D</code> deafens.</p>
 <p>The <strong>mixer</strong> gives each person their own volume.</p>
 <p><img src="../assets/shots/en/f-voz.webp" alt="The call mixer" loading="lazy"></p>
 <p>The panel also shows your ping, the connection quality by color and when you're transmitting, and it warns you if the microphone doesn't open or if the server muted or deafened you. Other people's mute and deafen show in the call list.</p>
 <p>Channels where you lack the permission to connect are shown with a padlock, and the app doesn't try.</p>
 <h2 id="settings-voice"><a class="anchor" href="#settings-voice" aria-hidden="true">#</a>Settings → Voice</h2>
-<ul><li><strong>Microphone and output</strong>: remembered by name, back to the default if they disappear, and you can switch in the middle of a call.</li><li><strong>Volumes, a live microphone level</strong> and <strong>Test microphone</strong>, which plays back what you say, with the filters on. Use headphones.</li><li><strong>Voice activity</strong>: an adjustable threshold on the meter, or <strong>Automatic sensitivity</strong>, which learns your background noise.</li><li><strong>Push to talk</strong>: a key or mouse button. It only works while the window is focused, and sending continues for a moment after you release, so the last word isn't cut.</li><li><strong>Filters</strong>: a high-pass that removes rumble below 90 Hz and a noise gate. Each one can be turned off.</li><li><strong>Noise suppression</strong>: Off or RNNoise, on by default and switchable mid-call. It runs on your computer, delays your mic by 20 ms and costs about 2% to 3.5% of a core on a 2011 Core i5 while the mic is open, and less on newer processors. Off, muted or with the push-to-talk key released, it costs nothing.</li><li><strong>Call sounds</strong>: short beeps when you join, leave, mute and unmute, which can be turned off.</li></ul>
+<ul><li><strong>Microphone and output</strong>: remembered by name, back to the default if they disappear, and you can switch in the middle of a call.</li><li><strong>Volumes, a live microphone level</strong> and <strong>Test microphone</strong>, which plays back what you say, with the filters on. Use headphones.</li><li><strong>Voice activity</strong>: an adjustable threshold on the meter, or <strong>Automatic sensitivity</strong>, which learns your background noise.</li><li><strong>Push to talk</strong>: a key or mouse button. It only works while the window is focused, and sending continues for a moment after you release, so the last word isn't cut.</li><li><strong>Filters</strong>: a high-pass that removes rumble below 90 Hz and a noise gate. Each one can be turned off.</li><li><strong>Noise suppression</strong>: Off or RNNoise, on by default and switchable mid-call. It runs on your computer, delays your mic by 20 ms and costs about 2% to 3.5% of a core on a 2011 Core i5 while the mic is open, and less on newer processors. Off, muted or with the push-to-talk key released, it costs nothing.</li><li><strong>Sounds</strong>: one row per event (you join or leave, someone joins or leaves your call, mute, unmute, deafen, undeafen and the ringtone). Each can be Off, Classic, Soft, Crystal, Retro or your own WAV or Ogg Opus file (up to 2 MB and 5 s, 15 s for the ringtone), with a preview and a volume. <strong>Call sounds</strong> still turns all the short ones on or off.</li></ul>
 <p><img src="../assets/shots/en/f-vozcfg.webp" alt="The voice settings page" loading="lazy"></p>
 <h2 id="how-it-works"><a class="anchor" href="#how-it-works" aria-hidden="true">#</a>How it works</h2>
 <div class="table-wrap"><table><thead><tr><th>Layer</th><th>What it uses</th></tr></thead><tbody><tr><td>Signaling</td><td>Voice gateway v8 over WebSocket, with heartbeat (<code>seq_ack</code>) and RESUME when the connection drops</td></tr><tr><td>Connection</td><td>IP discovery (74-byte packet) and Select Protocol over UDP</td></tr><tr><td>Transport encryption</td><td>RTP with <code>aead_xchacha20_poly1305_rtpsize</code></td></tr><tr><td>End-to-end encryption</td><td>DAVE over MLS, through libdave and MLSpp</td></tr><tr><td>Codec</td><td>Opus at 48 kHz stereo, 20 ms per packet. Lost packets become Opus packet-loss concealment</td></tr><tr><td>Audio</td><td>SDL3 mixes. Each person is one <code>SDL_AudioStream</code> on the same output device, and their volume is the stream's gain. The microphone is a stream read every 20 ms</td></tr></tbody></table></div>
@@ -63,10 +65,16 @@
 <h2 id="limits-today"><a class="anchor" href="#limits-today" aria-hidden="true">#</a>Limits today</h2>
 <ul><li>Push-to-talk only works while the window is focused, because SDL has no portable global shortcut.</li><li>Noise suppression targets steady noise. Typing and bangs may get through, and other voices stay.</li><li>No screen sharing, camera or streaming.</li><li>No automated test for a real call. QA covers the UI and the settings, with a fake audio device.</li></ul>
 <h2 id="debugging"><a class="anchor" href="#debugging" aria-hidden="true">#</a>Debugging</h2>
+<p>On Linux, start it from a terminal (quit it first if it's open in the tray) with:</p>
 <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">LARPER_VOICE_DEBUG</span>=1 larpercord</code></pre></div>
-<p>This prints opcodes, close codes and DAVE events, and microphone level and frames sent. It never prints the token or any keys.</p>
+<p>On Windows, or without a terminal, turn on Settings → Advanced → <strong>Save debug log</strong> before joining the call, then use <strong>Open the log folder</strong>. The file is <code>%LOCALAPPDATA%\larpercord\debug.log</code> on Windows and <code>~/.cache/larpercord/debug.log</code> on Linux.</p>
+<p>Either way you get opcodes, close codes and DAVE events, and microphone level and frames sent. It never contains the token or any keys.</p>
 <p>To test only the connection, <code>--voice-test</code> joins a channel for 25 seconds, <strong>always muted</strong>:</p>
 <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">LARPER_TOKEN</span>=... larpercord <span class="t-p">--voice-test</span> GUILD_ID CHANNEL_ID</code></pre></div>
+<p>On Windows it only takes the token from <code>LARPER_TOKEN</code>, and its text has to go to a file, since there's no console:</p>
+<div class="code" data-lang="powershell"><span class="code-lang">powershell</span><button class="copy" type="button" data-copy>copy</button><pre><code>$env:LARPER_TOKEN = [Net.NetworkCredential]::new('', (Read-Host 'Token' -AsSecureString)).Password
+Start-Process "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe" -ArgumentList '--voice-test','GUILD_ID','CHANNEL_ID' -NoNewWindow -Wait -RedirectStandardError voice.txt; Get-Content voice.txt
+Remove-Item Env:LARPER_TOKEN</code></pre></div>
 <p>The protocol follows Discord's voice documentation and the <a href="https://daveprotocol.com">DAVE protocol documentation</a>.</p>
 <p class="edit"><a href="https://github.com/RshaCuDeVidro/larperCord/blob/main/site/guide/en/voice.md" rel="noopener">Source of this page on GitHub</a></p>
 <nav class="pager"><a href="../guide/settings.html"><small>Previous</small>Settings and files</a><a class="next" href="../guide/themes.html"><small>Next</small>Writing themes</a></nav>

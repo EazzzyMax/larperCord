@@ -11,7 +11,10 @@ const anim = @import("anim.zig");
 const logo = @import("logo.zig");
 const qa = @import("qa.zig");
 const i18n = @import("i18n.zig");
+const inbox = @import("inbox.zig");
 const accounts_mod = @import("../core/accounts.zig");
+const theme_mod = @import("../theme/theme.zig");
+const NetFail = @import("../net/proxy.zig").NetFail;
 
 const Rgba = d.Rgba;
 const Rect = d.Rect;
@@ -40,6 +43,10 @@ pub const Login = struct {
     /// Texto do "Voltar" no topo do cartão (vazio = sem). Ex.: "Voltar para ana".
     back_buf: [96]u8 = undefined,
     back_len: usize = 0,
+    /// O cartão mostra o formulário do proxy (o das Configurações → Rede).
+    proxy_open: bool = false,
+    /// A conexão com o Discord nem abriu, e por quê (o gateway segue tentando).
+    net_fail: ?NetFail = null,
     /// Contas guardadas deste quadro e a escolhida (com `Result.pick`).
     accounts: []const *const accounts_mod.Account = &.{},
     picked: @import("../core/types.zig").Id = 0,
@@ -62,6 +69,8 @@ pub const Login = struct {
     pub fn setPhase(l: *Login, phase: Phase) void {
         l.phase = phase;
         l.phase_at = l.t;
+        // Outra tentativa (ou de volta ao formulário): o erro de rede era da anterior.
+        l.net_fail = null;
         if (phase == .form) l.want_focus = true;
     }
 
@@ -69,6 +78,8 @@ pub const Login = struct {
     pub fn fail(l: *Login, msg: []const u8) void {
         if (l.phase == .hidden) l.t = 10; // veio direto do token salvo: sem a abertura
         l.setPhase(.form);
+        // O motivo fica à vista, não atrás do formulário do proxy.
+        l.proxy_open = false;
         const n = @min(msg.len, l.err_buf.len);
         @memcpy(l.err_buf[0..n], msg[0..n]);
         l.err_len = n;
@@ -102,7 +113,20 @@ pub const Env = struct {
     /// Segundos desde o último quadro (fixo ao gravar a animação).
     dt: f32,
     accounts: []const *const accounts_mod.Account = &.{},
+    /// Quem desenha o formulário do proxy no cartão (null: sem rede, como no navegador).
+    proxy: ?ProxyHook = null,
+    /// Tem um proxy salvo.
+    proxy_on: bool = false,
 };
+
+/// O formulário do proxy é o das Configurações (ui/settings_rede.zig): quem tem o
+/// estado do app desenha em `Area` e devolve a altura usada.
+pub const ProxyHook = struct {
+    ctx: *anyopaque,
+    draw: *const fn (ctx: *anyopaque, area: Area) f32,
+};
+
+pub const Area = struct { dl: *c.ImDrawList, x: f32, y: f32, w: f32, light: bool, win: Rect };
 
 // --- Cores ---------------------------------------------------------------------
 
@@ -161,6 +185,31 @@ const light: Pal = .{
     .accent = Rgba.hex(0x7C3AED),
     .link = Rgba.hex(0x6D28D9),
 };
+
+/// As cores do cartão num tema, para o formulário do proxy (que desenha com um)
+/// combinar com a tela de entrada em qualquer tema.
+pub fn paint(th: *theme_mod.Theme, light_mode: bool) void {
+    const p = if (light_mode) light else dark;
+    const pairs = [_]struct { theme_mod.Token, Rgba }{
+        .{ .elevated, p.field },
+        .{ .rail, p.field },
+        .{ .border, p.field_border },
+        .{ .text, p.text },
+        // As notas do formulário são texto de ler, não rodapé.
+        .{ .muted, p.muted },
+        .{ .faint, p.muted },
+        .{ .accent, p.accent },
+        .{ .accent_text, Rgba.white },
+        .{ .link, p.link },
+        .{ .danger, p.danger },
+        .{ .hover, p.text.alpha(0.06) },
+        .{ .selected, p.text.alpha(0.1) },
+        .{ .overlay, p.card },
+        .{ .shadow, Rgba.black.alpha(0.3) },
+    };
+    for (pairs) |pair| th.colors.set(pair[0], pair[1]);
+    th.radius = 8;
+}
 
 // --- Curvas de animação ------------------------------------------------------
 
@@ -358,7 +407,8 @@ pub fn draw(l: *Login, env: Env) ?Result {
     defer f.a = saved_a;
     const inner_x = cr.x + 32;
     const inner_w = cr.w - 64;
-    const result: ?Result = switch (l.phase) {
+    if (l.phase == .leaving or env.proxy == null) l.proxy_open = false;
+    const result: ?Result = if (l.proxy_open) proxyCard(&f, inner_x, cr.y + 30, inner_w) else switch (l.phase) {
         .form, .leaving => form(&f, inner_x, cr.y + 30, inner_w),
         .connecting => connecting(&f, inner_x, cr.y + 30, inner_w),
         .hidden => null,
@@ -567,7 +617,7 @@ fn form(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
         d.circle(dl, tr.x + 9 + 14 * l.remember_k, tr.y + 9, 6.5, Rgba.white.alpha(f.a));
         const remember_label = i18n.tr("Lembrar neste computador", "Remember on this computer");
         f.text(.regular, 14, x + 44, y + 3, f.p.text, remember_label);
-        const note = i18n.tr("no chaveiro do sistema", "in the system keyring");
+        const note = if (@import("../platform/sys.zig").windows) i18n.tr("no Gerenciador de Credenciais", "in Credential Manager") else i18n.tr("no chaveiro do sistema", "in the system keyring");
         f.text(.regular, 12.5, x + 44 + f.width(.regular, 14, remember_label) + 8, y + 4.5, f.p.faint, note);
         y += row.h + 22;
     }
@@ -618,17 +668,17 @@ fn form(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
         y += br.h + 18;
     }
 
+    // Proxy: quem só chega ao Discord por um configura aqui, antes de entrar.
+    if (f.env.proxy != null) {
+        const label = if (f.env.proxy_on) i18n.tr("Proxy ligado · mudar", "Proxy on · change") else i18n.tr("Conectar por um proxy", "Connect through a proxy");
+        if (textLink(f, 38, x, y, w, label, "login:proxy")) l.proxy_open = true;
+        y += 28;
+    }
+
     // Ajuda.
     {
         const label = if (l.help) i18n.tr("Esconder a ajuda", "Hide help") else i18n.tr("Onde encontro o meu token?", "Where do I find my token?");
-        const lw = f.width(.semibold, 13.5, label);
-        const lr: Rect = .{ .x = x + (w - lw) / 2 - 6, .y = y - 3, .w = lw + 12, .h = 24 };
-        const hh = hit(35, lr);
-        qa.mark(lr, "login:ajuda", .{});
-        if (hh.clicked) l.help = !l.help;
-        const lcol = if (hh.hovered) f.p.text else f.p.muted;
-        f.centered(.medium, 13.5, x + w / 2, y, lcol, label);
-        if (hh.hovered) d.line(dl, lr.x + 6, y + 19, lr.right() - 6, y + 19, lcol.alpha(f.a), 1);
+        if (textLink(f, 35, x, y, w, label, "login:ajuda")) l.help = !l.help;
         y += 28;
         l.help_k = anim.step(l.help_k, if (l.help) 1 else 0, 14);
         if (l.help_k > 0.01) {
@@ -682,6 +732,71 @@ fn form(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
     return result;
 }
 
+/// Um link de texto centrado (sublinha com o mouse em cima). true = clicou.
+fn textLink(f: *Frame, id: usize, x: f32, y: f32, w: f32, label: []const u8, comptime mark: []const u8) bool {
+    const lw = f.width(.semibold, 13.5, label);
+    const lr: Rect = .{ .x = x + (w - lw) / 2 - 6, .y = y - 3, .w = lw + 12, .h = 24 };
+    const hh = hit(id, lr);
+    qa.mark(lr, mark, .{});
+    const lcol = if (hh.hovered) f.p.text else f.p.muted;
+    f.centered(.medium, 13.5, x + w / 2, y, lcol, label);
+    if (hh.hovered) d.line(f.dl, lr.x + 6, y + 19, lr.right() - 6, y + 19, lcol.alpha(f.a), 1);
+    return hh.clicked;
+}
+
+/// O cartão com o formulário do proxy (o mesmo das Configurações → Rede). Salvar vale
+/// na hora: a próxima tentativa de conectar, e a que está esperando, já vão por ele.
+fn proxyCard(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
+    const l = f.l;
+    const dl = f.dl;
+    var y = y0;
+    {
+        const label = i18n.tr("Voltar", "Back");
+        const lw = f.width(.medium, 13.5, label) + 22;
+        const br: Rect = .{ .x = x - 6, .y = y - 6, .w = lw + 12, .h = 26 };
+        const hb = hit(37, br);
+        qa.mark(br, "login:proxy-voltar", .{});
+        // Esc num campo só tira o foco dele; fora dos campos, volta.
+        if (hb.clicked or (c.ImGui_IsKeyPressed(c.ImGuiKey_Escape) and !c.ImGui_IsAnyItemActive())) l.proxy_open = false;
+        if (hb.hovered) d.rect(dl, br, f.p.text.alpha(0.06 * f.a), 6);
+        const col = if (hb.hovered) f.p.text else f.p.muted;
+        const ay = br.y + br.h / 2;
+        d.line(dl, x, ay, x + 9, ay, col.alpha(f.a), 1.6);
+        d.line(dl, x, ay, x + 4, ay - 4, col.alpha(f.a), 1.6);
+        d.line(dl, x, ay, x + 4, ay + 4, col.alpha(f.a), 1.6);
+        f.text(.medium, 13.5, x + 16, d.centerY(br, 13.5), col, label);
+        y += 34;
+    }
+    f.text(.semibold, 24, x, y, f.p.text, "Proxy");
+    y += 40;
+    const hook = f.env.proxy.?;
+    // Os campos com a fonte e as cores do cartão.
+    c.ImGui_PushFontFloat(f.font(.regular), 15);
+    c.ImGui_PushStyleColorImVec4(c.ImGuiCol_Text, v4(f.p.text.alpha(f.a)));
+    c.ImGui_PushStyleColorImVec4(c.ImGuiCol_TextDisabled, v4(f.p.faint.alpha(f.a)));
+    c.ImGui_PushStyleColorImVec4(c.ImGuiCol_TextSelectedBg, v4(f.p.accent.alpha(0.35)));
+    c.ImGui_PushStyleColorImVec4(c.ImGuiCol_InputTextCursor, v4(f.p.text));
+    const h = hook.draw(hook.ctx, .{ .dl = dl, .x = x, .y = y, .w = w, .light = f.env.light, .win = f.win });
+    c.ImGui_PopStyleColorEx(4);
+    c.ImGui_PopFont();
+    y += h + 4;
+    l.card_h = y - y0 + 30;
+    return null;
+}
+
+/// Por que a conexão com o Discord não abriu, em palavras.
+fn netFailText(why: NetFail) []const u8 {
+    return switch (why) {
+        .dns => i18n.tr("O endereço do Discord não foi encontrado (DNS): a rede pode estar bloqueando o Discord.", "Discord's address couldn't be found (DNS): the network may be blocking Discord."),
+        .refused => i18n.tr("A conexão com o Discord foi recusada.", "The connection to Discord was refused."),
+        .timeout => i18n.tr("A conexão com o Discord demorou demais e não completou.", "The connection to Discord took too long and didn't complete."),
+        .tls => i18n.tr("A conexão segura (TLS) com o Discord falhou: algo no caminho está interferindo.", "The secure (TLS) connection to Discord failed: something along the way is interfering."),
+        .proxy => i18n.tr("O proxy não respondeu ou recusou a conexão. Confira o endereço, a porta e o login.", "The proxy didn't answer or refused the connection. Check the address, port and login."),
+        .dropped => i18n.tr("A conexão caiu antes de o Discord responder.", "The connection dropped before Discord answered."),
+        .other => i18n.tr("Não deu para abrir a conexão com o Discord.", "Couldn't open a connection to Discord."),
+    };
+}
+
 fn connecting(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
     const l = f.l;
     const dl = f.dl;
@@ -728,14 +843,35 @@ fn connecting(f: *Frame, x: f32, y0: f32, w: f32) ?Result {
     f.centered(.regular, 14, cx, y, f.p.muted, tip);
     y += 34;
 
-    // Demorando: oferece as saídas.
-    if (since > 7) {
-        const k = outCubic(seg(since, 7, 7.5));
+    // Não chegou ao Discord: o porquê e o proxy, sem esperar os 7 s.
+    if (l.net_fail) |why| {
+        const ask = i18n.tr("Não consegui chegar ao Discord — tentar um proxy?", "Can't reach Discord — try a proxy?");
+        const th = inbox.wrapText(dl, f.font(.semibold), 14.5, x, y, w, ask, 3, f.p.text.alpha(f.a));
+        qa.mark(.{ .x = x, .y = y, .w = w, .h = th }, "login:sem-rede:{t}", .{why});
+        y += th + 4;
+        y += inbox.wrapText(dl, f.font(.regular), 13, x, y, w, netFailText(why), 4, f.p.muted.alpha(f.a)) + 12;
+        if (f.env.proxy != null) {
+            const br: Rect = .{ .x = x, .y = y, .w = w, .h = 40 };
+            const hb = hit(46, br);
+            qa.mark(br, "login:proxy-erro", .{});
+            if (hb.clicked) l.proxy_open = true;
+            const hk = anim.to(anim.id("login-proxy-erro", 0), if (hb.hovered) 1 else 0, 18);
+            d.rect(dl, br, f.p.primary.mix(f.p.card, if (hb.held) 0.2 else 0.1 * hk).alpha(f.a), 11);
+            const label = if (why == .proxy or f.env.proxy_on) i18n.tr("Conferir o proxy", "Check the proxy") else i18n.tr("Usar um proxy", "Use a proxy");
+            f.centered(.semibold, 13.5, cx, d.centerY(br, 13.5), f.p.on_primary, label);
+            y += 52;
+        }
+    }
+    // Demorando (ou sem rede): oferece as saídas.
+    if (since > 7 or l.net_fail != null) {
+        const k = if (l.net_fail != null) 1 else outCubic(seg(since, 7, 7.5));
         const sa = f.a;
         f.a *= k;
         defer f.a = sa;
-        f.centered(.regular, 13, cx, y, f.p.faint, i18n.tr("Está demorando mais que o normal. Confira a internet.", "This is taking longer than usual. Check your connection."));
-        y += 30;
+        if (l.net_fail == null) {
+            f.centered(.regular, 13, cx, y, f.p.faint, i18n.tr("Está demorando mais que o normal. Confira a internet.", "This is taking longer than usual. Check your connection."));
+            y += 30;
+        }
         const bw = (w - 12) / 2;
         const r1: Rect = .{ .x = x, .y = y, .w = bw, .h = 40 };
         const r2: Rect = .{ .x = x + bw + 12, .y = y, .w = bw, .h = 40 };

@@ -14,6 +14,8 @@ const i18n = @import("ui/i18n.zig");
 const nowMs = @import("net/fake_gateway.zig").nowMs;
 const c = @import("c");
 const platform = @import("platform/window.zig");
+const sys = @import("platform/sys.zig");
+const fsutil = @import("platform/fsutil.zig");
 
 /// De onde veio o token da conexão atual (decide o que guardar no READY).
 /// `env`: LARPER_TOKEN, nunca guardado. `legacy`: a entrada única de antes
@@ -267,8 +269,18 @@ pub fn ready(app: *App) void {
                 return app.st.showToast(nowMs(), true, "já tem 8 contas guardadas; remova uma para guardar esta", "8 accounts saved already; remove one to save this one", .{});
             const was_legacy = if (list.find(me)) |a| a.legacy else false;
             switch (accounts_store.storeToken(me, app.net.real.token)) {
-                .keyring => app.st.showToast(nowMs(), false, "token guardado no chaveiro do sistema", "token saved to the system keyring", .{}),
-                .file => app.st.showToast(nowMs(), false, "token guardado em ~/.config/larpercord/tokens", "token saved to ~/.config/larpercord/tokens", .{}),
+                // No Windows o "chaveiro" é o Gerenciador de Credenciais; o arquivo fica na pasta de verdade.
+                .keyring => if (sys.windows)
+                    app.st.showToast(nowMs(), false, "token guardado no Gerenciador de Credenciais", "token saved to Credential Manager", .{})
+                else
+                    app.st.showToast(nowMs(), false, "token guardado no chaveiro do sistema", "token saved to the system keyring", .{}),
+                .file => {
+                    var pb: [512]u8 = undefined;
+                    const dir: []u8 = if (fsutil.configPath(&pb, "tokens")) |path| pb[0..path.len] else pb[0..0];
+                    // Só para mostrar: no Windows, com a barra do sistema.
+                    if (sys.windows) std.mem.replaceScalar(u8, dir, '/', '\\');
+                    app.st.showToast(nowMs(), false, "token guardado em {s}", "token saved to {s}", .{dir});
+                },
                 .failed => return app.st.showToast(nowMs(), true, "não consegui guardar o token", "couldn't save the token", .{}),
             }
             // A entrada antiga era desta conta: a nova substitui.

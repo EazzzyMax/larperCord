@@ -1,5 +1,111 @@
 # What changed in each version
 
+## 0.6.2
+
+**Calls**
+- Call from any DM or group DM with the phone button in its header, in every theme. An incoming call shows a card with Accept and Decline and rings until you answer. It also sends a system notification and flashes the taskbar, even with the app in the tray.
+- In Do Not Disturb, or in a muted DM or group, the card shows up without the ringtone. Ringing stops when you answer on another device or the caller hangs up.
+- Settings → Voice → Sounds picks each call sound: Off, Classic, Soft, Crystal, Retro or your own WAV or Ogg Opus file, with a preview and a volume. Someone joining or leaving your call has a sound too, off by default.
+- Right-click the microphone or headphone button to switch the device and its volume, mid-call too. Ctrl+Shift+M mutes and Ctrl+Shift+D deafens.
+- The start of a word after someone's short pause no longer stutters. Their silence frames are played now, so the buffer is still there when they talk again.
+
+**Bots and apps**
+- Buttons and select menus in bot messages work. A bot that doesn't answer shows "This interaction failed", and replies only you can see can be dismissed.
+- Bot forms (modals) open in the app, with text fields, selects, and radio and checkbox groups.
+- Typing `/` lists the slash commands of the server's bots and of your apps. A panel fills in subcommands, options, choices, suggestions as you type, and files.
+- A click that waited more than 12 s, during a reconnect for example, is dropped instead of reaching the bot late.
+
+**Messages**
+- While replying, "@ ON / @ OFF" in the reply bar chooses whether the author gets pinged.
+- A button next to GIF sends the next message silently (or start it with `@silent `), without link previews, or without pinging anyone.
+- Each file in the upload tray can be marked as a spoiler and get alt text.
+- Vote in polls, remove your vote or see the results first. Counts update live, and clicking an answer shows who voted for it.
+- Right-click a reaction, or use View Reactions in the message menu, to see who reacted, with Super Reactions apart.
+- The pinned messages panel loads more than 50 pins.
+- A reply to a message with no text shows what it had: the file name, the sticker, a voice message, the poll question or the embed title.
+- Mentions are highlighted by Discord's rule: you, replies that ping you, your roles, @everyone and @here, following the server's suppress settings. Unread counts, the inbox and notifications use the same rule, and the highlight shows in every theme.
+
+**Media and GIFs**
+- Spoilers and media that Discord marks as sensitive stay behind a cover until you click, and nothing downloads before that.
+- Images whose Discord link expired are refreshed on their own, only the ones on screen.
+- Voice messages have a player: play, pause, a waveform to seek and the length.
+- The GIF picker has a Stickers tab with this server's stickers, your other servers' and Discord's own. One click sends.
+- Hover a GIF, in a message or in the picker, and click the star to add it to your favorites or take it out.
+- Long GIFs play every frame at their real speed. In a 16 s test, 0.6.1 kept 25 of 400 frames; now all of them play, in about 8 MB.
+- Settings → Chat → Videos has Choose FFmpeg folder… for a "shared" FFmpeg 7, 8 or 9 you already have: the app checks the folder has the whole set and looks there first. When FFmpeg isn't found, the page says why: the file names it looked for, an `ffmpeg` on PATH that's a static build without the libraries (what winget, choco and gyan.dev install), a version the app doesn't use, or a library that's there but didn't load, with the system's reason. On Windows the app also looks for the DLLs in every PATH folder. From DivannKokos's report (#10).
+
+**Your account**
+- Block and unblock from a person's menu or full profile.
+- Ignore is saved to your Discord account. People you ignored before stay ignored on this computer, and Settings → Alerts & Filters lists both.
+- Add Friend in profiles and in the person menu, plus an Add Friend tab on the Friends page that takes a username. Outgoing requests can be cancelled on the Pending tab.
+- Mute and notification levels sync with your account, for servers, categories, channels and DMs, and changes made on your phone show up right away.
+- Changing your status saves it to your account, so leaving Invisible works. Idle, Do Not Disturb and Invisible can last from 15 minutes to 3 days, and the app opens with the status your account has.
+- Click your name to set a custom status, with text, an emoji and when it clears.
+- Settings → My Account edits your display name, pronouns and About me.
+- Rich Presence: games and apps that support it can show what you're playing. It's off by default, in Settings → Privacy, and while it's off nothing listens.
+
+**Conversations**
+- DMs from people who aren't your friends go to Message Requests under Friends, with a Spam tab, Accept and Decline. They don't notify.
+- Right-click a group → Group Members… to add friends or, if the group is yours, remove someone. Leaving asks first.
+- Edit a thread from its menu or by clicking its title: name, forum tags and auto-archive. Archiving and locking are one click.
+- The threads panel has a Private tab with the archived private threads.
+
+**Servers**
+- Kick, ban, time out, and server mute or deafen from a person's menu, only when you're allowed to. Kick, ban and timeout ask first and take a reason for the audit log. Bans, in the server menu, lists banned people and unbans them.
+- Joining from an invite warns first: joining or leaving many servers quickly is the most common reason third-party client accounts get locked.
+- If a server asks you to accept its rules, the message box says so and opens them, and you answer every item yourself. Servers with onboarding have it in their menu.
+- The message box shows slowmode with a countdown, and says why you can't send: no permission, a locked thread, a timeout or an AutoMod quarantine.
+- If Discord refuses a message for coming too fast, you see how long to wait, and the message stays there to resend.
+
+**Text in any language**
+- Arabic and Hebrew display correctly, from majd-tqe's report (#9). Arabic letters are joined, and right-to-left text comes in the right order in messages, embeds and user, channel and server names. Copying still gives exactly what was written.
+- A letter the theme's font lacks, in any script (Thai, Devanagari, Ethiopic, Georgian, Armenian, Tibetan…), comes from a system font that has it instead of `?`. Each block is looked up once, only when such text appears.
+
+**Themes**
+- Zen's footer shows your status and the mute and deafen buttons, and its server rail gets a background when it slides in.
+- Terminal, Subsolo, Orbital and Editorial show [mic] [audio] buttons, struck through when on. Editorial's masthead shrinks to one line in short windows.
+- Papel has search, a members button and a "Roll call" column, and the minimal header (Zen, Cupertino, Bolhas, Orbital, Editorial, Papel) has a search button.
+- For theme authors: `hide-below-height=`, `only-below-height=` and the `me`, `mic` and `deaf` status bar items.
+
+**Network and privacy**
+- The proxy has its own page, Settings → Network, with separate fields: type (HTTP, HTTPS, SOCKS5, SOCKS5h for Tor), address, port, login and password, which can hold any character. Pasting a full URL fills them all, and the saved proxy carries over. The sign-in screen has the same form ("Connect through a proxy"), which covers signing in too, and when signing in can't reach Discord it says why and asks "Can't reach Discord — try a proxy?". A changed proxy is used on the next connection attempt right away. From degger80's report in #6, with DivannKokos's suggestions.
+- Voice calls always connect directly, even with "Use the proxy for everything", and the setting now says so.
+- Settings → Advanced → Debug counts how often Discord asked for a captcha, asked to verify the account or refused the session.
+- Every connection to Discord, voice and its image servers included, uses the same web client headers, only over https and wss, and always checks the certificate.
+
+**Lighter**
+- The Linux download went from 15.36 to 14.25 MB and exports no symbols (0.6.1 exported 4,988). OpenSSL is now built with only what the app uses, and SDL3 and curl leave out the rest.
+- A frame is about 7% faster, and the first conversation shows up about 10% sooner: on Linux, fontconfig gets ready while the window opens. Memory and idle CPU stayed the same.
+- The Windows zip grew about 4% with this version's features.
+
+**Linux and Windows**
+- On a Wayland desktop the app runs natively, with X11 as the fallback, from Kainoa Kanter (ThatOneCalculator) in #1.
+- With Close to tray on, as it is by default, the tray icon stays from launch until you quit, like in the official app: Open and Quit in its menu work with the window open, and on Windows a left click shows or hides the window. Turned off, there's no icon and closing quits. On Linux the icon is a small separate process (about 14 MB) that comes back on its own if it dies. From DivannKokos's request (#11).
+- An update replaces the file you actually run, whatever its name, and reopens it. Before, the Linux download kept the old version and Restart could open nothing.
+- The app opens on a system with no fonts at all, such as a Windows or wine install without `C:\Windows\Fonts`, with the font built into Dear ImGui.
+- On Windows, the app's hints name the Windows folders and Credential Manager, and OpenSSL no longer reads an `openssl.cnf` from a folder another user could create.
+
+**Site and docs**
+- The site has a theme builder with a live preview, a contrast check and a `.kdl` to download. It also takes the colors of a BetterDiscord or Vencord theme.
+- A community theme gallery, checked on every build: preview a theme, open it in the builder or download it.
+- Try it in the browser: the real app in demo mode, compiled to WebAssembly, with no account and no network.
+- New pages for what larperCord has that Discord doesn't, for every keyboard shortcut, and a plugin directory with a starter that writes a Lua plugin for you.
+- The download section picks your system (AUR, install script or zip), and the docs cover Windows next to Linux.
+
+**Fixes**
+- Joining, leaving, mute and deafen are no longer lost when the connection drops at that moment. They go out again when the session resumes.
+- After a restart, the memory limits for images, each GIF and messages dropped to their minimums, which made GIFs choppy. They load as saved now, a 0.6.1 settings file is repaired, and each GIF can use 32 MB again.
+- Offline members' names are readable again in every theme.
+- Context menus stop at the window's height and scroll.
+- Holding Ctrl+Tab switches tabs once per press, and flipping quickly through channels only asks Discord for the member list of the one you stop on.
+
+**Known limitations**
+- Arabic and Hebrew you type in the message box still go left to right. The message shows correctly once it's sent.
+- Scripts that need shaping, like Devanagari, Bengali, Thai or Khmer, show their real letters one by one, without conjuncts or reordered vowel signs.
+- New text in this version isn't in Japanese yet and shows in English.
+- The single Windows `.exe` is opt-in, for people who build it with `-Dsingle-exe=true`. Releases still ship the `.exe` with its DLLs.
+- App commands in the right-click menu, files in bot forms and recording voice messages aren't supported yet.
+
 ## 0.6.1
 
 **More languages and screens**

@@ -7,9 +7,9 @@
 
 - It's never in the code, logs or error messages.
 - It's wiped from memory when the app exits.
-- It's stored in the system keyring when possible. Without one, it goes in a file with `chmod 600`, and the app warns you if the file is readable by others.
+- It's stored in the system's safe storage when possible: the keyring on Linux (through `secret-tool`) and Credential Manager on Windows. Without it, it goes in a file only you can read: `chmod 600` on Linux, inside your user profile (`%APPDATA%\larpercord\tokens`) on Windows. On Linux, a token file other users can read is ignored.
 - With "Remember" on, it's only saved after Discord accepts it.
-- `LARPER_VOICE_DEBUG` and `LARPER_DEBUG_MEDIA` never print tokens or keys.
+- `LARPER_VOICE_DEBUG`, `LARPER_DEBUG_MEDIA` and the debug log (Settings → Advanced) never contain tokens or keys, and the debug log also masks anything shaped like a token.
 
 It's only sent to Discord.
 
@@ -21,17 +21,19 @@ Like the official client, the app tells Discord what you've read, at most once p
 
 | What | Where | Control |
 |---|---|---|
-| Message cache | `~/.cache/larpercord/messages`, folders 700, files 600 | 200 messages per channel, 50 MB cap. Turn it off and erase it in Settings → Privacy |
-| Drafts | `drafts.kdl`, `chmod 600` | Sending a message clears its draft |
+| Message cache | `messages/` in the cache folder: `~/.cache/larpercord/` on Linux (folders 700, files 600), `%LOCALAPPDATA%\larpercord\` on Windows | 200 messages per channel, 50 MB cap. Turn it off and erase it in Settings → Privacy |
+| Drafts | `drafts.kdl` in the settings folder: `~/.config/larpercord/` on Linux (`chmod 600`), `%APPDATA%\larpercord\` on Windows | Sending a message clears its draft |
 | Saved messages and notes | `saved-<account>.json` | Up to 500. Nothing goes to Discord |
 | Alert words, filters, ignored people | `settings.kdl` | Nobody is told |
 | Message log | Local, on screen | Off by default |
 
-The complete list is in [Settings and files](page:settings).
+On Windows, these folders are inside your user profile, which other users can't open. The complete list is in [Settings and files](page:settings).
 
 ## What goes over the network
 
 The only request that isn't to Discord or its CDNs is the update check: when the app opens (if "Check when opening" is on) or when you press the button, it asks `api.github.com` for the latest version, and sends no account data. Downloads come from GitHub and are checked against a signed list.
+
+On Windows there's one more, only when you click it: Settings → Chat → **Download FFmpeg** downloads about 80 MB from `github.com/BtbN/FFmpeg-Builds`, a third-party project, and checks it against a SHA-256 written into the app. On Linux, FFmpeg comes from your system's packages and the app downloads nothing.
 
 - **Discord**: gateway, REST and media.
 - **External media, only when you ask for it**: animated Tenor and Giphy GIFs are off by default because those sites see your IP. When off, you get a still preview through Discord's proxy.
@@ -43,9 +45,11 @@ There's no telemetry or analytics in the app.
 
 ## Proxy
 
-Settings → Privacy → Network accepts `http`, `https`, `socks5` and `socks5h`. For Tor, use `socks5h://127.0.0.1:9050`.
+Settings → Network has a type (HTTP, HTTPS, SOCKS5 or SOCKS5h), address, port, login and password. The login and password can hold any character, and pasting a full URL like `socks5://user:pass@host:1080` into the address fills every field. For Tor, use SOCKS5h at `127.0.0.1` port `9050`.
 
 By default, the proxy applies to media from outside Discord. **Use the proxy for everything** also routes the API, images, videos and the gateway through it (the gateway from the next connection on).
+
+The sign-in screen has the same form under **Connect through a proxy**. Saving it there also turns on **Use the proxy for everything**, so signing in goes through the proxy too. If signing in can't reach Discord (the address isn't found, the connection is refused, times out or fails TLS, or the proxy doesn't answer), the sign-in card says "Can't reach Discord — try a proxy?" with the reason and a button that opens the form.
 
 Voice calls never go through the proxy, not even with **Use the proxy for everything** on. They connect straight to Discord's voice servers, which see your IP. If your IP must stay hidden, don't join calls.
 
@@ -58,7 +62,7 @@ Plugins run with your account, so only use files you've read and understand. The
 - About 5 million instructions per call and 8 MB of memory per plugin, on a thread of their own.
 - `larper.send` only works directly from a gesture on that plugin (its command, keybind, button or menu entry), because automatic replies would turn your account into a self-bot.
 - The only network is `larper.http`: HTTPS only, to hosts the plugin declares and you approve one by one in Settings → Plugins, with no cookies, token or Discord headers. Nothing goes out until you approve. A plugin with the `links` capability can also open an address in your browser, when you click something of its own, and its card says so.
-- A plugin's data stays in `~/.config/larpercord/plugin-data/`, separate per plugin and account, readable only by you. The plugins that come with the app don't keep the text of messages after they're deleted.
+- A plugin's data stays in `plugin-data/` in the settings folder (`~/.config/larpercord/` on Linux, `%APPDATA%\larpercord\` on Windows), separate per plugin and account, readable only by you. The plugins that come with the app don't keep the text of messages after they're deleted.
 
 The details are in [Lua plugins](page:plugins).
 
@@ -88,4 +92,4 @@ If it happens, reset your password from discord.com. If the account stays locked
 
 The Windows build isn't signed, so SmartScreen warns about it. A scanner may also call it a Discord token stealer, likely because a Discord client is full of the same words a stealer has, such as "token" and "Authorization". One sandbox scored version 0.5.0 that way from a pattern rule, while its behavior report showed no credential access and, in demo mode, no network at all.
 
-The token only goes to Discord, and it stays in the system keyring or, without one, in a private file. The code is public, so you can read it or build it yourself. Only download larperCord from this repository.
+The token only goes to Discord, and it stays in the system keyring (Credential Manager on Windows) or, without one, in a private file. The code is public, so you can read it or build it yourself. Only download larperCord from this repository.

@@ -1,5 +1,6 @@
-//! QA do proxy (tipo, endereço, porta, login e senha, guardados numa URL só) e da
-//! contagem de desafios do Discord no registro de depuração. Sozinho: QA_SUITE=proxy.
+//! QA do proxy (Configurações → Rede: tipo, endereço, porta, login e senha, guardados
+//! numa URL só) e da contagem de desafios do Discord no registro de depuração.
+//! Sozinho: QA_SUITE=proxy. O mesmo formulário na tela de entrada: QA_SUITE=login.
 const std = @import("std");
 const c = @import("c");
 const App = @import("app.zig").App;
@@ -7,7 +8,7 @@ const R = @import("qa_runner.zig");
 const Op = R.Op;
 const qa = @import("ui/qa.zig");
 const invites = @import("ui/invites.zig");
-const settings = @import("ui/settings.zig");
+const rede = @import("ui/settings_rede.zig");
 const proxy = @import("net/proxy.zig");
 const challenge = @import("net/challenge.zig");
 
@@ -78,7 +79,7 @@ fn rejected(app: *App) bool {
     return app.st.settings.proxy.len == 0 and std.mem.indexOf(u8, app.st.toast.text(), "inválido") != null and qa.find("proxy-input") != null;
 }
 fn pastedFills(_: *App) bool {
-    const f = &settings.proxy_form;
+    const f = &rede.proxy_form;
     return f.kindOf() == .socks5 and std.mem.eql(u8, field(&f.host), "::1") and std.mem.eql(u8, field(&f.port), "1080") and
         std.mem.eql(u8, field(&f.user), "us@er") and std.mem.eql(u8, field(&f.pass), "p:ss/w");
 }
@@ -93,10 +94,10 @@ fn savedPasted(app: *App) bool {
     return inUse(app, "socks5://us%40er:p%3Ass%2Fw@[::1]:1080");
 }
 fn passShown(_: *App) bool {
-    return settings.proxy_show;
+    return rede.proxy_show;
 }
 fn savedFields(app: *App) bool {
-    return inUse(app, "http://eu%40casa:s3%3Anh%40%2F%25@proxy.local:3128") and !settings.proxy_show;
+    return inUse(app, "http://eu%40casa:s3%3Anh%40%2F%25@proxy.local:3128") and !rede.proxy_show;
 }
 fn externalOnly(app: *App) bool {
     return inUse(app, "socks5h://127.0.0.1:9050");
@@ -112,10 +113,17 @@ fn persisted(app: *App) bool {
     @import("ui/settings_state.zig").write(&app.st.settings, "classico", &out, app.gpa) catch return false;
     return std.mem.indexOf(u8, out.items, "proxy=\"socks5h://127.0.0.1:9050\"") != null and std.mem.indexOf(u8, out.items, "proxy_all=#true") != null;
 }
+/// Privacidade só aponta para a página nova.
+fn privacyPointer(_: *App) bool {
+    return qa.find("button:Abrir Rede") != null and qa.find("proxy-input") == null;
+}
+fn networkPage(app: *App) bool {
+    return app.st.settings.page == .rede and qa.find("proxy-input") != null and qa.find("toggle:Usar o proxy em tudo") != null;
+}
 fn removed(app: *App) bool {
     var b: proxy.Buf = undefined;
     return app.st.settings.proxy.len == 0 and proxy.forUrl(&b, "https://media.tenor.com/x.webp") == null and proxy.forDiscord(&b) == null and
-        settings.proxy_form.empty();
+        rede.proxy_form.empty();
 }
 
 pub const ops = [_]Op{
@@ -140,6 +148,11 @@ pub const ops = [_]Op{
     s("proxy"),
     click("settings:Privacidade"),
     .{ .wait = 200 },
+    expect("Privacidade aponta para a página Rede", privacyPointer),
+    click("button:Abrir Rede"),
+    .{ .wait = 200 },
+    expect("o botão abre Rede, com o proxy e o \"usar em tudo\"", networkPage),
+    expect("Rede: nada se sobrepõe", noOverlap),
     click("proxy-input"),
     .{ .text = "ftp://nao.serve:21" },
     key(c.ImGuiKey_Enter),
@@ -154,7 +167,7 @@ pub const ops = [_]Op{
     expect("o olho mostra a senha", passShown),
     .{ .wait = 100 },
     .{ .shot = "37a-proxy-campos" },
-    expect("Privacidade com os campos: nada se sobrepõe", noOverlap),
+    expect("Rede com os campos: nada se sobrepõe", noOverlap),
     click("proxy-show"),
     click("button:Salvar proxy"),
     expect("os campos viram a URL certa, com @ : / % do login e da senha codificados", savedFields),

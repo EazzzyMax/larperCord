@@ -11,11 +11,12 @@ const S = @import("settings_state.zig");
 const i18n = @import("i18n.zig");
 const custom = @import("../theme/custom.zig");
 const Preview = @import("../theme/manager.zig").Preview;
-const proxy = @import("../net/proxy.zig");
+const rede = @import("settings_rede.zig");
 const dropdown = @import("dropdown.zig");
 const tray = @import("../platform/tray.zig");
 const inbox = @import("inbox.zig");
 const mem_use_mod = @import("../core/mem_use.zig");
+const sys = @import("../platform/sys.zig");
 
 // Japonês: como o `label` é também a marca do QA (settings:…), a tradução
 // mora no ponto de uso (`sidebarLabel`), não num campo aqui.
@@ -39,6 +40,7 @@ pub const sections = [_]Section{
         .{ .page = .notificacoes, .label = "Notificações", .label_en = "Notifications" },
         .{ .page = .atalhos, .label = "Atalhos de teclado", .label_en = "Keybinds" },
         .{ .page = .idioma, .label = "Idioma", .label_en = "Language" },
+        .{ .page = .rede, .label = "Rede", .label_en = "Network" },
         .{ .page = .avancado, .label = "Avançado", .label_en = "Advanced" },
     } },
     .{ .title = "LARPERCORD", .title_en = "LARPERCORD", .items = &.{
@@ -49,6 +51,13 @@ pub const sections = [_]Section{
         .{ .page = .novidades, .label = "Novidades", .label_en = "What's new" },
         .{ .page = .sobre, .label = "Sobre", .label_en = "About" },
     } },
+};
+
+/// Itens do menu, com o "Sair" do fim.
+const menu_items = blk: {
+    var n: usize = 1;
+    for (sections) |sec| n += sec.items.len;
+    break :blk n;
 };
 
 /// Rótulo da barra lateral: o japonês vem de uma tabela aqui, porque o
@@ -67,6 +76,7 @@ fn sidebarLabel(pt: []const u8, en: []const u8) []const u8 {
         .{ .pt = "Notificações", .ja = "通知" },
         .{ .pt = "Atalhos de teclado", .ja = "キーボードショートカット" },
         .{ .pt = "Idioma", .ja = "言語" },
+        .{ .pt = "Rede", .ja = "ネットワーク" },
         .{ .pt = "Avançado", .ja = "詳細設定" },
         .{ .pt = "Desempenho", .ja = "パフォーマンス" },
         .{ .pt = "Erros no código", .ja = "コードの診断" },
@@ -144,6 +154,12 @@ const Page = struct {
 
     /// Linha com título, descrição e um interruptor à direita.
     pub fn toggle(p: *Page, label: []const u8, desc: []const u8, value: *bool) void {
+        p.toggleIf(label, desc, value, true);
+    }
+
+    /// `enabled` falso: a opção aparece apagada e o clique não muda nada (quem
+    /// chama explica o motivo logo abaixo, com `note`).
+    pub fn toggleIf(p: *Page, label: []const u8, desc: []const u8, value: *bool, enabled: bool) void {
         const ctx = p.ctx;
         // A descrição quebra a linha (numa janela estreita, cortar perderia o que
         // a opção faz), e a linha cresce junto.
@@ -153,17 +169,19 @@ const Page = struct {
         const r: d.Rect = .{ .x = p.x, .y = p.y, .w = p.w, .h = row_h };
         const k_id = p.id();
         const hb = d.hit(ctx, k_id, r);
-        qa.mark(r, "toggle:{s}", .{label});
-        if (hb.clicked) value.* = !value.*;
-        d.text(p.dl, p.font(.medium), 16, r.x, r.y + 4, ctx.col(.text), label);
-        if (desc.len > 0) _ = inbox.wrapText(p.dl, p.font(.regular), 13.5, r.x, r.y + 28, desc_w, desc, 6, ctx.col(.muted));
+        // Apagada não é um botão: a varredura do QA ("clicar em tudo") não a cobra.
+        if (enabled) qa.mark(r, "toggle:{s}", .{label}) else qa.mark(r, "toggle-off:{s}", .{label});
+        if (hb.clicked and enabled) value.* = !value.*;
+        const fade: f32 = if (enabled) 1 else 0.45;
+        d.text(p.dl, p.font(.medium), 16, r.x, r.y + 4, ctx.col(.text).alpha(fade), label);
+        if (desc.len > 0) _ = inbox.wrapText(p.dl, p.font(.regular), 13.5, r.x, r.y + 28, desc_w, desc, 6, ctx.col(.muted).alpha(fade));
         // Interruptor.
         const sw: d.Rect = .{ .x = r.right() - 44, .y = r.y + 4, .w = 40, .h = 24 };
         const on = anim.to(anim.id("sw", k_id + @as(usize, @intFromEnum(ctx.st.settings.page)) * 1000), if (value.*) 1 else 0, 22);
-        d.rect(p.dl, sw, ctx.col(.faint).mix(ctx.col(.accent), on), 12);
+        d.rect(p.dl, sw, ctx.col(.faint).mix(ctx.col(.accent), on).alpha(fade), 12);
         const kx = sw.x + 12 + on * 16;
-        d.circle(p.dl, kx, sw.y + 12, 9, d.Rgba.white);
-        const ink = ctx.col(.faint).mix(ctx.col(.accent), on);
+        d.circle(p.dl, kx, sw.y + 12, 9, d.Rgba.white.alpha(fade));
+        const ink = ctx.col(.faint).mix(ctx.col(.accent), on).alpha(fade);
         if (on > 0.5) {
             d.line(p.dl, kx - 4, sw.y + 12, kx - 1, sw.y + 15, ink, 2);
             d.line(p.dl, kx - 1, sw.y + 15, kx + 4, sw.y + 9, ink, 2);
@@ -260,7 +278,7 @@ const Page = struct {
         p.y += s + 24;
     }
 
-    fn segmented(p: *Page, options: []const []const u8, value: *u8) void {
+    pub fn segmented(p: *Page, options: []const []const u8, value: *u8) void {
         const ctx = p.ctx;
         const gap: f32 = 8;
         const bw = (p.w - gap * @as(f32, @floatFromInt(options.len - 1))) / @as(f32, @floatFromInt(options.len));
@@ -394,8 +412,17 @@ pub fn draw(ctx: *d.Ctx, previews: []const Preview) void {
     const sb = ctx.col(.sidebar);
     d.rect(dl, side, (d.Rgba{ .r = sb.r, .g = sb.g, .b = sb.b, .a = @max(sb.a, 0.97) }).alpha(k), 0);
 
-    // Menu.
-    var y = win.y + 60;
+    // Menu. Numa janela baixa os itens chegam mais perto (e, se precisar, o topo
+    // sobe) para o "Sair" do fim continuar à vista.
+    const fixed: f32 = @as(f32, @floatFromInt(sections.len)) * (24 + 22);
+    const n_items: f32 = @floatFromInt(menu_items);
+    var top: f32 = 60;
+    var step: f32 = std.math.clamp(@floor((win.h - top - fixed - 16) / n_items), 28, 34);
+    if (top + fixed + 16 + step * n_items > win.h) {
+        top = 24;
+        step = std.math.clamp(@floor((win.h - top - fixed - 16) / n_items), 24, 34);
+    }
+    var y = win.y + top;
     const mx = side.right() - 210;
     const fam = ctx.ui;
     for (sections, 0..) |sec, si| {
@@ -405,7 +432,7 @@ pub fn draw(ctx: *d.Ctx, previews: []const Preview) void {
                 i18n.tr(sec.title, sec.title_en));
         y += 24;
         for (sec.items, 0..) |it, ii| {
-            const r: d.Rect = .{ .x = mx, .y = y, .w = 192, .h = 32 };
+            const r: d.Rect = .{ .x = mx, .y = y, .w = 192, .h = step - 2 };
             const hb = d.hit(ctx, 100 + si * 20 + ii, r);
             const label = sidebarLabel(it.label, it.label_en);
             qa.mark(r, "settings:{s}", .{label});
@@ -413,14 +440,14 @@ pub fn draw(ctx: *d.Ctx, previews: []const Preview) void {
             const sel = s.page == it.page;
             if (sel) d.rect(dl, r, ctx.col(.selected).mix(ctx.col(.text), 0.04), ctx.th.radius) else if (hb.hovered) d.rect(dl, r, ctx.col(.hover), ctx.th.radius);
             d.text(dl, fam.get(if (sel) .semibold else .medium), 15, r.x + 10, d.centerY(r, 15), if (sel) ctx.col(.text) else ctx.col(.muted), label);
-            y += 34;
+            y += step;
         }
         y += 8;
         d.line(dl, mx + 10, y, mx + 192, y, ctx.col(.border), 1);
         y += 14;
     }
     {
-        const r: d.Rect = .{ .x = mx, .y = y, .w = 192, .h = 32 };
+        const r: d.Rect = .{ .x = mx, .y = y, .w = 192, .h = step - 2 };
         const hb = d.hit(ctx, 99, r);
         const label = i18n.tr("Sair", "Log Out");
         qa.mark(r, "settings:{s}", .{label});
@@ -603,159 +630,12 @@ fn colorEditor(p: *Page) void {
     dd.y = q.y;
 }
 
-// --- Rede (proxy) -----------------------------------------------------------
-
-/// Os campos do proxy (o QA confere o que foi preenchido). As configurações
-/// guardam uma URL só; `proxy.Form` monta e desmonta.
-pub var proxy_form: proxy.Form = .{};
-/// A senha aparece em texto (o olho dentro do campo).
-pub var proxy_show = false;
-/// O valor das configurações que está nos campos (se mudar por fora, eles acompanham).
-var proxy_seen: S.Text = .{};
-var proxy_err: ?proxy.BuildError = null;
-
-/// Colar a URL inteira no endereço espalha tudo pelos campos na hora. Digitando,
-/// só ao salvar (senão "socks5h://h" já viraria campos no meio da digitação).
-fn proxyAddressEdit(data: [*c]c.ImGuiInputTextCallbackData) callconv(.c) c_int {
-    const len: usize = @intCast(data.*.BufTextLen);
-    const before = std.mem.sliceTo(&proxy_form.host, 0).len;
-    const io = c.ImGui_GetIO();
-    const pasted = len >= before + 2 or ((io.*.KeyCtrl or io.*.KeySuper) and c.ImGui_IsKeyPressed(c.ImGuiKey_V)) or (io.*.KeyShift and c.ImGui_IsKeyPressed(c.ImGuiKey_Insert));
-    if (!pasted) return 0;
-    const text = data.*.Buf[0..len];
-    if (std.mem.indexOf(u8, text, "://") == null and std.mem.indexOfScalar(u8, text, '@') == null) return 0;
-    var tmp: [256]u8 = undefined;
-    const n = @min(len, tmp.len);
-    @memcpy(tmp[0..n], text[0..n]);
-    if (!proxy_form.fill(tmp[0..n])) return 0;
-    // No campo ativo, o texto é o do ImGui: troca por só o host.
-    c.ImGuiInputTextCallbackData_DeleteChars(data, 0, data.*.BufTextLen);
-    c.ImGuiInputTextCallbackData_InsertChars(data, 0, &proxy_form.host, null);
-    proxy_err = null;
-    return 0;
-}
-
-/// Um campo do formulário: rótulo em cima, caixa nas cores e nos cantos do tema.
-/// `trail` reserva espaço à direita dentro da caixa (o olho da senha). true = Enter.
-fn proxyField(p: *Page, r: d.Rect, label: []const u8, id: [:0]const u8, hint: [:0]const u8, buf: []u8, flags: c_int, bad: bool, mark: []const u8, trail: f32, cb: c.ImGuiInputTextCallback) bool {
-    const ctx = p.ctx;
-    d.text(p.dl, p.font(.bold), 12, r.x, r.y - 20, ctx.col(.muted), label);
-    p.markText(.{ .x = r.x, .y = r.y - 20, .w = @min(d.width(p.font(.bold), 12, label), r.w), .h = 16 });
-    d.rect(p.dl, r, ctx.col(.elevated), ctx.th.radius);
-    c.ImGui_SetCursorScreenPos(d.v(r.x + 10, r.y + 3));
-    c.ImGui_SetNextItemWidth(r.w - 20 - trail);
-    const enter = c.ImGui_InputTextWithHintEx(id.ptr, hint.ptr, buf.ptr, buf.len, flags | c.ImGuiInputTextFlags_EnterReturnsTrue, cb, null);
-    const active = c.ImGui_IsItemActive();
-    d.border(p.dl, r, if (bad) ctx.col(.danger) else if (active) ctx.col(.accent).alpha(0.7) else ctx.col(.border), ctx.th.radius, 1);
-    qa.mark(r, "{s}", .{mark});
-    return enter;
-}
-
-fn eyeIcon(dl: *c.ImDrawList, cx: f32, cy: f32, col: d.Rgba, open: bool) void {
-    c.ImDrawList_PathLineTo(dl, d.v(cx - 8, cy));
-    c.ImDrawList_PathBezierQuadraticCurveTo(dl, d.v(cx, cy - 8), d.v(cx + 8, cy), 0);
-    c.ImDrawList_PathBezierQuadraticCurveTo(dl, d.v(cx, cy + 8), d.v(cx - 8, cy), 0);
-    c.ImDrawList_PathStroke(dl, col.u(), 1.6, 0);
-    d.circle(dl, cx, cy, 2.4, col);
-    if (!open) d.line(dl, cx - 6, cy - 6, cx + 6, cy + 6, col, 1.6);
-}
-
-fn network(p: *Page) void {
-    const ctx = p.ctx;
-    const s = &ctx.st.settings;
-    p.heading(i18n.tr("Rede", "Network"));
-    p.note(i18n.tr("Proxy HTTP, HTTPS, SOCKS5 ou SOCKS5h, com login e senha se ele pedir. Tor: SOCKS5h, 127.0.0.1, porta 9050. Colar a URL inteira no endereço preenche todos os campos.", "HTTP, HTTPS, SOCKS5 or SOCKS5h proxy, with a login and password if it asks for one. Tor: SOCKS5h, 127.0.0.1, port 9050. Pasting the full URL into the address fills in every field."));
-    if (!std.mem.eql(u8, proxy_seen.slice(), s.proxy.slice())) {
-        proxy_seen = s.proxy;
-        proxy_form.load(s.proxy.slice());
-        proxy_err = null;
-    }
-    const total = @min(p.w, 560);
-    const gap: f32 = 12;
-
-    // Tipo: o seletor tem a largura dos campos.
-    d.text(p.dl, p.font(.bold), 12, p.x, p.y, ctx.col(.muted), i18n.tr("Tipo", "Type"));
-    p.markText(.{ .x = p.x, .y = p.y, .w = d.width(p.font(.bold), 12, i18n.tr("Tipo", "Type")), .h = 16 });
-    p.y += 22;
-    const tor_wide = "SOCKS5h (Tor)";
-    const tor = if (d.width(p.font(.semibold), 15, tor_wide) + 24 <= (total - 24) / 4) tor_wide else "SOCKS5h";
-    const full_w = p.w;
-    p.w = total;
-    p.segmented(&.{ "HTTP", "HTTPS", "SOCKS5", tor }, &proxy_form.kind);
-    p.w = full_w;
-
-    // Endereço e porta (o campo com problema fica com a borda de perigo).
-    const kind = proxy_form.kindOf();
-    const err: proxy.BuildError = proxy_err orelse error.TooLong;
-    const has_err = proxy_err != null;
-    const port_w: f32 = 110;
-    p.y += 20;
-    var row: d.Rect = .{ .x = p.x, .y = p.y, .w = total - gap - port_w, .h = 32 };
-    var enter = proxyField(p, row, i18n.tr("Endereço", "Address"), "##proxy-host", "127.0.0.1", &proxy_form.host, c.ImGuiInputTextFlags_CharsNoBlank | c.ImGuiInputTextFlags_CallbackEdit, has_err and (err == error.NoHost or err == error.BadHost or err == error.TooLong), "proxy-input", 0, proxyAddressEdit);
-    // A dica da porta é a que o curl usa quando ela fica vazia.
-    var hint_buf: [8]u8 = undefined;
-    const port_hint = std.fmt.bufPrintSentinel(&hint_buf, "{d}", .{kind.defaultPort()}, 0) catch "1080";
-    const port_r: d.Rect = .{ .x = row.right() + gap, .y = p.y, .w = port_w, .h = 32 };
-    enter = proxyField(p, port_r, i18n.tr("Porta", "Port"), "##proxy-port", port_hint, &proxy_form.port, c.ImGuiInputTextFlags_CharsDecimal | c.ImGuiInputTextFlags_CharsNoBlank, has_err and err == error.BadPort, "proxy-port", 0, null) or enter;
-    p.y += 32 + 34;
-
-    // Login e senha (a senha escondida, com o olho para conferir).
-    const half = (total - gap) / 2;
-    row = .{ .x = p.x, .y = p.y, .w = half, .h = 32 };
-    enter = proxyField(p, row, i18n.tr("Login (opcional)", "Login (optional)"), "##proxy-user", "", &proxy_form.user, 0, has_err and err == error.PassWithoutUser, "proxy-user", 0, null) or enter;
-    const pass_r: d.Rect = .{ .x = row.right() + gap, .y = p.y, .w = half, .h = 32 };
-    const eye_w: f32 = 28;
-    enter = proxyField(p, pass_r, i18n.tr("Senha (opcional)", "Password (optional)"), "##proxy-pass", "", &proxy_form.pass, if (proxy_show) 0 else c.ImGuiInputTextFlags_Password, false, "proxy-pass", eye_w, null) or enter;
-    const eye_r: d.Rect = .{ .x = pass_r.right() - eye_w - 4, .y = pass_r.y + 2, .w = eye_w, .h = 28 };
-    const he = d.hit(ctx, p.id(), eye_r);
-    qa.mark(eye_r, "proxy-show", .{});
-    if (he.clicked) proxy_show = !proxy_show;
-    if (he.hovered) d.rect(p.dl, eye_r, ctx.col(.hover), ctx.th.radius);
-    eyeIcon(p.dl, eye_r.x + eye_w / 2, eye_r.y + 14, if (he.hovered) ctx.col(.text) else ctx.col(.muted), proxy_show);
-    d.tip(ctx, eye_r, if (proxy_show) i18n.tr("Esconder a senha", "Hide the password") else i18n.tr("Mostrar a senha", "Show the password"), he.hovered);
-    p.y += 32 + 14;
-
-    if (proxy_form.hidden_login) p.note(i18n.tr("O login e a senha salvos não couberam nos campos e ficaram escondidos. Para mudar o proxy, digite os dois de novo.", "The saved login and password didn't fit in the fields and are hidden. To change the proxy, type both again."));
-    if (proxy_err) |e| p.note(switch (e) {
-        error.NoHost => i18n.tr("Falta o endereço do proxy.", "The proxy address is missing."),
-        error.BadHost => i18n.tr("Endereço inválido: só o nome ou o IP do proxy, ou cole a URL inteira (esquema://host:porta, com http, https, socks5 ou socks5h).", "Invalid address: just the proxy's name or IP, or paste the full URL (scheme://host:port, with http, https, socks5 or socks5h)."),
-        error.BadPort => i18n.tr("Porta inválida: um número de 1 a 65535.", "Invalid port: a number from 1 to 65535."),
-        error.PassWithoutUser => i18n.tr("Senha sem login: preencha o login também.", "Password without a login: fill in the login too."),
-        error.TooLong => i18n.tr("Longo demais: a URL do proxy passa de 255 caracteres.", "Too long: the proxy URL goes over 255 characters."),
-    });
-    var nbuf: [360]u8 = undefined;
-    if (s.proxy.len > 0 and !proxy.valid(s.proxy.slice())) {
-        p.note(i18n.tr("O proxy salvo é inválido e está sendo ignorado.", "The saved proxy is invalid and is being ignored."));
-    } else if (s.proxy.len > 0) {
-        const scope = if (s.proxy_all) i18n.tr("todas as conexões", "every connection") else i18n.tr("só GIFs e mídia de fora do Discord", "only GIFs and media from outside Discord");
-        // Sem usuário e senha na tela.
-        const u = s.proxy.slice();
-        var shown_buf: [256]u8 = undefined;
-        const shown = if (std.mem.lastIndexOfScalar(u8, u, '@')) |at| (if (std.mem.indexOf(u8, u, "://")) |sch| std.fmt.bufPrint(&shown_buf, "{s}…@{s}", .{ u[0 .. sch + 3], u[at + 1 ..] }) catch u else u) else u;
-        p.note(i18n.fmt(&nbuf, "Em uso: {s} ({s}).", "In use: {s} ({s}).", .{ shown, scope }));
-    } else p.note(i18n.tr("Sem proxy: conexão direta.", "No proxy: direct connection."));
-    const save_click = p.button(i18n.tr("Salvar proxy", "Save proxy"), false);
-    if (s.proxy.len > 0) {
-        p.sameLine();
-        if (p.button(i18n.tr("Remover proxy", "Remove proxy"), true)) s.proxy = .{};
-    }
-    if (enter or save_click) {
-        // Endereço com a porta junto ou com a URL inteira digitada: vai para os campos.
-        _ = proxy_form.absorbHost();
-        var ub: proxy.Buf = undefined;
-        if (proxy_form.empty()) {
-            s.proxy = .{};
-            proxy_err = null;
-        } else if (proxy_form.build(&ub)) |url| {
-            s.proxy.set(url);
-            proxy_err = null;
-            ctx.st.showToast(ctx.now_ms, false, "proxy salvo", "proxy saved", .{});
-        } else |e| {
-            proxy_err = e;
-            ctx.st.showToast(ctx.now_ms, true, "proxy inválido", "invalid proxy", .{});
-        }
-    }
-    p.toggle(i18n.tr("Usar o proxy em tudo", "Use the proxy for everything"), i18n.tr("Também o Discord: API, imagens, vídeos e o gateway (este a partir da próxima conexão). As calls de voz sempre conectam direto.", "Discord too: API, images, videos and the gateway (from the next connection). Voice calls always connect directly."), &s.proxy_all);
+/// O formulário do proxy dentro do cartão da tela de entrada (ui/login.zig): o
+/// mesmo da página Rede, desenhado por uma página daqui. Devolve a altura usada.
+pub fn proxyPanel(ctx: *d.Ctx, dl: *c.ImDrawList, x: f32, y: f32, width: f32) f32 {
+    var p: Page = .{ .ctx = ctx, .dl = dl, .x = x, .y = y, .w = width, .ids = 0x9300 };
+    rede.form(&p, .login);
+    return p.y - y;
 }
 
 fn page(p: *Page, previews: []const Preview) void {
@@ -824,7 +704,7 @@ fn page(p: *Page, previews: []const Preview) void {
             p.toggle(i18n.tr("Reproduzir GIFs automaticamente", "Automatically play GIFs"), i18n.tr("Desligado, o GIF anda quando o mouse passa por cima.", "When off, a GIF plays while you hover it."), &s.autoplay_gifs);
             p.toggle(i18n.tr("Mostrar imagens de links", "Show images from links"), i18n.tr("Imagens e GIFs de links mandados na conversa.", "Images and GIFs from links posted in chat."), &s.show_embeds);
             p.toggle(i18n.tr("Modo economia", "Data saver"), i18n.tr("Imagens, fotos de perfil e anexos só baixam quando você clica. Bom em rede ruim.", "Images, profile pictures and attachments only download when you click. Good on bad networks."), &s.data_saver);
-            videoSection(p);
+            @import("settings_video.zig").section(p);
             p.heading(i18n.tr("Conteúdo", "Content"));
             p.toggle(i18n.tr("Sempre mostrar spoilers", "Always show spoilers"), i18n.tr("Revela o texto ||escondido|| sem precisar clicar.", "Reveals ||hidden|| text without clicking."), &s.show_spoilers);
             p.heading(i18n.tr("Leitura", "Reading"));
@@ -858,8 +738,11 @@ fn page(p: *Page, previews: []const Preview) void {
             }
             p.note(i18n.tr("Fora isso, imagens e avatares só vêm dos servidores do Discord.", "Everything else (images, avatars) only comes from Discord's servers."));
             p.divider();
-            network(p);
+            p.heading(i18n.tr("Rede", "Network"));
+            p.note(i18n.tr("O proxy (HTTP, HTTPS, SOCKS5 ou Tor) fica na página Rede.", "The proxy (HTTP, HTTPS, SOCKS5 or Tor) is on the Network page."));
+            if (p.buttonSoft(i18n.tr("Abrir Rede", "Open Network"))) s.page = .rede;
         },
+        .rede => rede.page(p),
         .atalhos => {
             p.title(i18n.tr("Atalhos de teclado", "Keybinds"));
             p.toggle(i18n.tr("Navegação estilo vim", "Vim-style navigation"), i18n.tr("Com a caixa de texto sem foco (Esc sai dela), as teclas abaixo navegam.", "With the text box unfocused (Esc leaves it), the keys below navigate."), &s.vim_keys);
@@ -890,7 +773,11 @@ fn page(p: *Page, previews: []const Preview) void {
                 "By default the app follows your system language. Changes apply right away.",
                 "デフォルトではシステムの言語に従います。変更はすぐに反映されます。",
             ));
-            if (ctx.fonts.triedGroup(.cjk) and !ctx.fonts.hasGroup(.cjk)) p.note(i18n.tr(
+            // No Windows o app só procura alguns arquivos de C:\Windows\Fonts (ui/fonts.zig).
+            if (ctx.fonts.triedGroup(.cjk) and !ctx.fonts.hasGroup(.cjk)) p.note(if (sys.windows) i18n.tr(
+                "Nenhuma fonte de japonês, coreano ou chinês foi encontrada em C:\\Windows\\Fonts, e esses textos aparecem como ???. O app procura Yu Gothic, Meiryo ou MS Gothic (japonês), Malgun Gothic ou Gulim (coreano) e Microsoft YaHei, SimSun ou SimHei (chinês). Adicione as fontes suplementares do idioma nos Recursos opcionais do Windows.",
+                "No Japanese, Korean or Chinese font was found in C:\\Windows\\Fonts, so those texts show as ???. The app looks for Yu Gothic, Meiryo or MS Gothic (Japanese), Malgun Gothic or Gulim (Korean) and Microsoft YaHei, SimSun or SimHei (Chinese). Add that language's supplemental fonts in Windows' Optional features.",
+            ) else i18n.tr(
                 "Nenhuma fonte de japonês, coreano ou chinês foi encontrada neste sistema, e esses textos aparecem como ???. Instale uma, como a Noto Sans CJK (pacote noto-fonts-cjk ou fonts-noto-cjk).",
                 "No Japanese, Korean or Chinese font was found on this system, so those texts show as ???. Install one, such as Noto Sans CJK (package noto-fonts-cjk or fonts-noto-cjk).",
             ));
@@ -898,9 +785,23 @@ fn page(p: *Page, previews: []const Preview) void {
         .avancado => {
             p.title(i18n.tr("Avançado", "Advanced"));
             p.toggle(i18n.tr("Modo desenvolvedor", "Developer Mode"), i18n.tr("Mostra o ID das mensagens e põe \"Copiar ID\" nos menus.", "Shows message IDs and adds \"Copy ID\" to menus."), &s.developer_mode);
-            p.toggle(i18n.tr("Recarregar temas ao salvar", "Reload themes on save"), i18n.tr("Salvar um .kdl em themes/ ou ~/.config/larpercord/themes aplica na hora.", "Saving a .kdl in themes/ or ~/.config/larpercord/themes applies it right away."), &s.hot_reload);
-            p.toggle(i18n.tr("Fechar para a bandeja", "Close to tray"), i18n.tr("Fechar a janela deixa o app conectado, com um ícone na bandeja do sistema.", "Closing the window keeps the app connected, with an icon in the system tray."), &s.close_to_tray);
-            if (s.close_to_tray and !tray.hostSeen(ctx.now_ms)) p.note(i18n.tr("Este sistema não tem bandeja agora: fechar a janela encerra o app.", "This system has no tray right now: closing the window quits the app."));
+            p.toggle(i18n.tr("Recarregar temas ao salvar", "Reload themes on save"), if (sys.windows)
+                i18n.tr("Salvar um .kdl em themes/ ou %APPDATA%\\larpercord\\themes aplica na hora. Uma pasta nova só vale depois de reiniciar o app.", "Saving a .kdl in themes/ or %APPDATA%\\larpercord\\themes applies it right away. A new folder only counts after restarting the app.")
+            else
+                i18n.tr("Salvar um .kdl em themes/ ou ~/.config/larpercord/themes aplica na hora. Uma pasta nova só vale depois de reiniciar o app.", "Saving a .kdl in themes/ or ~/.config/larpercord/themes applies it right away. A new folder only counts after restarting the app."), &s.hot_reload);
+            // Uma opção só para a bandeja: ligada, o ícone fica lá da abertura até sair e
+            // fechar a janela esconde nele; desligada, nenhum ícone nem processo dele, e
+            // fechar sai. No Linux o painel abre o menu com qualquer clique (libappindicator).
+            const has_tray = tray.hostSeen(ctx.now_ms);
+            p.toggleIf(i18n.tr("Fechar para a bandeja", "Close to tray"), if (sys.windows)
+                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto: clicar nele mostra ou esconde a janela, o menu tem Abrir e Sair, e fechar a janela deixa o app conectado lá. Com a opção desligada, não há ícone e fechar encerra o app.", "The icon stays in the system tray while the app runs: clicking it shows or hides the window, its menu has Open and Quit, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app.")
+            else
+                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto, com Abrir e Sair no menu, e fechar a janela deixa o app conectado lá. Com a opção desligada, não há ícone e fechar encerra o app.", "The icon stays in the system tray while the app runs, with Open and Quit in its menu, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app."), &s.close_to_tray, has_tray);
+            if (!has_tray) {
+                const y0 = p.y;
+                p.note(i18n.tr("Indisponível: nenhum painel do sistema mostra ícones agora (StatusNotifier), então fechar a janela encerra o app. Com a opção ligada, o ícone aparece quando houver um.", "Unavailable: no system panel shows icons right now (StatusNotifier), so closing the window quits the app. While on, the icon appears once there is one."));
+                qa.mark(.{ .x = p.x, .y = y0, .w = p.w, .h = p.y - y0 }, "tray-unavailable", .{});
+            }
             textSection(p);
             debugSection(p);
         },
@@ -1165,7 +1066,8 @@ fn performance(p: *Page) void {
     const built = ctx.stats.frames_built;
     const skipped = ctx.stats.frames_skipped;
     const stats = [_]struct { label: []const u8, value: []const u8 }{
-        .{ .label = "RAM (PSS)", .value = mbText(buf[0..32], "", ctx.stats.ram_kb) },
+        // No Windows o número é a memória privada do processo, não o PSS (platform/window.zig).
+        .{ .label = if (sys.windows) i18n.tr("RAM (privada)", "RAM (private)") else "RAM (PSS)", .value = mbText(buf[0..32], "", ctx.stats.ram_kb) },
         .{ .label = i18n.tr("Tempo de CPU por quadro", "CPU time per frame"), .value = std.fmt.bufPrint(buf[32..64], "{d}.{d:0>2} ms", .{ ctx.stats.frame_us / 1000, (ctx.stats.frame_us % 1000) / 10 }) catch "" },
         .{ .label = i18n.tr("Quadros iguais, sem desenhar", "Unchanged frames, not drawn"), .value = std.fmt.bufPrint(buf[96..128], "{d}% ({d})", .{ skipped * 100 / @max(built, 1), skipped }) catch "" },
         .{ .label = i18n.tr("CPU parado", "Idle CPU"), .value = i18n.tr("0% (dorme esperando eventos)", "0% (sleeps until there are events)") },
@@ -1180,59 +1082,6 @@ fn performance(p: *Page) void {
     p.slider(i18n.tr("Cada GIF", "Each GIF"), &s.gif_limit_mb, 4, 32, "{d:.0} MB", 1);
     p.slider(i18n.tr("Mensagens na memória", "Messages in memory"), &s.message_budget, 500, 5000, "{d:.0}", 1);
     p.note(i18n.tr("Menos memória custa um pouco de rede e CPU: o que saiu é buscado de novo ao voltar para a tela, e GIFs grandes pulam quadros.", "Less memory costs a little network and CPU: what left is fetched again when it comes back on screen, and big GIFs skip frames."));
-}
-
-var ffmpeg_confirming = false;
-
-fn videoSection(p: *Page) void {
-    const ffmpeg = @import("../platform/ffmpeg.zig");
-    const get = @import("../net/ffmpeg_get.zig");
-    const sys = @import("../platform/sys.zig");
-    p.heading(i18n.tr("Vídeos", "Videos"));
-    var buf: [420]u8 = undefined;
-    // Sem carregar o FFmpeg só por abrir a página: ele fica na memória depois.
-    switch (get.phase()) {
-        .downloading, .installing => {
-            p.note(if (get.phase() == .downloading) i18n.fmt(&buf, "Baixando o FFmpeg: {d}%", "Downloading FFmpeg: {d}%", .{get.percent()}) else i18n.tr("Instalando o FFmpeg…", "Installing FFmpeg…"));
-            return;
-        },
-        .done => p.note(i18n.tr("FFmpeg instalado. Os vídeos já tocam aqui no app.", "FFmpeg installed. Videos now play in the app.")),
-        .failed => p.note(switch (get.failure()) {
-            .network => i18n.tr("Não deu para baixar o FFmpeg. Confira a internet e tente de novo.", "Couldn't download FFmpeg. Check your connection and try again."),
-            .hash => i18n.tr("O arquivo baixado não bate com o esperado, então nada foi instalado.", "The downloaded file doesn't match what was expected, so nothing was installed."),
-            else => i18n.tr("Não deu para gravar o FFmpeg no disco.", "Couldn't write FFmpeg to disk."),
-        }),
-        .idle => {},
-    }
-    if (get.phase() == .done) return;
-    const known = ffmpeg.known();
-    if (known == true) {
-        p.note(i18n.tr("FFmpeg encontrado: os vídeos tocam aqui no app.", "FFmpeg found: videos play in the app."));
-        return;
-    }
-    if (known == null) {
-        p.note(i18n.tr("Com o FFmpeg, os vídeos tocam aqui no app. Sem ele, abrem no navegador.", "With FFmpeg, videos play in the app. Without it, they open in the browser."));
-        if (p.buttonSoft(i18n.tr("Verificar se tem FFmpeg", "Check for FFmpeg"))) _ = ffmpeg.get();
-        return;
-    }
-    p.note(i18n.tr("FFmpeg não encontrado: os vídeos abrem no navegador.", "FFmpeg not found: videos open in the browser."));
-    if (!sys.windows and !get.qa_no_network) {
-        p.note(i18n.tr("Instale o pacote ffmpeg do seu sistema (pacman -S ffmpeg, apt install ffmpeg ou dnf install ffmpeg).", "Install your system's ffmpeg package (pacman -S ffmpeg, apt install ffmpeg or dnf install ffmpeg)."));
-    } else if (ffmpeg_confirming) {
-        p.note(i18n.fmt(&buf, "Vai baixar {d} MB de {s}, um projeto de terceiros sem relação com o larperCord. O app confere o SHA-256 do arquivo e guarda só o necessário, cerca de {d} MB em disco. Depois de instalado, o FFmpeg roda dentro do app sempre que um vídeo tocar.", "This downloads {d} MB from {s}, a third-party project unrelated to larperCord. The app checks the file's SHA-256 and keeps only what it needs, about {d} MB on disk. Once installed, FFmpeg runs inside the app whenever a video plays.", .{ get.download_mb, get.source, get.disk_mb }));
-        if (p.button(i18n.tr("Baixar agora", "Download now"), false)) {
-            ffmpeg_confirming = false;
-            // O QA clica em tudo: aqui ele nunca baixa de verdade.
-            get.qa_no_network = qa.on();
-            get.start();
-        }
-        if (p.buttonSoft(i18n.tr("Cancelar", "Cancel"))) ffmpeg_confirming = false;
-        return;
-    } else if (p.button(i18n.tr("Baixar FFmpeg", "Download FFmpeg"), false)) ffmpeg_confirming = true;
-    if (p.buttonSoft(i18n.tr("Procurar de novo", "Check again"))) {
-        ffmpeg.forget();
-        _ = ffmpeg.get();
-    }
 }
 
 fn textSection(p: *Page) void {
@@ -1331,5 +1180,7 @@ fn about(p: *Page) void {
     p.note(i18n.tr("Cliente não oficial: usar contas de usuário fora do app oficial vai contra os termos do Discord.", "Unofficial client: using user accounts outside the official app is against Discord's terms."));
     p.divider();
     p.heading(i18n.tr("Feito com", "Built with"));
-    for ([_][]const u8{ "Zig 0.17", "SDL 3.4", "Dear ImGui 1.93 (dear_bindings)", "FreeType + fontconfig", "GNU FriBidi", "libcurl + zlib", "stb_image", "Lua 5.4 (plugins)", "Inter, JetBrains Mono, Noto Color Emoji" }) |t| p.note(t);
+    // O build do Windows não tem fontconfig e usa as fontes do sistema (ui/fonts.zig).
+    const fonts_line = if (sys.windows) i18n.tr("Segoe UI, Consolas, Segoe UI Emoji (fontes do Windows)", "Segoe UI, Consolas, Segoe UI Emoji (Windows fonts)") else "Inter, JetBrains Mono, Noto Color Emoji";
+    for ([_][]const u8{ "Zig 0.17", "SDL 3.4", "Dear ImGui 1.93 (dear_bindings)", if (sys.windows) "FreeType" else "FreeType + fontconfig", "GNU FriBidi", "libcurl + zlib", "stb_image", "Lua 5.4 (plugins)", fonts_line }) |t| p.note(t);
 }

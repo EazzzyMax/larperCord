@@ -1,7 +1,8 @@
 //! QA dos limites de envio (QA_SUITE=limites): modo lento com a contagem, o
 //! 429 do servidor, quem é liberado, os motivos no lugar da caixa (sem
-//! permissão, castigo, quarentena), Ctrl+Tab segurado e o op 14 que espera a
-//! escolha parar. O "servidor" é a demonstração (net/fake_gateway.zig): o
+//! permissão, castigo, quarentena), Ctrl+Tab segurado e o op 14, que sai na
+//! hora depois de uma pausa e numa rajada de trocas espera a escolha parar. O
+//! "servidor" é a demonstração (net/fake_gateway.zig): o
 //! #memes do "Rice do Hyprland" tem modo lento de 5 s, o #bugs do nosso tem
 //! 30 s (somos donos), estamos de castigo no "Minecraft SMP" e em quarentena no
 //! "CTF da madrugada".
@@ -270,11 +271,19 @@ fn switchC(app: *App) void {
 fn switchD(app: *App) void {
     switchTo(app, 10);
 }
-fn noSubYet(app: *App) bool {
-    return activeId(app) == gw.channelId(0, 10) and subsSince() == 0;
+fn switchQuiet(app: *App) void {
+    switchTo(app, 4);
 }
-fn oneSubForLast(_: *App) bool {
-    return subsSince() == 1 and gw.sent.sub_channel.load(.monotonic) == gw.channelId(0, 10);
+/// Antes que a espera de uma rajada (250 ms) vencesse: o pedido saiu na hora.
+fn subAtOnce(app: *App) bool {
+    return activeId(app) == gw.channelId(0, 4) and subsSince() == 1 and gw.sent.sub_channel.load(.monotonic) == gw.channelId(0, 4);
+}
+/// O primeiro da rajada saiu na hora (veio depois de uma pausa); os outros esperam.
+fn onlyFirstYet(app: *App) bool {
+    return activeId(app) == gw.channelId(0, 10) and subsSince() == 1 and gw.sent.sub_channel.load(.monotonic) == gw.channelId(0, 5);
+}
+fn firstAndLast(_: *App) bool {
+    return subsSince() == 2 and gw.sent.sub_channel.load(.monotonic) == gw.channelId(0, 10);
 }
 
 pub const ops = [_]Op{
@@ -364,6 +373,12 @@ pub const ops = [_]Op{
     .{ .wait = 100 },
     expect("segurar Ctrl+Tab troca de aba uma vez só", movedOnce),
 
+    s("limites: op 14 na hora depois de uma pausa"),
+    .{ .wait = 400 },
+    .{ .run = markSubs },
+    .{ .run = switchQuiet },
+    slow("abrir um canal depois de uma pausa pede a lista de membros na hora", subAtOnce, 180),
+
     s("limites: op 14 só do canal que ficou"),
     .{ .wait = 400 },
     .{ .run = markSubs },
@@ -375,8 +390,8 @@ pub const ops = [_]Op{
     .{ .wait = 40 },
     .{ .run = switchD },
     .{ .wait = 50 },
-    expect("trocando rápido, a lista de membros ainda não foi pedida", noSubYet),
-    slow("parou: só o canal que ficou pede a lista de membros", oneSubForLast, 2000),
+    expect("trocando rápido, só o primeiro canal pediu a lista de membros", onlyFirstYet),
+    slow("parou: o canal que ficou pede a lista de membros", firstAndLast, 2000),
     .{ .wait = 400 },
-    expect("e mais nenhum pedido depois", oneSubForLast),
+    expect("e mais nenhum pedido depois", firstAndLast),
 };

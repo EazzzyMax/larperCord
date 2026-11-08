@@ -25,12 +25,25 @@ O servidor precisa falar LSP por stdin e stdout, então o comando costuma ser al
 `typescript-language-server --stdio` ou `lua-language-server`.
 
 - **O comando não passa por um shell.** Ele é separado nos espaços, com `"…"` ou `'…'` para
-  argumentos com espaço. `;`, `|`, `$HOME` e `~` são texto comum.
-- Um nome de programa sem caminho é procurado no `PATH`.
+  argumentos com espaço. `;`, `|`, `$HOME` e `~` são texto comum, e `%USERPROFILE%` também, menos
+  num `.cmd` ou `.bat` (veja abaixo). A barra invertida é um caractere comum, então caminhos do
+  Windows funcionam como você digita: `"C:\Program Files\LLVM\bin\clangd.exe"`.
+- Um nome de programa sem caminho é procurado no `PATH`. No Windows quem procura é o próprio
+  Windows: ele acrescenta `.exe` quando o nome não tem extensão e olha a pasta do larperCord, a
+  pasta de onde ele foi aberto e as pastas do Windows antes do `PATH`. Um caminho completo evita
+  surpresa.
+- No Windows, os servidores instalados pelo npm (`pyright-langserver`, `typescript-language-server`)
+  são arquivos `.cmd`, normalmente em `%APPDATA%\npm`. Só o nome não acha esses arquivos: use o
+  caminho completo com `.cmd`, por exemplo
+  `"C:\Users\seu-usuario\AppData\Roaming\npm\typescript-language-server.cmd" --stdio`, ou clique em
+  **Usar … e ligar** (abaixo). O Windows abre um `.cmd` ou `.bat` pelo `cmd.exe`, que lê `%NOME%`
+  como variável. O app protege os outros caracteres especiais para ele, mas use o `.exe` do servidor
+  quando ele tiver um.
 
-A página também procura esses nomes conhecidos no seu `PATH` e oferece o que achar. Ela só confere
-se o arquivo existe e é executável; não o executa. Clicar em **Usar … e ligar** guarda o caminho
-inteiro como comando, e é com isso que você está concordando.
+A página também procura esses nomes conhecidos no seu `PATH` e oferece o que achar (no Windows ela
+tenta `nome.exe`, `nome.cmd` e `nome.bat`). Ela só confere se o arquivo existe e, no Linux, se é
+executável; não o executa. Clicar em **Usar … e ligar** guarda o caminho inteiro como comando, e é
+com isso que você está concordando.
 
 ## Enquanto digita
 
@@ -62,13 +75,19 @@ O app guarda o seu token do Discord, então o servidor roda com o mínimo possí
 - **Ambiente:** só `PATH` e `HOME` (no Windows, também `SystemRoot`, `SystemDrive`, `USERPROFILE`,
   `APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP`, `PATHEXT`). O `LARPER_TOKEN` e o resto do seu ambiente
   não chegam até ele.
-- **Pasta:** ele roda numa pasta própria (`~/.cache/larpercord/lsp-scratch`). O que um servidor
+- **Pasta:** ele roda numa pasta própria (`~/.cache/larpercord/lsp-scratch` no Linux,
+  `%LOCALAPPDATA%\larpercord\lsp-scratch` no Windows). O que um servidor
   deixou ali é apagado antes do próximo início, menos subpastas que não estão vazias: o app não entra
   nelas, então um link deixado ali não o faz apagar mais nada. `rootUri` e `workspaceFolders` são `null`, e o documento é um virtual,
-  `file://<essa pasta vazia>/larpercord-composer.<ext>`, que nunca existe em disco (servidores como o clangd só aceitam `file:`). Nada do que você digita é gravado em disco, e seus projetos
+  `file://<essa pasta vazia>/larpercord-composer.<ext>` (no Windows,
+  `file:///C:/Users/<você>/AppData/Local/larpercord/lsp-scratch/larpercord-composer.<ext>`), que nunca existe em disco (servidores como o clangd só aceitam `file:`). Nada do que você digita é gravado em disco, e seus projetos
   ficam de fora. Isso também quer dizer que um servidor que espera um projeto (imports, arquivo de
   build) só vê um arquivo isolado, então os erros são só daquele trecho.
-- **Arquivos abertos:** no Linux, os soquetes e arquivos do app são fechados no filho.
+- **Arquivos abertos:** no Linux, os soquetes e arquivos do app são fechados no filho. No Windows
+  esse passo não existe: o servidor abre com a herança de handles ligada, então leva junto todo
+  handle que o app abriu como herdável, e no Windows os soquetes são herdáveis por padrão. Só o
+  soquete local que traz de volta um larperCord já aberto fica de fora. É mais um motivo para só
+  ligar servidores em que você confia.
 - **Limites:** uma mensagem acima de 1 MiB, quadros malformados, mais de 32 MiB de saída por minuto
   ou 10 segundos sem ler a entrada param o servidor. O stderr dele é descartado.
 
@@ -93,6 +112,9 @@ Se a linguagem tem os dois, o seu comando vale.
 ## Limites que vale conhecer
 
 - Parar um servidor mata aquele processo, não o que ele abriu. Um comando intermediário que abre o
-  servidor de verdade (`npx …`) pode deixar esse para trás.
-- Se o app é morto de vez (`kill -9`, queda de energia), o servidor só percebe quando a entrada dele
-  fecha. Servidores bem feitos saem nessa hora.
+  servidor de verdade (`npx …`) pode deixar esse para trás. No Windows, todo servidor `.cmd` (o que o
+  npm instala) é um intermediário desses: o Windows o roda pelo `cmd.exe`, então matar encerra o
+  `cmd.exe`, não o `node.exe` por trás dele. Esse ainda recebe o pedido de parar e vê a entrada
+  fechar, e servidores bem feitos saem nessa hora.
+- Se o app é morto de vez (`kill -9` no Linux, `taskkill /F` no Windows, queda de energia), o
+  servidor só percebe quando a entrada dele fecha. Servidores bem feitos saem nessa hora.

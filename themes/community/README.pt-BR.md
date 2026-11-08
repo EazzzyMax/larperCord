@@ -15,3 +15,9 @@ Confira antes de mandar:
 ```bash
 python3 tools/gen_site.py --check-community
 ```
+
+No Windows:
+
+```powershell
+py tools/gen_site.py --check-community
+```

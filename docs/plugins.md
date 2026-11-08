@@ -3,15 +3,18 @@
 **English** · [Português](plugins.pt-BR.md)
 
 Plugins are small scripts that add features to the app with no recompiling: panels, right-click
-entries, commands, reminders, notes under messages. Every `.lua` file in
+entries, commands, reminders, notes under messages. Every `.lua` file in your plugins folder is a
+plugin:
 
-```
-~/.config/larpercord/plugins/          ($XDG_CONFIG_HOME/larpercord/plugins, if set)
-```
+| System | Folder |
+|---|---|
+| Linux | `~/.config/larpercord/plugins/` (`$XDG_CONFIG_HOME/larpercord/plugins` if set) |
+| Windows | `%APPDATA%\larpercord\plugins\` (paste it in File Explorer's address bar to open it) |
 
-is a plugin. Open **Settings → Plugins** (`Ctrl+,`) to see what each one is, what it asks for and
-any error it hit, turn it on or off (the choice is kept in `~/.config/larpercord/plugins.kdl`),
-approve the hosts it wants to talk to, open its panel and **Reload** after editing a file.
+The top of **Settings → Plugins** (`Ctrl+,`) shows the exact folder, and **Install bundled plugins**
+creates it if it isn't there yet. On that page you can see what each plugin is, what it asks for and
+any error it hit, turn it on or off (the choice is kept in `plugins.kdl`, next to the `plugins`
+folder), approve the hosts it wants to talk to, open its panel and **Reload** after editing a file.
 
 ## The plugins that come with the app
 
@@ -217,7 +220,9 @@ plugin knows is sent as normal text.
 
 ### `larper.keybind("ctrl+shift+x", function)`
 
-A keyboard shortcut. Modifiers: `ctrl`, `shift`, `alt`, `super`; keys: `a`–`z`, `0`–`9`,
+A keyboard shortcut. Modifiers: `ctrl`, `shift`, `alt`, `super` (the Windows key on Windows; `win`,
+`meta` and `cmd` mean the same). Windows and many Linux desktops use a lot of Super combinations
+themselves, so pick `ctrl` or `alt` when you can. Keys: `a`–`z`, `0`–`9`,
 `f1`–`f24`, `enter`, `space`, `tab`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`,
 `pagedown`, `up`, `down`, `left`, `right`, `,` `.` `/` `;` `-` `=`. Every key except F1–F24 needs
 `ctrl`, `alt` or `super` (otherwise it would fire while you type), and `ctrl` with `a`, `c`, `v`, `x`,
@@ -312,7 +317,8 @@ Timers that run while the plugin is on, and die with it. Both return an ID for `
 ### `larper.storage`
 
 Data that stays between restarts, separate for each plugin and account, on this computer
-(`~/.config/larpercord/plugin-data/`). Up to 1 MB per plugin.
+(`~/.config/larpercord/plugin-data/` on Linux, `%APPDATA%\larpercord\plugin-data\` on Windows). Up to
+1 MB per plugin.
 
 | Function | What it does |
 |---|---|
@@ -498,4 +504,8 @@ the proposal.
 
 ### `print(...)`
 
-Goes to the app's log (`[name.lua] …` in the terminal), not to the interface.
+Goes to the app's log, not to the interface, as `[name.lua] …`. If you started the app from a
+terminal, it shows up there. On Windows the app has no terminal: turn on **Settings → Advanced → Save
+debug log** and click **Reload** in Settings → Plugins. The lines then go to
+`%LOCALAPPDATA%\larpercord\debug.log` (`~/.cache/larpercord/debug.log` on Linux), and **Open the log
+folder** takes you there. The log stays on until you turn it off or close the app.

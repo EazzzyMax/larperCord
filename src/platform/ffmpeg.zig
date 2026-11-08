@@ -9,6 +9,10 @@
 //! Versão desconhecida = recusa (melhor abrir no navegador do que ler lixo).
 //! O resto vem de funções e de AVOptions ("ar", "ch_layout"), que não
 //! dependem do layout.
+//!
+//! Onde procura: a pasta escolhida nas Configurações, a do "Baixar FFmpeg", a
+//! busca do sistema pelo nome e, no Windows, cada pasta do PATH. Sem achar, o
+//! `Diag` diz o que tinha em cada lugar (ver ffmpeg_busca.zig).
 const std = @import("std");
 const c = @import("c");
 
@@ -87,15 +91,12 @@ pub const Api = struct {
     sws_freeContext: *const fn (?*Sws) callconv(.c) void,
 };
 
-/// Versões com o layout conferido (FFmpeg 9, 8 e 7). Os campos que lemos
-/// estão no mesmo lugar nas três (o `duration` do AVFormatContext só foi
-/// conferido na 63; nas outras não é lido).
-const Set = struct { lavf: u32, lavc: u32, lavu: u32, sws: u32 };
-const sets = [_]Set{
-    .{ .lavf = 63, .lavc = 63, .lavu = 61, .sws = 10 },
-    .{ .lavf = 62, .lavc = 62, .lavu = 60, .sws = 9 },
-    .{ .lavf = 61, .lavc = 61, .lavu = 59, .sws = 8 },
-};
+/// Versões com o layout conferido (FFmpeg 9, 8 e 7, em ffmpeg_busca.zig). Os
+/// campos que lemos estão no mesmo lugar nas três (o `duration` do
+/// AVFormatContext só foi conferido na 63; nas outras não é lido).
+const busca = @import("ffmpeg_busca.zig");
+const Set = busca.Set;
+const sets = busca.sets;
 
 var api: Api = undefined;
 var loaded: Set = undefined;
@@ -127,19 +128,25 @@ pub fn localDir(buf: []u8) ?[]const u8 {
     return std.fmt.bufPrint(buf, "{s}/larpercord/ffmpeg", .{base}) catch null;
 }
 
-/// O Windows também procura as bibliotecas (e as que elas pedem) nesta pasta.
-fn useLocalDir() void {
+/// O Windows também procura nesta pasta as bibliotecas pedidas pelo nome e as que
+/// elas pedem (o swresample, que o avcodec carrega sozinho).
+fn useDllDir(dir: []const u8) void {
     if (@import("builtin").os.tag != .windows) return;
     const SetDllDirectoryW = @extern(*const fn ([*:0]const u16) callconv(.winapi) c_int, .{ .name = "SetDllDirectoryW", .library_name = "kernel32" });
-    var ub: [512]u8 = undefined;
-    const dir = localDir(&ub) orelse return;
-    var wb: [512:0]u16 = undefined;
-    const n = std.unicode.utf8ToUtf16Le(&wb, dir) catch return;
+    var wb: [640:0]u16 = undefined;
+    // Cada byte vira no máximo um u16: assim nunca passa do buffer.
+    if (dir.len >= wb.len) return;
+    const n = std.unicode.wtf8ToWtf16Le(&wb, dir) catch return;
     for (wb[0..n]) |*ch| {
         if (ch.* == '/') ch.* = '\\';
     }
     wb[n] = 0;
     _ = SetDllDirectoryW(&wb);
+}
+
+fn useLocalDir() void {
+    var ub: [512]u8 = undefined;
+    useDllDir(localDir(&ub) orelse return);
 }
 
 /// Depois de instalar: se não tinha achado, procura de novo no próximo uso.
@@ -156,42 +163,288 @@ pub fn known() ?bool {
     };
 }
 
+// --- A pasta escolhida -------------------------------------------------------------
+
+/// A pasta escolhida em Configurações → Chat → Vídeos (vazia = nenhuma): vem antes
+/// de todo outro lugar. Escrita pela interface, lida por quem carrega.
+var dir_lock: std.atomic.Value(bool) = .init(false);
+var dir_buf: [256]u8 = undefined;
+var dir_len: usize = 0;
+
+fn lockFlag(f: *std.atomic.Value(bool)) void {
+    while (f.swap(true, .acquire)) std.atomic.spinLoopHint();
+}
+
+/// Barato se nada mudou (o app chama a cada quadro com o valor das configurações).
+/// Vale na próxima procura: com o FFmpeg já carregado, só ao abrir o app de novo.
+pub fn setDir(dir: []const u8) void {
+    lockFlag(&dir_lock);
+    defer dir_lock.store(false, .release);
+    const n = @min(dir.len, dir_buf.len);
+    if (n == dir_len and std.mem.eql(u8, dir_buf[0..n], dir[0..n])) return;
+    @memcpy(dir_buf[0..n], dir[0..n]);
+    dir_len = n;
+}
+
+fn chosenDir(out: *[256]u8) []const u8 {
+    lockFlag(&dir_lock);
+    defer dir_lock.store(false, .release);
+    @memcpy(out[0..dir_len], dir_buf[0..dir_len]);
+    return out[0..dir_len];
+}
+
+/// É um arquivo? (O SDL entende UTF-8 também nos caminhos do Windows.)
+pub fn isFile(path: [:0]const u8) bool {
+    var info: c.SDL_PathInfo = undefined;
+    return c.SDL_GetPathInfo(path.ptr, &info) and info.type == c.SDL_PATHTYPE_FILE;
+}
+
+/// O que tem numa pasta (para conferir a escolhida antes de guardar).
+pub fn checkDir(dir: []const u8) busca.Check {
+    return busca.check(dir, busca.native, isFile);
+}
+
+// --- Diagnóstico -------------------------------------------------------------------
+
+/// Um caminho ou uma mensagem do sistema (tamanho fixo: o diagnóstico é copiado inteiro).
+pub const Note = struct {
+    len: u16 = 0,
+    buf: [320]u8 = undefined,
+
+    pub fn slice(t: *const Note) []const u8 {
+        return t.buf[0..t.len];
+    }
+
+    fn set(t: *Note, s: []const u8) void {
+        const n = @min(s.len, t.buf.len);
+        @memcpy(t.buf[0..n], s[0..n]);
+        t.len = @intCast(n);
+    }
+};
+
+/// Por que o FFmpeg não carregou: o que tem na pasta escolhida, no PATH e nas
+/// pastas do sistema (mostrado em Configurações → Chat → Vídeos).
+pub const Diag = struct {
+    /// LARPER_NO_FFMPEG: nada carregou de propósito.
+    disabled: bool = false,
+    /// O que tem na pasta escolhida (null = nenhuma).
+    chosen: ?busca.Check = null,
+    /// A primeira pasta do PATH com o ffmpeg (vazia = nenhuma) e o que tem nela.
+    exe_dir: Note = .{},
+    exe_check: busca.Check = .nothing,
+    /// Linux: o melhor achado nas pastas de bibliotecas do sistema, e onde.
+    system: busca.Check = .nothing,
+    system_dir: Note = .{},
+    /// Uma versão que o app não conhece (major do libavformat; 0 = nenhuma) e onde.
+    other: u32 = 0,
+    other_dir: Note = .{},
+    /// Uma biblioteca que existe e não carregou, e o motivo dado pelo sistema.
+    failed_file: Note = .{},
+    failed_why: Note = .{},
+    /// Carregou, mas o libavformat diz outro número do que o nome do arquivo (0 = não).
+    mismatch: u32 = 0,
+};
+
+var diag: Diag = .{};
+var diag_lock: std.atomic.Value(bool) = .init(false);
+
+/// O diagnóstico da última procura (copiado: outra procura pode começar enquanto a
+/// tela lê). Achando, ele ainda diz por que a pasta escolhida não serviu.
+pub fn diagnosis(out: *Diag) void {
+    lockFlag(&diag_lock);
+    defer diag_lock.store(false, .release);
+    out.* = diag;
+}
+
+/// QA: com LARPER_NO_FFMPEG, o diagnóstico olha este PATH em vez de nenhum.
+pub var qa_path: ?[]const u8 = null;
+
+pub const Source = enum { system, chosen, path };
+var source: Source = .system;
+var source_dir: Note = .{};
+
+/// De onde veio o FFmpeg carregado (só com `known() == true`).
+pub fn loadedSource() Source {
+    return source;
+}
+
+/// A pasta de onde ele veio (vazia: pelo nome, na busca do sistema).
+pub fn loadedDir() []const u8 {
+    return source_dir.slice();
+}
+
+/// A versão do FFmpeg carregado (7, 8, 9).
+pub fn loadedVersion() u32 {
+    return busca.ffmpegVersion(loaded.lavf);
+}
+
+// --- Procura -----------------------------------------------------------------------
+
 fn loadAll() bool {
-    // LARPER_NO_FFMPEG=1 finge que não tem (para testar o caminho do navegador).
-    if (c.SDL_getenv("LARPER_NO_FFMPEG") != null) return false;
-    useLocalDir();
-    for (sets) |s| if (loadSet(s)) {
-        loaded = s;
-        rgba_fmt = api.av_get_pix_fmt("rgba");
-        if (rgba_fmt < 0) return false;
-        if (c.SDL_getenv("LARPER_DEBUG_MEDIA") == null and !@import("debug_log.zig").isOn()) {
-            api.av_log_set_level(log_quiet);
-        } else std.log.info("ffmpeg: libavformat {d}", .{s.lavf});
-        return true;
-    };
+    var dg: Diag = .{};
+    const ok = search(&dg);
+    lockFlag(&diag_lock);
+    defer diag_lock.store(false, .release);
+    diag = dg;
+    return ok;
+}
+
+/// Na ordem: a pasta escolhida; a do "Baixar FFmpeg" e a busca do sistema pelo nome;
+/// no Windows, cada pasta do PATH com as DLLs. Não achando, anota o porquê.
+fn search(dg: *Diag) bool {
+    // LARPER_NO_FFMPEG=1 finge que não tem (para testar o caminho do navegador): nada
+    // carrega, mas a pasta escolhida e o PATH do QA (`qa_path`) entram no diagnóstico.
+    const off = c.SDL_getenv("LARPER_NO_FFMPEG") != null;
+    dg.disabled = off;
+    var cb: [256]u8 = undefined;
+    const chosen = chosenDir(&cb);
+    if (chosen.len > 0) {
+        const ch = checkDir(chosen);
+        dg.chosen = ch;
+        switch (ch) {
+            .ok => |s| if (!off and loadFrom(chosen, s, dg)) return done(s, .chosen, chosen),
+            else => {},
+        }
+    }
+    if (!off) {
+        useLocalDir();
+        for (sets) |s| if (loadSet(s, null, dg)) return done(s, .system, "");
+    }
+    const path_env: PathEnv = if (off) .{ .text = qa_path orelse "" } else .get();
+    defer path_env.deinit();
+    const scan = busca.scanPath(path_env.text, busca.native, isFile);
+    // A busca do LoadLibrary pode não olhar o PATH (a busca segura de DLLs): cada
+    // pasta dele com as DLLs vai pelo caminho inteiro.
+    if (!off and busca.native == .windows) if (scan.libs_dir) |dir| if (loadFrom(dir, scan.libs, dg)) return done(scan.libs, .path, dir);
+    if (scan.exe_dir) |e| {
+        dg.exe_dir.set(e);
+        dg.exe_check = scan.exe_check;
+    }
+    if (scan.other_dir) |o| {
+        dg.other = scan.other;
+        dg.other_dir.set(o);
+    }
+    if (!off and busca.native == .linux) systemLibs(dg);
     return false;
 }
 
-/// Prefixos de cada biblioteca e o fim do nome do arquivo em cada sistema.
-const lib_name = if (@import("builtin").os.tag == .windows)
-    [_][]const u8{ "avutil-", ".dll", "swscale-", "avcodec-", "avformat-" }
-else
-    [_][]const u8{ "libavutil.so.", "", "libswscale.so.", "libavcodec.so.", "libavformat.so." };
+fn done(s: Set, src: Source, dir: []const u8) bool {
+    loaded = s;
+    source = src;
+    source_dir.set(dir);
+    rgba_fmt = api.av_get_pix_fmt("rgba");
+    if (rgba_fmt < 0) return false;
+    if (c.SDL_getenv("LARPER_DEBUG_MEDIA") == null and !@import("debug_log.zig").isOn()) {
+        api.av_log_set_level(log_quiet);
+    } else std.log.info("ffmpeg: libavformat {d} ({t})", .{ s.lavf, src });
+    return true;
+}
 
-fn loadSet(s: Set) bool {
-    var names: [4][40]u8 = undefined;
-    const files = [_][]const u8{
-        std.fmt.bufPrint(&names[0], lib_name[0] ++ "{d}" ++ lib_name[1] ++ "\x00", .{s.lavu}) catch return false,
-        std.fmt.bufPrint(&names[1], lib_name[2] ++ "{d}" ++ lib_name[1] ++ "\x00", .{s.sws}) catch return false,
-        std.fmt.bufPrint(&names[2], lib_name[3] ++ "{d}" ++ lib_name[1] ++ "\x00", .{s.lavc}) catch return false,
-        std.fmt.bufPrint(&names[3], lib_name[4] ++ "{d}" ++ lib_name[1] ++ "\x00", .{s.lavf}) catch return false,
-    };
+/// O PATH do processo. No Windows pela API, que não diferencia maiúsculas: lá o
+/// nome costuma ser "Path".
+const PathEnv = struct {
+    text: []const u8,
+    owned: ?[]u8 = null,
+
+    fn get() PathEnv {
+        const alloc = std.heap.c_allocator;
+        if (busca.native == .windows) {
+            const GetEnvironmentVariableW = @extern(*const fn ([*:0]const u16, ?[*]u16, u32) callconv(.winapi) u32, .{ .name = "GetEnvironmentVariableW", .library_name = "kernel32" });
+            const name = std.unicode.utf8ToUtf16LeStringLiteral("PATH");
+            const need = GetEnvironmentVariableW(name, null, 0);
+            if (need == 0) return .{ .text = "" };
+            const w = alloc.alloc(u16, need) catch return .{ .text = "" };
+            defer alloc.free(w);
+            const got = GetEnvironmentVariableW(name, w.ptr, need);
+            if (got == 0 or got >= need) return .{ .text = "" };
+            const s = std.unicode.wtf16LeToWtf8Alloc(alloc, w[0..got]) catch return .{ .text = "" };
+            return .{ .text = s, .owned = s };
+        }
+        const p = c.SDL_getenv("PATH") orelse return .{ .text = "" };
+        const s = alloc.dupe(u8, std.mem.span(p)) catch return .{ .text = "" };
+        return .{ .text = s, .owned = s };
+    }
+
+    fn deinit(p: PathEnv) void {
+        if (p.owned) |s| std.heap.c_allocator.free(s);
+    }
+};
+
+/// Onde as distribuições põem as bibliotecas: só para dizer qual versão o sistema tem.
+const triple = @tagName(@import("builtin").cpu.arch) ++ "-linux-gnu";
+const lib_dirs = [_][]const u8{ "/usr/lib", "/usr/lib64", "/usr/lib/" ++ triple, "/lib/" ++ triple, "/usr/local/lib", "/lib64", "/lib" };
+
+fn systemLibs(dg: *Diag) void {
+    for (lib_dirs) |dir| {
+        const ch = busca.check(dir, .linux, isFile);
+        const better = switch (ch) {
+            .ok => dg.system != .ok,
+            .incomplete => dg.system != .ok and dg.system != .incomplete,
+            else => false,
+        };
+        if (better) {
+            dg.system = ch;
+            dg.system_dir.set(dir);
+        }
+        if (ch == .unsupported and dg.other == 0) {
+            dg.other = ch.unsupported;
+            dg.other_dir.set(dir);
+        }
+    }
+}
+
+/// Uma pasta com um conjunto inteiro: cada biblioteca pelo caminho inteiro.
+fn loadFrom(dir: []const u8, s: Set, dg: *Diag) bool {
+    useDllDir(dir);
+    // Linux: uma .so de fora das pastas do sistema só acha as irmãs que já estão
+    // carregadas. O swresample, que o avcodec pede, vai antes (o mais novo da pasta).
+    var extra: ?*c.SDL_SharedObject = null;
+    if (busca.native == .linux) {
+        var m: u32 = 12;
+        while (m >= 3 and extra == null) : (m -= 1) {
+            var nb: [48]u8 = undefined;
+            var pb: [640]u8 = undefined;
+            const name = busca.libFile(&nb, .linux, "swresample", m) orelse continue;
+            const path = busca.join(&pb, dir, name) orelse continue;
+            if (isFile(path)) extra = c.SDL_LoadObject(path.ptr);
+        }
+    }
+    if (loadSet(s, dir, dg)) return true;
+    if (extra) |l| c.SDL_UnloadObject(l);
+    return false;
+}
+
+/// O que não carregou e por quê, se o arquivo existe. Pelo nome, no Windows não dá
+/// para separar "não existe" de "falta uma DLL que ela pede" (é o mesmo erro 126).
+fn noteFailure(dg: *Diag, name: []const u8, file: []const u8, from_dir: bool) void {
+    if (dg.failed_file.len > 0) return;
+    const err = std.mem.span(c.SDL_GetError());
+    if (!from_dir and (busca.native == .windows or busca.loadErrorIsMissing(err, name))) return;
+    dg.failed_file.set(file);
+    // A mensagem do Windows vem com a quebra de linha do FormatMessage.
+    dg.failed_why.set(std.mem.trim(u8, busca.loadErrorReason(err), " \t\r\n"));
+}
+
+fn unload(libs: []const *c.SDL_SharedObject) void {
+    for (libs) |l| c.SDL_UnloadObject(l);
+}
+
+/// As quatro bibliotecas de `s`, pelo nome (a busca do sistema) ou de `dir`.
+fn loadSet(s: Set, dir: ?[]const u8, dg: *Diag) bool {
     var libs: [4]*c.SDL_SharedObject = undefined;
     var n: usize = 0;
     // (Carregado fica até o fim: o app usa de novo e o custo é só o mapeamento.)
-    for (files) |f| {
-        libs[n] = c.SDL_LoadObject(f.ptr) orelse {
-            for (libs[0..n]) |l| c.SDL_UnloadObject(l);
+    for (std.enums.values(busca.Lib)) |lib| {
+        var nb: [48]u8 = undefined;
+        var pb: [640]u8 = undefined;
+        const name = busca.libFile(&nb, busca.native, @tagName(lib), busca.major(s, lib)).?;
+        const file = if (dir) |dd| busca.join(&pb, dd, name) orelse {
+            unload(libs[0..n]);
+            return false;
+        } else name;
+        libs[n] = c.SDL_LoadObject(file.ptr) orelse {
+            noteFailure(dg, name, file, dir != null);
+            unload(libs[0..n]);
             return false;
         };
         n += 1;
@@ -204,7 +457,7 @@ fn loadSet(s: Set) bool {
             if (c.SDL_LoadFunction(l, sym)) |f| break f;
         } else null;
         @field(tmp, fname) = @as(ftype, @ptrCast(p orelse {
-            for (libs) |l| c.SDL_UnloadObject(l);
+            unload(&libs);
             return false;
         }));
     }
@@ -212,7 +465,8 @@ fn loadSet(s: Set) bool {
     const ok = tmp.avformat_version() >> 16 == s.lavf and tmp.avcodec_version() >> 16 == s.lavc and
         tmp.avutil_version() >> 16 == s.lavu and tmp.swscale_version() >> 16 == s.sws;
     if (!ok) {
-        for (libs) |l| c.SDL_UnloadObject(l);
+        if (dg.mismatch == 0) dg.mismatch = s.lavf;
+        unload(&libs);
         return false;
     }
     api = tmp;

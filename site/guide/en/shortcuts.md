@@ -43,20 +43,50 @@ larpercord [options]
 | `--voice-test GUILD CHANNEL` | joins a voice channel for 25 s, always muted (needs `LARPER_TOKEN`) |
 | `--help` | shows the usage text |
 
+On Windows the program is `larpercord.exe`, and it isn't on `PATH`. In PowerShell, call it by its full path (this is where `install.ps1` puts it; if you unzipped it yourself, use that folder), or put the options at the end of a shortcut's **Target**:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe" --theme vidro
+```
+
+The Windows build has no console, so the options that only print text (`--help`, `--list-themes`, `--stats`) show nothing in the terminal. To read that text, send it to a file:
+
+```powershell
+Start-Process "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe" -ArgumentList '--list-themes' -NoNewWindow -Wait -RedirectStandardError out.txt; Get-Content out.txt
+```
+
+The built-in themes are also listed in Settings → Appearance.
+
+On both systems, if larperCord is already open, even only in the tray, starting it again just brings that window back and ignores the other options. Quit it first (**Quit** in the tray icon's menu). `--demo`, `--shot`, `--list-themes`, `--help` and `--voice-test` work either way.
+
 ## Environment variables
+
+Set them for one run, in the terminal you start the app from:
+
+```bash
+LARPER_RENDERER=software larpercord
+```
+
+```powershell
+# Windows, PowerShell: lasts until you close this window
+$env:LARPER_RENDERER = 'software'
+& "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe"
+```
+
+In `cmd`, it's `set LARPER_RENDERER=software` before running the `.exe`. Variables only count when the app starts: if it's already open, even only in the tray, quit it first, or the new start just brings the open window back.
 
 | Variable | What it does |
 |---|---|
 | `LARPER_TOKEN` | the account token (see [Connect your account](page:account)) |
-| `LARPER_RENDERER` | picks the SDL render backend: `opengl`, `vulkan`, `gpu` or `software` |
+| `LARPER_RENDERER` | picks the SDL render backend: `opengl`, `vulkan`, `gpu` or `software`, and on Windows also `direct3d11` or `direct3d12` |
 | `LARPER_HIDDEN` | opens with a hidden window. The app draws nothing while hidden, so memory reads much lower than with a real window |
 | `LARPER_BENCH` | redraws nonstop, to measure the cost of a frame |
-| `LARPER_VOICE_DEBUG` | prints what happens in a call (opcodes, close codes, DAVE). It never prints tokens or keys |
-| `LARPER_DEBUG_MEDIA` | logs why an image failed to load |
+| `LARPER_VOICE_DEBUG` | prints what happens in a call (opcodes, close codes, DAVE) to the terminal. It never prints tokens or keys. On Windows there's no terminal: turn on Settings → Advanced → Save debug log, which records the same |
+| `LARPER_DEBUG_MEDIA` | logs why an image failed to load. On Windows, use the debug log, as above |
 | `LARPER_NO_FFMPEG` | pretends FFmpeg isn't installed |
-| `LARPER_EGL_ALL` | turns off the trick that skips unneeded EGL drivers |
+| `LARPER_EGL_ALL` | Linux only: turns off the trick that skips unneeded EGL drivers |
 | `LARPER_SCENE` | sets up a scene for documentation screenshots |
 | `LARPER_RECORD`, `LARPER_RECORD_FRAMES` | records the sign-in screen as frames in a folder |
 | `LARPER_FLOOD` | sends N presence changes per second in demo mode (load test) |
 
-`XDG_CONFIG_HOME` and `XDG_CACHE_HOME` are respected, and they're handy for running with a clean configuration.
+`XDG_CONFIG_HOME` and `XDG_CACHE_HOME` are respected on both systems (on Windows they take the place of `%APPDATA%` and `%LOCALAPPDATA%`), and they're handy for running with a clean configuration.

@@ -1,10 +1,12 @@
 //! Calls em DM e grupo, do lado do app: começar, atender, recusar, e o que
 //! fazer quando o Discord avisa que está tocando para nós (o toque, a
-//! notificação do sistema, a janela piscando). Roda ao tratar os eventos da
+//! notificação do sistema, a janela piscando; no Não perturbe e na conversa
+//! silenciada, o aviso sem o toque). Roda ao tratar os eventos da
 //! rede, então funciona com a janela minimizada ou escondida na bandeja.
 const std = @import("std");
 const c = @import("c");
 const App = @import("app.zig").App;
+const app_conta = @import("app_conta.zig");
 const ev = @import("core/event.zig");
 const types = @import("core/types.zig");
 const chamada = @import("ui/chamada.zig");
@@ -111,9 +113,9 @@ fn onCall(app: *App, cl: ev.Call) void {
     if (chamada.ring_channel == cl.channel and now() - chamada.ring_since_ms < chamada.ring_max_ms) return;
     chamada.ring_channel = cl.channel;
     chamada.ring_since_ms = now();
-    // Não perturbe: o aviso aparece, sem som.
+    // Não perturbe, ou a DM/grupo silenciado na conta: o aviso aparece, sem som.
     const dnd = if (app.store.user(app.store.me)) |u| u.status == .dnd else false;
-    voz_audio.setRinging(!dnd);
+    voz_audio.setRinging(!dnd and !app_conta.mutedNow(app, cl.channel));
     notify(app, cl.channel);
 }
 

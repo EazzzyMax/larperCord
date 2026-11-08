@@ -12,7 +12,7 @@ Some items here are how larperCord stays light, and the official app may do simi
 - **[No browser inside](page:architecture#the-rendering).** Native code that draws with Dear ImGui on SDL3. The official app runs on Electron, a browser packaged as an app, for now: on November 4, 2026, Discord's CTO showed a native rebuild in Rust that isn't out yet ([its early numbers](page:performance#the-numbers)).
 - **[About 130 MB of RAM](page:performance#the-numbers)** with a real account. ¹
 - **[0–0.4% CPU when idle](page:performance#the-numbers).** The app sleeps until a network event, a key or the clock wakes it. ²
-- **[About 15 MB](page:performance#the-numbers)** for the Linux download, in a single file. ³
+- **[About 14 MB](page:performance#the-numbers)** for the Linux download, in a single file. ³
 - **[Things start when you ask](page:performance#ten-decisions).** The voice thread when you join a call, stopped when you leave, FFmpeg on your first video, and no plugin thread while no plugin is on.
 - **[Hidden means lighter](page:performance#ten-decisions).** After a minute in the tray or minimized, images leave memory, except small ones that were on screen.
 - **[Memory limits you set](page:settings#the-pages).** Settings → Performance shows live RAM and where it goes, and sets how much goes to images, each GIF and messages.
@@ -27,7 +27,7 @@ Some items here are how larperCord stays light, and the official app may do simi
 
 - **[Open source](https://github.com/RshaCuDeVidro/larperCord)** under GPL-3.0. You can read every line and build it yourself.
 - **[No telemetry or analytics](page:privacy#what-goes-over-the-network)** in the app, so there's nothing to opt out of.
-- **[A proxy setting](page:privacy#proxy)** for HTTP, HTTPS, SOCKS5 and Tor, with login and password, for media from outside Discord only, or also for Discord's API, gateway and media. Voice calls always connect directly.
+- **[A proxy setting](page:privacy#proxy)** for HTTP, HTTPS, SOCKS5 and Tor, with login and password, for media from outside Discord only, or also for Discord's API, gateway and media, and on the sign-in screen too. Voice calls always connect directly.
 - **[Data saver](page:features#media).** Images, attachments and even profile pictures wait for a click, one at a time, and custom emoji show as `:name:`.
 - **[Settings in one text file](page:settings#files-on-disk).** `settings.kdl` is plain text you can read, edit and back up.
 
@@ -60,8 +60,8 @@ Some items here are how larperCord stays light, and the official app may do simi
 - **[The whole layout is a text file](page:themes).** Move, resize and swap the parts of the window in a `.kdl` file, not only the colors.
 - **[Reloads on save](page:themes).** Saving the file redraws the window right away. A mistake points to `file:line:column` and the previous theme stays on screen.
 - **[11 built-in layouts](page:theme-gallery)**, not just color schemes, from an IRC terminal to a Mac-style desktop, each with light and dark modes and options of its own.
-- **[Colors from your wallpaper](page:themes#colors)** through pywal, in themes with `palette "wal"`.
-- **[Real transparency](page:theme-gallery#vidro).** The `vidro` theme has a see-through background, and your compositor (Hyprland, KDE…) adds the blur.
+- **[Colors from your wallpaper](page:themes#colors)** through pywal, in themes with `palette "wal"`, on Linux (on Windows only with the `HOME` variable set, and not live).
+- **[Real transparency](page:theme-gallery#vidro).** The `vidro` theme has a see-through background, and on Linux your compositor (Hyprland, KDE…) adds the blur. Windows has no blur.
 - **[Every color, per theme and mode](page:themes#custom-colors-without-editing-the-kdl):** each of the theme's color tokens and the eight role colors, picked in hex in Settings, free and without editing the file. Discord's custom theme is a Nitro gradient of up to five colors.
 - **[Lua plugins](page:plugins)** add panels, right-click entries, notes under messages, commands and keybinds, with no rebuild.
 - **[Plugins in a sandbox](page:plugins#limits).** A thread apart from the interface, a Lua state and 8 MB for each plugin, about 5 million instructions per call, no files, processes or sockets, and HTTPS only to hosts you approve. They never see your token.
@@ -76,7 +76,7 @@ Some items here are how larperCord stays light, and the official app may do simi
 - **Creating servers and channels.** You can create threads and forum posts, but not servers or channels.
 - **Stage channels.** A Stage shows up as a plain voice channel, with no speakers and audience sections and no way to ask to speak.
 - **Activities and the soundboard.** Not in the app.
-- **[Video in full quality](page:features#media).** Videos in the chat play up to 480p at about 30 fps and need FFmpeg. Without it, they open in the browser.
+- **[Video in full quality](page:features#media).** Videos in the chat play up to 480p at about 30 fps and need FFmpeg: your distro's on Linux, the **Download FFmpeg** button in Settings → Chat on Windows. Without it, they open in the browser.
 - **[macOS, phones and the web](page:getting-started#what-you-need).** larperCord runs on Linux and Windows 10/11.
 - **[Accessibility](page:status#what-works-today).** There's font scale, reduced motion, the command palette and vim keys, but no visible keyboard focus, no high contrast mode and no screen reader support.
 

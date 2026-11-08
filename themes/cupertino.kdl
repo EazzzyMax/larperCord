@@ -8,7 +8,7 @@ options {
     option "dock" label="Dock" description="Os servidores no Dock, com lupa. Desligado, ficam na barra lateral." label-en="Dock" description-en="Servers in the Dock, with magnification. Off, they move to the sidebar." default=#true
     option "movimento" label="Papel de parede em movimento" description="As colinas deslizam bem devagar, a 10 quadros por segundo. Desliga sozinho com \"Reduzir movimento\" e com a janela em segundo plano." label-en="Moving wallpaper" description-en="The hills drift very slowly, at 10 frames per second. Turns itself off with \"Reduce motion\" and when the window is in the background." default=#false
     option "abas" label="Abas de canal" description="Os canais abertos em abas acima da conversa." label-en="Channel tabs" description-en="Open channels as tabs above the conversation." default=#false
-    option "transparente" label="Transparência de verdade" description="Tira o papel de parede: o seu aparece atrás da janela, com o desfoque do compositor." label-en="Real transparency" description-en="Removes the wallpaper: yours shows behind the window, with the compositor's blur." default=#false
+    option "transparente" label="Transparência de verdade" description="Tira o papel de parede: o seu aparece atrás da janela, desfocado pelo compositor no Linux." label-en="Real transparency" description-en="Removes the wallpaper: yours shows behind the window, blurred by your compositor on Linux." default=#false
 }
 
 // Crepúsculo: céu índigo, colinas em ameixa e carvão.

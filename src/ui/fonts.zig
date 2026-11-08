@@ -320,6 +320,8 @@ pub const Fonts = struct {
 
     /// O arquivo de fonte do sistema que tem a letra `cp`, ou null.
     fn resolveChar(f: *Fonts, cp: u32) ?Match {
+        // Navegador: só as fontes que a página traz, sem fontconfig.
+        if (sys.web) return null;
         if (!sys.windows) return matchChar(cp);
         return f.windowsFile(font_blocks.windowsFiles(cp), &.{cp});
     }

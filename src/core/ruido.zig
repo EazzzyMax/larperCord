@@ -9,6 +9,10 @@
 const std = @import("std");
 const voz = @import("voz.zig");
 
+/// A demonstração no navegador (src/web_main.zig; o mesmo teste de `sys.web`) não
+/// tem voz: sem motor nenhum, o RNNoise e os pesos dele ficam fora do wasm.
+const web = @hasDecl(@import("root"), "larper_web");
+
 /// O que um motor de supressão precisa oferecer.
 pub const Engine = struct {
     /// Taxa de amostragem que ele exige (hoje, a do microfone: ver o teste).
@@ -35,6 +39,7 @@ pub const Mode = enum(u8) {
     }
 
     fn engine(m: Mode) ?*const Engine {
+        if (web) return null;
         return switch (m) {
             .off => null,
             .rnnoise => &rnnoise_engine,

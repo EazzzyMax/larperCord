@@ -303,7 +303,10 @@ pub const Gateway = struct {
                 },
                 .retry => {
                     g.emit(.{ .status = .reconnecting });
+                    const proxy_gen = proxy.generation();
                     g.sleepServing(retry.next(random));
+                    // Proxy novo: as esperas começam de novo do mínimo.
+                    if (proxy.generation() != proxy_gen) retry = .{};
                 },
                 .reconnect => {
                     g.emit(.{ .status = .reconnecting });
@@ -330,12 +333,14 @@ pub const Gateway = struct {
         return std.fmt.bufPrintSentinel(buf, "{s}{s}{s}", .{ b, sep, gateway_query }, 0) catch null;
     }
 
-    /// Espera atendendo comandos (para não perder o pedido de encerrar).
+    /// Espera atendendo comandos (para não perder o pedido de encerrar). Trocar o
+    /// proxy do Discord encerra a espera: a próxima tentativa já vai por ele.
     fn sleepServing(g: *Gateway, ms: u32) void {
         const until = nowMs() + ms;
+        const proxy_gen = proxy.generation();
         var cmds: std.ArrayList(ev.Command) = .empty;
         defer cmds.deinit(alloc);
-        while (!g.stopping and nowMs() < until) {
+        while (!g.stopping and nowMs() < until and proxy.generation() == proxy_gen) {
             g.commands.waitDrain(&cmds, 200);
             for (cmds.items) |cmd| switch (cmd) {
                 .shutdown => g.stopping = true,
@@ -493,9 +498,17 @@ pub const Gateway = struct {
             if (hs_headers) |list| _ = c.curl_easy_setopt(h, c.CURLOPT_HTTPHEADER, list);
             _ = c.curl_easy_setopt(h, c.CURLOPT_PROTOCOLS_STR, "https,wss");
             _ = c.curl_easy_setopt(h, c.CURLOPT_REDIR_PROTOCOLS_STR, "https,wss");
-            useProxy(h);
+            const via_proxy = useProxy(h);
             g.abortable(h);
-            if (c.curl_easy_perform(h) != c.CURLE_OK) return .retry;
+            const rc = c.curl_easy_perform(h);
+            if (rc != c.CURLE_OK) {
+                // Nem abriu: a tela de entrada diz o porquê e oferece o proxy.
+                if (!g.stopping) if (proxy.classify(@intCast(rc), via_proxy)) |why| {
+                    if (debug_log.isOn()) std.log.info("gateway: não conectou ({t}{s}): {s}", .{ why, if (via_proxy) ", pelo proxy" else "", c.curl_easy_strerror(rc) });
+                    g.emit(.{ .net_fail = why });
+                };
+                return .retry;
+            }
         }
         timeline.mark(.websocket);
         var sock: sys.Socket = sys.no_socket;
@@ -2898,11 +2911,13 @@ pub const Gateway = struct {
         global: bool = false,
     };
 
-    /// Configurações → Privacidade → Rede com "em tudo": gateway e API
-    /// também pelo proxy (o gateway muda na próxima conexão).
-    fn useProxy(h: *c.CURL) void {
+    /// Configurações → Rede com "em tudo": gateway e API também pelo proxy (o
+    /// gateway muda na próxima conexão). true = vai pelo proxy.
+    fn useProxy(h: *c.CURL) bool {
         var pb: proxy.Buf = undefined;
-        if (proxy.forDiscord(&pb)) |p| _ = c.curl_easy_setopt(h, c.CURLOPT_PROXY, p.ptr);
+        const p = proxy.forDiscord(&pb) orelse return false;
+        _ = c.curl_easy_setopt(h, c.CURLOPT_PROXY, p.ptr);
+        return true;
     }
 
     /// Transferência que para assim que o app pede para encerrar.
@@ -3140,7 +3155,7 @@ pub const Gateway = struct {
             _ = c.curl_easy_setopt(h, c.CURLOPT_HTTPHEADER, headers);
             _ = c.curl_easy_setopt(h, c.CURLOPT_USERAGENT, web_user_agent.ptr);
             _ = c.curl_easy_setopt(h, c.CURLOPT_CUSTOMREQUEST, method.ptr);
-            useProxy(h);
+            _ = useProxy(h);
             _ = c.curl_easy_setopt(h, c.CURLOPT_WRITEFUNCTION, writeCb);
             _ = c.curl_easy_setopt(h, c.CURLOPT_WRITEDATA, &resp.body);
             _ = c.curl_easy_setopt(h, c.CURLOPT_HEADERFUNCTION, headerCb);
@@ -3597,6 +3612,8 @@ pub const Gateway = struct {
 
     /// O gateway de voz só abre quando já temos endpoint, token e session_id.
     fn tryStartVoice(g: *Gateway) void {
+        // Navegador: sem voz (e sem rede), então a conexão de voz fica fora do wasm.
+        if (sys.web) return;
         if (g.voice != null or g.voice_channel == 0 or g.me == 0) return;
         if (g.voice_endpoint_len == 0 or g.voice_token_len == 0 or g.voice_session_len == 0) return;
         const vc = alloc.create(voice_mod.Voice) catch return;

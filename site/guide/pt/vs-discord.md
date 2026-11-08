@@ -12,7 +12,7 @@ Alguns itens aqui são o jeito como o larperCord fica leve, e o app oficial pode
 - **[Nada de navegador dentro](page:architecture#a-renderizacao).** Código nativo que desenha com Dear ImGui sobre o SDL3. O app oficial roda em Electron, um navegador empacotado como app, por enquanto: em 4 de novembro de 2026, o CTO do Discord mostrou uma versão nativa em Rust que ainda não saiu ([os primeiros números](page:performance#os-numeros)).
 - **[Cerca de 130 MB de RAM](page:performance#os-numeros)** com uma conta real. ¹
 - **[0–0,4% de CPU parado](page:performance#os-numeros).** O app dorme e só acorda com a rede, uma tecla ou o relógio. ²
-- **[Cerca de 15 MB](page:performance#os-numeros)** no download para Linux, num arquivo só. ³
+- **[Cerca de 14 MB](page:performance#os-numeros)** no download para Linux, num arquivo só. ³
 - **[As coisas nascem quando você pede](page:performance#dez-decisoes).** A thread de voz quando você entra numa call, e ela para quando você sai, o FFmpeg no primeiro vídeo, e nenhuma thread de plugins enquanto nenhum plugin estiver ligado.
 - **[Escondido, fica mais leve](page:performance#dez-decisoes).** Depois de um minuto na bandeja ou minimizado, as imagens saem da memória, menos as pequenas que estavam na tela.
 - **[Limites de memória que você escolhe](page:settings#as-paginas).** Configurações → Desempenho mostra a RAM ao vivo e para onde ela vai, e define quanto fica para imagens, cada GIF e mensagens.
@@ -27,7 +27,7 @@ Alguns itens aqui são o jeito como o larperCord fica leve, e o app oficial pode
 
 - **[Código aberto](https://github.com/RshaCuDeVidro/larperCord)**, sob a GPL-3.0. Dá para ler cada linha e compilar você mesmo.
 - **[Sem telemetria nem análise de uso](page:privacy#o-que-passa-pela-rede)** no app, então não há nada para desligar.
-- **[Proxy nas configurações](page:privacy#proxy)** para HTTP, HTTPS, SOCKS5 e Tor, com login e senha, só para a mídia de fora do Discord ou também para a API, o gateway e a mídia do Discord. As calls de voz sempre conectam direto.
+- **[Proxy nas configurações](page:privacy#proxy)** para HTTP, HTTPS, SOCKS5 e Tor, com login e senha, só para a mídia de fora do Discord ou também para a API, o gateway e a mídia do Discord, e também na tela de entrada. As calls de voz sempre conectam direto.
 - **[Modo economia](page:features#midia).** Imagens, anexos e até fotos de perfil esperam um clique, uma por uma, e os emojis personalizados aparecem como `:nome:`.
 - **[Configurações num arquivo de texto](page:settings#arquivos-no-disco).** O `settings.kdl` é texto simples: dá para ler, editar e fazer backup.
 
@@ -60,8 +60,8 @@ Alguns itens aqui são o jeito como o larperCord fica leve, e o app oficial pode
 - **[O layout inteiro é um arquivo de texto](page:themes).** Mova, redimensione e troque as partes da janela num arquivo `.kdl`, não só as cores.
 - **[Recarrega ao salvar](page:themes).** Salvar o arquivo redesenha a janela na hora. Um erro aponta `arquivo:linha:coluna` e o tema anterior continua na tela.
 - **[11 layouts embutidos](page:theme-gallery)**, não só esquemas de cores, de um terminal de IRC a uma área de trabalho estilo Mac, cada um com modo claro e escuro e opções próprias.
-- **[Cores do seu wallpaper](page:themes#cores)** pelo pywal, nos temas com `palette "wal"`.
-- **[Transparência de verdade](page:theme-gallery#vidro).** O tema `vidro` tem fundo transparente, e o seu compositor (Hyprland, KDE…) aplica o desfoque.
+- **[Cores do seu wallpaper](page:themes#cores)** pelo pywal, nos temas com `palette "wal"`, no Linux (no Windows só com a variável `HOME` definida, e sem acompanhar ao vivo).
+- **[Transparência de verdade](page:theme-gallery#vidro).** O tema `vidro` tem fundo transparente, e no Linux o seu compositor (Hyprland, KDE…) aplica o desfoque. No Windows não tem desfoque.
 - **[Todas as cores, por tema e por modo](page:themes#cores-personalizadas-sem-editar-o-kdl):** cada token de cor do tema e as oito cores de cargo, escolhidas em hex nas Configurações, de graça e sem editar o arquivo. O tema personalizado do Discord é um degradê de até cinco cores, com Nitro.
 - **[Plugins em Lua](page:plugins)** somam painéis, entradas no botão direito, notas embaixo das mensagens, comandos e atalhos, sem recompilar.
 - **[Plugins num sandbox](page:plugins#limites).** Uma thread separada da interface, um Lua e 8 MB para cada plugin, cerca de 5 milhões de instruções por chamada, sem arquivos, processos nem sockets, e HTTPS só para hosts que você aprova. Eles nunca veem o seu token.
@@ -76,7 +76,7 @@ Alguns itens aqui são o jeito como o larperCord fica leve, e o app oficial pode
 - **Criar servidores e canais.** Dá para criar threads e posts de fórum, mas não servidores nem canais.
 - **Canais de palco.** Um palco aparece como um canal de voz comum, sem a divisão entre quem fala e a plateia e sem como pedir para falar.
 - **Atividades e soundboard.** Não existem no app.
-- **[Vídeo em qualidade cheia](page:features#midia).** Os vídeos da conversa tocam até 480p, a cerca de 30 qps, e precisam do FFmpeg. Sem ele, abrem no navegador.
+- **[Vídeo em qualidade cheia](page:features#midia).** Os vídeos da conversa tocam até 480p, a cerca de 30 qps, e precisam do FFmpeg: o da distro no Linux, o botão **Baixar FFmpeg** em Configurações → Chat no Windows. Sem ele, abrem no navegador.
 - **[macOS, celular e navegador](page:getting-started#o-que-voce-precisa).** O larperCord roda no Linux e no Windows 10/11.
 - **[Acessibilidade](page:status#o-que-funciona-hoje).** Tem escala da fonte, reduzir movimento, a paleta de comandos e as teclas de vim, mas não tem foco visível do teclado, modo de alto contraste nem suporte a leitor de tela.
 

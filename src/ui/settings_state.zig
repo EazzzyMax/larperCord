@@ -16,6 +16,7 @@ pub const Page = enum {
     notificacoes,
     atalhos,
     idioma,
+    rede,
     avancado,
     desempenho,
     lsp,
@@ -94,6 +95,9 @@ pub const Settings = struct {
     md_preview: bool = true,
     /// Canal com não lidas abre na primeira delas, como no Discord (senão, no fim).
     open_at_unread: bool = true,
+    /// Pasta com as bibliotecas do FFmpeg escolhida à mão (vazia = procurar sozinho;
+    /// platform/ffmpeg.zig). Só entra uma pasta conferida.
+    ffmpeg_dir: Text = .{},
 
     // Largura dos painéis (ui/resize.zig): quanto a pessoa alargou em relação ao
     // que o tema pede, em pixels, e as divisas da tela dividida, em milésimos.
@@ -106,7 +110,7 @@ pub const Settings = struct {
     /// Pergunta ao GitHub se há versão nova ao abrir o app.
     check_updates: bool = true,
 
-    // Privacidade
+    // Privacidade (o proxy fica na página Rede)
     send_typing: bool = true,
     /// Mensagens apagadas ficam na tela (marcadas) e as editadas guardam o
     /// texto original. Só neste computador.
@@ -219,7 +223,11 @@ pub const Settings = struct {
     // Avançado
     developer_mode: bool = false,
     hot_reload: bool = true,
-    /// Fechar a janela deixa o app na bandeja (sem bandeja, fechar sai igual).
+    /// O ícone fica na bandeja da abertura até sair, como no Discord (Abrir e Sair no
+    /// menu, até com a janela aberta), e fechar a janela deixa o app lá. Desligado:
+    /// nenhum ícone nem processo dele, e fechar sai. Sem bandeja, fechar sai igual.
+    /// (O `tray_always` de um build de desenvolvimento da 0.6.2 virou esta opção: num
+    /// arquivo que ainda o tenha, ele é ignorado.)
     close_to_tray: bool = true,
     /// 0 = seguir o sistema, 1 = português, 2 = inglês, 3 = japonês.
     language: u8 = 0,
@@ -507,6 +515,7 @@ test "configurações vão e voltam pelo KDL" {
     s.language = 2;
     s.proxy.set("socks5h://127.0.0.1:9050");
     s.emoji_recent.set("😀 ❤️ pepe:12");
+    s.ffmpeg_dir.set("C:\\Program Files\\ffmpeg \"shared\"\\bin");
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(std.testing.allocator);
     try write(&s, "vidro", &out, std.testing.allocator);
@@ -521,6 +530,7 @@ test "configurações vão e voltam pelo KDL" {
     try std.testing.expectEqual(@as(u8, 2), back.language);
     try std.testing.expectEqualStrings("socks5h://127.0.0.1:9050", back.proxy.slice());
     try std.testing.expectEqualStrings("😀 ❤️ pepe:12", back.emoji_recent.slice());
+    try std.testing.expectEqualStrings("C:\\Program Files\\ffmpeg \"shared\"\\bin", back.ffmpeg_dir.slice());
     try std.testing.expectEqualStrings("vidro", nodes[0].str("theme").?);
 }
 
@@ -641,6 +651,25 @@ test "volume dos vídeos e fechar para a bandeja vão e voltam" {
     apply(&fresh, &old[0]);
     try std.testing.expect(fresh.close_to_tray);
     try std.testing.expectEqual(@as(u8, 100), fresh.video_volume);
+}
+
+test "o tray_always de antes é ignorado e sai do arquivo ao salvar" {
+    const kdl = @import("../theme/kdl.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // As duas combinações: quem manda é só o close_to_tray.
+    for ([_]bool{ true, false }) |ctt| {
+        const text = if (ctt) "settings tray_always=#false close_to_tray=#true\n" else "settings close_to_tray=#false tray_always=#true\n";
+        const nodes = try kdl.parse(arena.allocator(), text, null);
+        var s: Settings = .{};
+        apply(&s, &nodes[0]);
+        try std.testing.expectEqual(ctt, s.close_to_tray);
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(std.testing.allocator);
+        try write(&s, "classico", &out, std.testing.allocator);
+        try std.testing.expect(std.mem.indexOf(u8, out.items, "tray_always") == null);
+        try std.testing.expect(std.mem.indexOf(u8, out.items, if (ctt) "close_to_tray=#true" else "close_to_tray=#false") != null);
+    }
 }
 
 test "largura dos painéis vai e volta, e um arquivo editado à mão não estoura" {

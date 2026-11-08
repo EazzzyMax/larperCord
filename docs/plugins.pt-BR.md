@@ -3,15 +3,18 @@
 [English](plugins.md) · **Português**
 
 Plugins são scripts pequenos que somam funções ao app, sem recompilar: painéis, entradas no botão
-direito, comandos, lembretes, notas embaixo das mensagens. Todo arquivo `.lua` em
+direito, comandos, lembretes, notas embaixo das mensagens. Todo arquivo `.lua` na sua pasta de
+plugins é um plugin:
 
-```
-~/.config/larpercord/plugins/          ($XDG_CONFIG_HOME/larpercord/plugins, se existir)
-```
+| Sistema | Pasta |
+|---|---|
+| Linux | `~/.config/larpercord/plugins/` (`$XDG_CONFIG_HOME/larpercord/plugins`, se existir) |
+| Windows | `%APPDATA%\larpercord\plugins\` (cole na barra de endereço do Explorador de Arquivos para abrir) |
 
-é um plugin. Abra **Configurações → Plugins** (`Ctrl+,`) para ver o que cada um é, o que pede e o
-erro que deu, ligar ou desligar (a escolha fica em `~/.config/larpercord/plugins.kdl`), aprovar os
-hosts com que ele quer falar, abrir o painel dele e **Recarregar** depois de editar um arquivo.
+O topo de **Configurações → Plugins** (`Ctrl+,`) mostra a pasta exata, e **Instalar os incluídos**
+cria a pasta se ela ainda não existir. Nessa página você vê o que cada um é, o que pede e o erro que
+deu, liga ou desliga (a escolha fica em `plugins.kdl`, ao lado da pasta `plugins`), aprova os hosts
+com que ele quer falar, abre o painel dele e clica em **Recarregar** depois de editar um arquivo.
 
 ## Os plugins que vêm com o app
 
@@ -215,7 +218,9 @@ na ordem dos arquivos. Um `/qualquer` que nenhum plugin ligado conhece vai como 
 
 ### `larper.keybind("ctrl+shift+x", função)`
 
-Um atalho de teclado. Modificadores: `ctrl`, `shift`, `alt`, `super`; teclas: `a`–`z`, `0`–`9`,
+Um atalho de teclado. Modificadores: `ctrl`, `shift`, `alt`, `super` (a tecla Windows no Windows;
+`win`, `meta` e `cmd` valem o mesmo). O Windows e muitos desktops Linux usam várias combinações com
+Super, então prefira `ctrl` ou `alt` quando der. Teclas: `a`–`z`, `0`–`9`,
 `f1`–`f24`, `enter`, `space`, `tab`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`,
 `pagedown`, `up`, `down`, `left`, `right`, `,` `.` `/` `;` `-` `=`. Toda tecla menos F1–F24 pede
 `ctrl`, `alt` ou `super` (senão dispararia enquanto você digita), e `ctrl` sozinho com `a`, `c`, `v`, `x`,
@@ -308,7 +313,8 @@ o app, guarde a hora em `larper.storage` e crie o temporizador de novo ao carreg
 ### `larper.storage`
 
 Dados que ficam de uma vez para outra, separados por plugin e por conta, neste computador
-(`~/.config/larpercord/plugin-data/`). Até 1 MB por plugin.
+(`~/.config/larpercord/plugin-data/` no Linux, `%APPDATA%\larpercord\plugin-data\` no Windows). Até
+1 MB por plugin.
 
 | Função | O que faz |
 |---|---|
@@ -492,4 +498,8 @@ até 8 servidores; chamar de novo para a mesma linguagem troca a proposta.
 
 ### `print(...)`
 
-Vai para o log do app (`[nome.lua] …` no terminal), não para a interface.
+Vai para o log do app, não para a interface, como `[nome.lua] …`. Se você abriu o app por um
+terminal, aparece nele. No Windows o app não tem terminal: ligue **Configurações → Avançado → Salvar
+registro de depuração** e clique em **Recarregar** em Configurações → Plugins. As linhas vão para
+`%LOCALAPPDATA%\larpercord\debug.log` (`~/.cache/larpercord/debug.log` no Linux), e **Abrir a pasta do
+registro** leva até lá. O registro fica ligado até você desligar ou fechar o app.

@@ -384,8 +384,9 @@ pub fn build(b: *std.Build) void {
     addWeb(b, translate.createModule(), builtin_themes, plugin_examples);
 }
 
-/// Navegador: o C/C++ que a demonstração usa. Sem a voz (libdave, mlspp, OpenSSL):
-/// curl, opus, webp, fontconfig e DAVE respondem pelo src/platform/web/stubs.c.
+/// Navegador: o C/C++ que a demonstração usa. Sem a voz (libdave, mlspp, OpenSSL e o
+/// RNNoise, que lá não tem motor: ver src/core/ruido.zig): curl, opus, webp,
+/// fontconfig e DAVE respondem pelo src/platform/web/stubs.c.
 const web_cxx_sources = [_][]const u8{
     "imgui/imgui.cpp",
     "imgui/imgui_draw.cpp",
@@ -432,7 +433,6 @@ fn addWeb(b: *std.Build, native_c: *std.Build.Module, themes_mod: *std.Build.Mod
         m.addCSourceFile(.{ .file = b.path("third_party/stb/stb_image.c"), .flags = &.{"-O2"} });
         m.addCSourceFile(.{ .file = b.path("src/platform/web/stubs.c"), .flags = &.{"-std=gnu99"} });
         addLua(b, m);
-        addRnnoise(b, m);
         addFribidi(b, m);
         for ([_][]const u8{ "sdl3", "freetype2", "zlib" }) |l| m.linkSystemLibrary(l, .{});
         const exe = b.addExecutable(.{ .name = "larpercord-web-sim", .root_module = m });
@@ -581,15 +581,8 @@ fn webModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.buil
     return m;
 }
 
-/// FriBidi e RNNoise para o wasm, com os cabeçalhos do sysroot do Emscripten.
+/// FriBidi para o wasm, com os cabeçalhos do sysroot do Emscripten.
 fn addWebC(b: *std.Build, m: *std.Build.Module, c_inc: []const u8) void {
-    m.addIncludePath(b.path("third_party/rnnoise/include"));
-    m.addIncludePath(b.path("third_party/rnnoise/compat"));
-    m.addCSourceFiles(.{
-        .root = b.path("third_party/rnnoise/src"),
-        .files = &.{ "celt_lpc.c", "denoise.c", "kiss_fft.c", "nnet.c", "nnet_default.c", "parse_lpcnet_weights.c", "pitch.c", "rnn.c", "rnnoise_data.c", "rnnoise_tables.c" },
-        .flags = &.{ "-std=gnu99", "-O2", "-fno-sanitize=undefined", "-Wno-cpp", c_inc },
-    });
     const inc = struct {
         fn f(bb: *std.Build, sub: []const u8) []const u8 {
             return bb.fmt("-I{s}", .{bb.root.joinString(bb.allocator, sub) catch @panic("OOM")});

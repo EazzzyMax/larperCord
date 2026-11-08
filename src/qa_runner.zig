@@ -2787,6 +2787,8 @@ const ops = [_]Op{
     .{ .sweep = &.{"toggle:"} },
     click("settings:Privacidade"),
     .{ .sweep = &.{"toggle:"} },
+    click("settings:Rede"),
+    .{ .sweep = &.{"toggle:"} },
     click("settings:Atalhos de teclado"),
     .{ .sweep = &.{"toggle:"} },
     click("settings:Avançado"),
@@ -2854,6 +2856,8 @@ const qa_bandeja = @import("qa_bandeja.zig");
 const ops_bandeja = [_]Op{expect("pronto", ready)} ++ qa_bandeja.ops;
 const ops_bandeja_sair = [_]Op{ expect("pronto", ready), click("guild:500000") } ++ qa_bandeja.ops_no_tray;
 const ops_bandeja_menu = [_]Op{ expect("pronto", ready), click("guild:500000") } ++ qa_bandeja.ops_quit;
+const ops_bandeja_sair_aberta = [_]Op{ expect("pronto", ready), click("guild:500000") } ++ qa_bandeja.ops_quit_open;
+const ops_bandeja_desligada = [_]Op{ expect("pronto", ready), click("guild:500000") } ++ qa_bandeja.ops_off;
 const ops_bandeja_reinicio = [_]Op{expect("pronto", ready)} ++ qa_bandeja.ops_restart;
 const ops_lsp_real = [_]Op{expect("pronto", ready)} ++ lsp_ops_real;
 
@@ -3112,6 +3116,42 @@ fn loginGone(app: *App) bool {
 fn loginBack(app: *App) bool {
     return loginForm(app) and !app.store.ready and app.net == .none;
 }
+const login_proxy = @import("net/proxy.zig");
+const login_page_marks = [_][]const u8{ "pg:", "button:", "toggle:", "seg:" };
+fn loginProxyOpen(app: *App) bool {
+    return app.login.proxy_open and qa.find("proxy-input") != null and qa.find("proxy-show") != null and qa.find("login:proxy-voltar") != null;
+}
+fn loginProxyNoOverlap(_: *App) bool {
+    return qa.overlapping(&login_page_marks) == null;
+}
+/// Na tela de entrada não há sessão para escolher: o proxy salvo vale para o Discord.
+fn loginProxySaved(app: *App) bool {
+    var b: login_proxy.Buf = undefined;
+    const d = login_proxy.forDiscord(&b) orelse return false;
+    return std.mem.eql(u8, app.st.settings.proxy.slice(), "socks5h://127.0.0.1:9050") and app.st.settings.proxy_all and std.mem.eql(u8, d, "socks5h://127.0.0.1:9050");
+}
+fn loginProxyClosed(app: *App) bool {
+    return !app.login.proxy_open and loginForm(app) and qa.find("login:proxy") != null;
+}
+/// Uma tentativa de entrar que não chega ao Discord (o QA nunca fala com ele): o
+/// aviso vem pelo mesmo caminho do gateway.
+fn loginNoNetwork(app: *App) void {
+    app.login.setPhase(.connecting);
+    app.events.push(.{ .net_fail = .dns });
+    @import("platform/window.zig").Window.wake(app.win.wake_type, .gateway);
+}
+fn loginNetFail(app: *App) bool {
+    const dns = if (app.login.net_fail) |w| w == .dns else false;
+    return app.login.phase == .connecting and dns and qa.find("login:sem-rede:dns") != null and
+        qa.find("login:proxy-erro") != null and qa.find("login:outro") != null;
+}
+fn loginProxyRemoved(app: *App) bool {
+    var b: login_proxy.Buf = undefined;
+    return app.st.settings.proxy.len == 0 and login_proxy.forDiscord(&b) == null and qa.find("button:Remover proxy") == null;
+}
+fn loginFormClean(app: *App) bool {
+    return loginForm(app) and app.login.net_fail == null and !app.login.proxy_open;
+}
 
 const ops_login = [_]Op{
     s("login"),
@@ -3143,6 +3183,35 @@ const ops_login = [_]Op{
     .{ .shot = "login-ajuda" },
     click("login:ajuda"),
     expect("fechar a ajuda", loginNoHelp),
+    s("proxy na tela de entrada"),
+    click("login:proxy"),
+    expect("o link do proxy abre no cartão o formulário das Configurações", loginProxyOpen),
+    .{ .wait = 150 },
+    .{ .shot = "login-proxy" },
+    expect("cartão do proxy: nada se sobrepõe", loginProxyNoOverlap),
+    click("seg:SOCKS5h"),
+    click("proxy-input"),
+    ctrl(c.ImGuiKey_A),
+    .{ .text = "127.0.0.1" },
+    click("proxy-port"),
+    ctrl(c.ImGuiKey_A),
+    .{ .text = "9050" },
+    click("button:Salvar proxy"),
+    expect("salvar na tela de entrada liga o proxy em tudo, inclusive o Discord", loginProxySaved),
+    click("login:proxy-voltar"),
+    expect("Voltar fecha o formulário", loginProxyClosed),
+    s("login sem chegar ao Discord"),
+    .{ .run = loginNoNetwork },
+    expect("diz o porquê e oferece o proxy", loginNetFail),
+    .{ .wait = 150 },
+    .{ .shot = "login-sem-rede" },
+    click("login:proxy-erro"),
+    expect("o botão abre o formulário do proxy", loginProxyOpen),
+    click("button:Remover proxy"),
+    expect("remover o proxy na tela de entrada volta à conexão direta", loginProxyRemoved),
+    click("login:proxy-voltar"),
+    key(c.ImGuiKey_Escape),
+    expect("Esc volta ao formulário do token", loginFormClean),
     .{ .resize = .{ 760, 640 } },
     .{ .wait = 300 },
     expect("janela estreita: o campo continua lá", loginForm),
@@ -3200,6 +3269,8 @@ fn script() []const Op {
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja")) return &ops_bandeja;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja-sair")) return &ops_bandeja_sair;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja-menu")) return &ops_bandeja_menu;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja-sair-aberta")) return &ops_bandeja_sair_aberta;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja-desligada")) return &ops_bandeja_desligada;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja-reinicio")) return &ops_bandeja_reinicio;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "lsp-real")) return &ops_lsp_real;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "paineis")) return &ops_paineis;

@@ -141,6 +141,9 @@ pub const Event = union(enum) {
     reaction_clear: struct { channel: Id, id: Id, emoji: ?types.Reaction },
     /// Estado da conexão, para a barra de status.
     status: Connection,
+    /// A conexão com o Discord nem abriu (DNS, recusa, tempo, TLS, proxy): a tela de
+    /// entrada oferece o proxy. O gateway segue tentando.
+    net_fail: @import("../net/proxy.zig").NetFail,
     /// Reação já existente (ao carregar o histórico).
     reaction_set: struct { channel: Id, id: Id, reaction: types.Reaction },
     /// Aviso para mostrar ao usuário (texto alocado).
@@ -478,6 +481,8 @@ pub const Action = union(enum) {
     pick_image,
     /// Abre o seletor para o som de um evento (ui/settings_voz.zig sabe qual).
     pick_sound,
+    /// Abre o seletor de pasta para o FFmpeg (ui/settings_video.zig).
+    pick_ffmpeg_dir,
     restart,
     react: struct { id: Id, emoji: types.Reaction },
     open_dm: Id,
