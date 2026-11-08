@@ -201,6 +201,10 @@ fn onGuild1(app: *App) bool {
 fn friendsOpen(app: *App) bool {
     return app.st.guild == 0 and app.st.friends and qa.find("friend:1001") != null;
 }
+/// O pedido pelo nome de usuário fica à vista em todo tema (comp_friends.zig).
+fn addFriendTab(_: *App) bool {
+    return qa.find("friends-tab:add") != null;
+}
 fn pendingTab(app: *App) bool {
     return app.st.friends_tab == 2 and qa.find("friend-accept:1009") != null;
 }
@@ -3019,6 +3023,7 @@ const ops_theme = [_]Op{
     key(c.ImGuiKey_Backspace),
     click("guild:0"),
     expect("mensagens diretas começam pelos amigos", friendsOpen),
+    expect("\"Adicionar amigo\" à vista nos amigos", addFriendTab),
     .{ .shot = "tema-amigos" },
     // No zen não tem lista de canais: a DM abre direto.
     .{ .run = openFirstDm },
@@ -3068,7 +3073,7 @@ const ops_theme = [_]Op{
     .{ .shot = "tema-pequena" },
     .{ .resize = .{ 1280, 800 } },
     .{ .wait = 200 },
-} ++ @import("qa_plugins.zig").ops_theme ++ @import("qa_rtl.zig").ops_theme;
+} ++ @import("qa_plugins.zig").ops_theme ++ @import("qa_rtl.zig").ops_theme ++ @import("qa_mencao.zig").ops_theme;
 
 // --- Tela de login -------------------------------------------------------------
 
@@ -3451,7 +3456,7 @@ pub const Runner = struct {
         if (num(name, "channel:")) |cid| return !st.friends and st.activeChannel() == cid;
         if (num(name, "mention-channel:")) |cid| return !st.friends and st.activeChannel() == cid;
         if (num(name, "guild:")) |g| return st.guild == g and !st.friends;
-        if (std.mem.startsWith(u8, name, "friends-tab:")) return std.mem.eql(u8, name["friends-tab:".len..], @tagName(@as(enum { online, all, pending, blocked }, @enumFromInt(st.friends_tab))));
+        if (std.mem.startsWith(u8, name, "friends-tab:")) return std.mem.eql(u8, name["friends-tab:".len..], @tagName(@as(enum { online, all, pending, blocked, add }, @enumFromInt(@min(st.friends_tab, 4)))));
         if (std.mem.eql(u8, name, "friends")) return st.friends;
         if (num(name, "profile-tab:")) |t| return t == st.profile_tab;
         // Opções de escolha única: clicar na já escolhida não muda nada.

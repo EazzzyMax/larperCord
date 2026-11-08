@@ -33,6 +33,8 @@ test {
     _ = @import("core/inbox.zig");
     _ = @import("core/saved.zig");
     _ = @import("core/mentions.zig");
+    _ = @import("core/mencao.zig");
+    _ = @import("ui/destaque.zig");
     _ = @import("ui/emoji_data.zig");
     _ = @import("core/cache_format.zig");
     _ = @import("core/media_flags.zig");
@@ -121,6 +123,28 @@ test "todos os temas embutidos carregam e montam o layout" {
         try std.testing.expect(out.items.len > 3);
         for (out.items) |p| try std.testing.expect(p.rect.w >= 0 and p.rect.h >= 0);
     }
+}
+
+test "destaque de menção aparece em todos os temas embutidos, no escuro e no claro" {
+    const destaque = @import("ui/destaque.zig");
+    for (builtin_themes.list) |b| for ([_]theme.Mode{ .dark, .light }) |mode| {
+        var t = try theme.loadWith(std.testing.allocator, b.source, .{ .mode = mode }, null);
+        defer t.deinit();
+        const fundos = [_]theme.Rgba{ t.c(.bg), t.c(.surface) };
+        // `idle` no estilo do Discord e nas bolhas; `mention` no estilo terminal.
+        for ([_]theme.Token{ .idle, .mention }) |tok| {
+            const c = destaque.cores(t.c(tok), &fundos);
+            for (fundos) |f| {
+                const opaco: theme.Rgba = .{ .r = f.r, .g = f.g, .b = f.b };
+                const ct = c.faixa.contrast(opaco);
+                const dif = destaque.maiorCanal(destaque.composto(c, f), opaco);
+                if (ct < destaque.contraste_faixa or dif < 0.05) {
+                    std.debug.print("tema {s} ({t}), cor {t}: contraste {d:.2}, fundo muda {d:.3}\n", .{ b.name, mode, tok, ct, dif });
+                    return error.DestaqueInvisivel;
+                }
+            }
+        }
+    };
 }
 
 test "os dois CHANGELOGs têm as mesmas versões, com o mesmo tanto em cada seção" {

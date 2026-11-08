@@ -6,7 +6,8 @@
 //!   u32 usuários; cada um: u64 id, str nome, str avatar
 //!   u32 mensagens; cada uma:
 //!     u64 id, u64 autor, i64 timestamp, u64 reply_to, u8 flags, u8 sistema
-//!     str conteúdo
+//!     str conteúdo, str texto do Discord
+//!     (com a marca de cargos mencionados: u8 quantos e um u64 por cargo)
 //!     u8 anexos; cada um: str url, str nome, u16 largura, u16 altura,
 //!        u32 tamanho, u8 flags, str prévia, str link
 //!        (com a marca de voz: u32 duração em ms e as barras da forma de onda)
@@ -20,10 +21,14 @@ const std = @import("std");
 const types = @import("types.zig");
 const Id = types.Id;
 
-/// LCM2: texto do Discord (`raw`) e emoji personalizado nas reações. Um arquivo
-/// antigo é só ignorado (a conversa vem da rede e ele é regravado).
-pub const magic = "LCM3";
-/// A versão de antes (sem as marcas de bot nos usuários) continua sendo lida.
+/// LCM2: texto do Discord (`raw`) e emoji personalizado nas reações. LCM4: quem
+/// a mensagem chama (core/mencao.zig), para o destaque já abrir certo. Um
+/// arquivo de antes da LCM2 é só ignorado (a conversa vem da rede e ele é
+/// regravado).
+pub const magic = "LCM4";
+/// As versões de antes continuam sendo lidas: a LCM3 tem o mesmo formato, com
+/// as marcas de menção sempre zeradas; a LCM2 não tem as marcas de bot nos usuários.
+const magic_v3 = "LCM3";
 const magic_old = "LCM2";
 
 /// Tetos da leitura (bem acima do que o Discord manda).
@@ -45,6 +50,9 @@ pub const Decoded = struct {
 };
 
 const msg_edited: u8 = 1;
+const msg_mentions_me: u8 = 2;
+const msg_mention_everyone: u8 = 4;
+const msg_mention_roles: u8 = 8;
 const att_animated: u8 = 1;
 const att_embed: u8 = 2;
 const att_video: u8 = 4;
@@ -95,10 +103,20 @@ pub const Writer = struct {
         try w.int(u64, m.author);
         try w.int(i64, m.timestamp);
         try w.int(u64, m.reply_to);
-        try w.out.append(w.gpa, if (m.edited) msg_edited else 0);
+        const roles = m.mention_roles[0..@min(m.mention_roles.len, 255)];
+        var mf: u8 = 0;
+        if (m.edited) mf |= msg_edited;
+        if (m.mentions_me) mf |= msg_mentions_me;
+        if (m.mention_everyone) mf |= msg_mention_everyone;
+        if (roles.len > 0) mf |= msg_mention_roles;
+        try w.out.append(w.gpa, mf);
         try w.out.append(w.gpa, @intFromEnum(m.system));
         try w.str(m.content);
         try w.str(m.raw);
+        if (roles.len > 0) {
+            try w.out.append(w.gpa, @intCast(roles.len));
+            for (roles) |r| try w.int(u64, r);
+        }
         const atts = m.attachments[0..@min(m.attachments.len, 255)];
         try w.out.append(w.gpa, @intCast(atts.len));
         for (atts) |a| {
@@ -175,7 +193,7 @@ const Reader = struct {
 pub fn decode(arena: std.mem.Allocator, bytes: []const u8) !Decoded {
     var r: Reader = .{ .b = bytes };
     const head = try r.need(4);
-    const has_flags = std.mem.eql(u8, head, magic);
+    const has_flags = std.mem.eql(u8, head, magic) or std.mem.eql(u8, head, magic_v3);
     if (!has_flags and !std.mem.eql(u8, head, magic_old)) return error.Corrupt;
     const channel = try r.int(u64);
     const n_users = try r.count();
@@ -198,11 +216,20 @@ pub fn decode(arena: std.mem.Allocator, bytes: []const u8) !Decoded {
         m.author = try r.int(u64);
         m.timestamp = try r.int(i64);
         m.reply_to = try r.int(u64);
-        m.edited = (try r.byte()) & msg_edited != 0;
+        const mf = try r.byte();
+        m.edited = mf & msg_edited != 0;
+        m.mentions_me = mf & msg_mentions_me != 0;
+        m.mention_everyone = mf & msg_mention_everyone != 0;
         const sys = try r.byte();
         m.system = if (sys <= @intFromEnum(types.SystemKind.other)) @enumFromInt(sys) else .other;
         m.content = try r.str(arena);
         m.raw = try r.str(arena);
+        if (mf & msg_mention_roles != 0) {
+            const n_roles = try r.byte();
+            const roles = try arena.alloc(Id, n_roles);
+            for (roles) |*x| x.* = try r.int(u64);
+            m.mention_roles = roles;
+        }
         const n_att = try r.byte();
         if (n_att > 0) {
             const atts = try arena.alloc(types.Attachment, n_att);
@@ -297,7 +324,8 @@ test "cache de mensagens vai e volta pelo formato" {
     r.count = 3;
     r.me = true;
     try w.message(&m1, &.{r});
-    const m2: types.Message = .{ .id = 101, .channel = 77, .author = 6, .timestamp = 1700000060, .content = "", .reply_to = 100, .system = .join };
+    const roles = [_]Id{ 9001, 9002 };
+    const m2: types.Message = .{ .id = 101, .channel = 77, .author = 6, .timestamp = 1700000060, .content = "", .reply_to = 100, .system = .join, .mentions_me = true, .mention_everyone = true, .mention_roles = &roles };
     try w.message(&m2, &.{});
 
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -322,6 +350,10 @@ test "cache de mensagens vai e volta pelo formato" {
     try std.testing.expect(e1.reactions[0].me);
     try std.testing.expectEqual(types.SystemKind.join, dec.entries[1].msg.system);
     try std.testing.expectEqual(@as(Id, 100), dec.entries[1].msg.reply_to);
+    // Quem a mensagem chama volta junto (o destaque já abre certo).
+    try std.testing.expect(!e1.msg.mentions_me and !e1.msg.mention_everyone and e1.msg.mention_roles.len == 0);
+    try std.testing.expect(dec.entries[1].msg.mentions_me and dec.entries[1].msg.mention_everyone);
+    try std.testing.expectEqualSlices(Id, &roles, dec.entries[1].msg.mention_roles);
 }
 
 test "arquivo de cache estragado não passa da leitura" {

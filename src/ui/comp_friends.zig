@@ -1,6 +1,9 @@
 //! Tela de amigos (Mensagens diretas → Amigos): ocupa o lugar do `header`,
 //! das `messages` e da `member-list` enquanto está aberta.
-//!   Online · Todos · Pendentes · Bloqueados
+//!   Online · Todos · Pendentes · Bloqueados · Adicionar amigo
+//!
+//! "Adicionar amigo" manda o pedido pelo nome de usuário (core/conta.zig):
+//! um pedido por clique, e a resposta do Discord vira uma frase embaixo.
 const std = @import("std");
 const c = @import("c");
 const kdl = @import("../theme/kdl.zig");
@@ -11,16 +14,20 @@ const w = @import("widgets.zig");
 const icons = @import("icons.zig");
 const i18n = @import("i18n.zig");
 const types = @import("../core/types.zig");
+const conta = @import("../core/conta.zig");
+const forum = @import("forum.zig");
 const Id = types.Id;
 
-const Tab = enum(u8) { online, all, pending, blocked };
+const Tab = enum(u8) { online, all, pending, blocked, add };
 
-fn tabLabel(t: Tab) []const u8 {
+fn tabLabel(t: Tab, narrow: bool) []const u8 {
     return switch (t) {
         .online => "Online",
         .all => i18n.tr("Todos", "All"),
         .pending => i18n.tr("Pendentes", "Pending"),
         .blocked => i18n.tr("Bloqueados", "Blocked"),
+        // Estreita: cabe sem empurrar as outras para fora.
+        .add => if (narrow) i18n.tr("Adicionar", "Add") else i18n.tr("Adicionar amigo", "Add Friend"),
     };
 }
 
@@ -30,6 +37,7 @@ fn wanted(t: Tab, kind: types.Relationship, status: types.Status) bool {
         .all => kind == .friend,
         .pending => kind == .incoming or kind == .outgoing,
         .blocked => kind == .blocked,
+        .add => false,
     };
 }
 
@@ -94,10 +102,10 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         x += 14;
     }
     const pending = incomingCount(ctx);
-    for ([_]Tab{ .online, .all, .pending, .blocked }) |t| {
+    for ([_]Tab{ .online, .all, .pending, .blocked, .add }) |t| {
         const sel = ctx.st.friends_tab == @intFromEnum(t);
         var lb: [48]u8 = undefined;
-        const label = if (tty) std.fmt.bufPrint(&lb, "[{s}]", .{tabLabel(t)}) catch "" else tabLabel(t);
+        const label = if (tty) std.fmt.bufPrint(&lb, "[{s}]", .{tabLabel(t, narrow)}) catch "" else tabLabel(t, narrow);
         const font = fam.get(if (sel) .semibold else .medium);
         const tw = d.width(font, fs, label);
         const extra: f32 = if (t == .pending and pending > 0) 24 else 0;
@@ -107,10 +115,16 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         qa.mark(tr, "friends-tab:{s}", .{@tagName(t)});
         if (hb.clicked) ctx.st.friends_tab = @intFromEnum(t);
         const k = anim.to(anim.id("ftab", @intFromEnum(t)), if (sel) 1 else if (hb.hovered) 0.5 else 0, 22);
+        // "Adicionar amigo" é um botão verde, como no Discord (aberto, só o texto fica verde).
+        const add = t == .add and !tty;
+        const green = ctx.col(.online);
         if (tty) {
             if (sel) d.rect(dl, tr, ctx.col(.accent), 0);
+        } else if (add) {
+            if (!sel) d.rect(dl, tr, if (hb.hovered) green.mix(d.Rgba.black, 0.12) else green, ctx.th.radius);
         } else if (k > 0.01) d.rect(dl, tr, ctx.col(.selected).alpha(k), ctx.th.radius);
-        const ink = if (tty and sel) ctx.col(.accent_text) else if (sel) ctx.col(.text) else ctx.col(.muted).mix(ctx.col(.text), k);
+        const on_green = if (green.luma() > 0.55) d.Rgba.black else d.Rgba.white;
+        const ink = if (tty and sel) ctx.col(.accent_text) else if (add) (if (sel) green else on_green) else if (sel) ctx.col(.text) else ctx.col(.muted).mix(ctx.col(.text), k);
         d.text(dl, font, fs, tr.x + pad / 2, d.centerY(tr, fs), ink, label);
         if (extra > 0) {
             var b: [8]u8 = undefined;
@@ -129,13 +143,18 @@ pub fn header(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
 
 pub fn page(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     const fam = ctx.familyFor(n);
-    const tab: Tab = @enumFromInt(@min(ctx.st.friends_tab, 3));
-    const ids = collect(ctx, tab, &page_ids);
+    const tab: Tab = @enumFromInt(@min(ctx.st.friends_tab, @intFromEnum(Tab.add)));
     const dl = d.beginRegion(ctx, "##friends", r, c.ImGuiWindowFlags_NoScrollbar);
     const o = c.ImGui_GetCursorScreenPos();
     var y = o.y + 18;
     const x = r.x + 24;
     const rw = @min(r.w - 48, 900);
+    if (tab == .add) {
+        y = addFriend(ctx, fam, dl, x, y, rw);
+        d.endRegion(ctx, y + 20, r.x);
+        return;
+    }
+    const ids = collect(ctx, tab, &page_ids);
 
     var hb_buf: [64]u8 = undefined;
     const head = switch (tab) {
@@ -143,12 +162,14 @@ pub fn page(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         .all => i18n.fmt(&hb_buf, "TODOS OS AMIGOS — {d}", "ALL FRIENDS — {d}", .{ids.len}),
         .pending => i18n.fmt(&hb_buf, "PENDENTES — {d}", "PENDING — {d}", .{ids.len}),
         .blocked => i18n.fmt(&hb_buf, "BLOQUEADOS — {d}", "BLOCKED — {d}", .{ids.len}),
+        .add => unreachable,
     };
     d.text(dl, fam.get(.semibold), 12, x, y, ctx.col(.muted), head);
     y += 28;
 
     if (ids.len == 0) {
         const msg = switch (tab) {
+            .add => unreachable,
             .online => i18n.tr("Ninguém online agora.", "No one's around right now."),
             .all => if (ctx.store.relationships.count() == 0) i18n.tr("Sua lista de amigos aparece aqui.", "Your friends list shows up here.") else i18n.tr("Nenhum amigo ainda.", "No friends yet."),
             .pending => i18n.tr("Nenhum pedido de amizade pendente.", "There are no pending friend requests."),
@@ -246,6 +267,72 @@ pub fn page(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         y += 62;
     }
     d.endRegion(ctx, y + 20, r.x);
+}
+
+// --- Adicionar amigo ------------------------------------------------------------
+
+/// O nome digitado (até 37 caracteres de até 4 bytes, mais o zero).
+var name_input: [(conta.max_username + 5) * 4 + 1]u8 = @splat(0);
+
+/// O pedido foi: a caixa fica livre para o próximo nome (app_conta.zig chama).
+pub fn clearAddFriend() void {
+    @memset(&name_input, 0);
+}
+
+/// A frase da resposta do Discord e se é de sucesso.
+fn addResult(buf: []u8, st: conta.NameStatus, name: []const u8) struct { text: []const u8, ok: bool } {
+    return switch (st) {
+        .sent => .{ .ok = true, .text = i18n.fmt(buf, "Pronto! O pedido de amizade para {s} foi enviado.", "Success! Your friend request to {s} was sent.", .{name}) },
+        .unknown => .{ .ok = false, .text = i18n.tr("Não deu certo: ninguém tem esse nome de usuário. Confira se está escrito certo.", "Hm, didn't work. Double check that the username is correct.") },
+        .already => .{ .ok = false, .text = i18n.tr("Vocês já são amigos.", "You're already friends with that user!") },
+        .self => .{ .ok = false, .text = i18n.tr("Esse nome de usuário é o seu.", "That's your own username.") },
+        .bot => .{ .ok = false, .text = i18n.tr("Bots não podem ser adicionados como amigos.", "Bots can't be added as friends.") },
+        .disabled => .{ .ok = false, .text = i18n.tr("Essa pessoa não está aceitando pedidos de amizade.", "That user isn't accepting friend requests.") },
+        .blocked => .{ .ok = false, .text = i18n.tr("O Discord bloqueou este pedido de amizade.", "Discord blocked this friend request.") },
+        .captcha => .{ .ok = false, .text = i18n.tr("O Discord pediu um captcha: mande o pedido pelo app oficial ou pelo site.", "Discord asked for a captcha: send the request from the official app or website.") },
+        .verify => .{ .ok = false, .text = i18n.tr("O Discord pede que você verifique a conta (e-mail ou telefone) antes.", "Discord wants you to verify your account (email or phone) first.") },
+        .rate_limited => .{ .ok = false, .text = i18n.tr("Muitos pedidos agora: tente de novo mais tarde.", "Too many requests right now: try again later.") },
+        .failed => .{ .ok = false, .text = i18n.tr("Não deu para mandar o pedido.", "Couldn't send the friend request.") },
+        .too_long => .{ .ok = false, .text = i18n.fmt(buf, "Nomes de usuário têm até {d} caracteres.", "Usernames have at most {d} characters.", .{conta.max_username}) },
+    };
+}
+
+/// A aba "Adicionar amigo": a caixa do nome, o botão e a resposta.
+fn addFriend(ctx: *d.Ctx, fam: *d.Family, dl: *c.ImDrawList, x: f32, y_in: f32, rw: f32) f32 {
+    var y = y_in;
+    const st = &ctx.st.conta;
+    d.text(dl, fam.get(.bold), 15, x, y, ctx.col(.text), i18n.tr("ADICIONAR AMIGO", "ADD FRIEND"));
+    y += 26;
+    _ = d.textClipped(dl, fam.get(.regular), 14, x, y, ctx.col(.muted), i18n.tr("Você pode adicionar amigos pelo nome de usuário do Discord.", "You can add friends with their Discord username."), rw);
+    y += 30;
+    const box: d.Rect = .{ .x = x, .y = y, .w = rw, .h = 52 };
+    const radius = @max(ctx.th.radius, 4);
+    d.rect(dl, box, ctx.col(.rail).mix(ctx.col(.surface), 0.35), radius);
+    const err = if (st.name_status) |s| s != .sent else false;
+    d.border(dl, box, if (err) ctx.col(.danger) else ctx.col(.border), radius, 1);
+    const label = if (st.name_busy) i18n.tr("Enviando…", "Sending…") else i18n.tr("Enviar pedido de amizade", "Send Friend Request");
+    const bw = d.width(fam.get(.semibold), 13.5, label) + 32;
+    const br: d.Rect = .{ .x = box.right() - bw - 10, .y = box.y + 10, .w = bw, .h = 32 };
+    const ir: d.Rect = .{ .x = box.x + 6, .y = box.y + 8, .w = br.x - box.x - 14, .h = 36 };
+    qa.mark(ir, "add-friend-input", .{});
+    const enter = forum.textInput(ctx, dl, ir, "##add-friend", i18n.trZ("Nome de usuário, como ana.exe", "Username, like ana.exe"), name_input[0 .. name_input.len - 1], c.ImGuiInputTextFlags_EnterReturnsTrue);
+    const name = std.mem.trim(u8, std.mem.sliceTo(&name_input, 0), " \t");
+    const can = name.len > 0 and !st.name_busy;
+    qa.mark(br, "add-friend-send", .{});
+    const send = forum.primary(ctx, dl, fam, 0x7A00, br, label, can);
+    if ((send or enter) and can) {
+        if (ctx.st.gpa.dupe(u8, name)) |owned| ctx.act(.{ .conta = .{ .friend_by_name = owned } }) else |_| {}
+    }
+    y += box.h + 10;
+    if (st.name_status) |s| {
+        var buf: [200]u8 = undefined;
+        const res = addResult(&buf, s, st.nameAsked());
+        const rr: d.Rect = .{ .x = x, .y = y, .w = rw, .h = 20 };
+        qa.mark(rr, "add-friend-result:{t}", .{s});
+        _ = d.textClipped(dl, fam.get(.medium), 13.5, x, y, if (res.ok) ctx.col(.online) else ctx.col(.danger), res.text, rw);
+        y += 24;
+    }
+    return y;
 }
 
 fn statusText(s: types.Status, buf: []u8) []const u8 {

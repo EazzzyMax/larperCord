@@ -2052,7 +2052,8 @@ pub const App = struct {
         const cs = app.store.channel(m.channel) orelse return null;
         // Pedido de mensagem e spam não notificam nem contam como DM.
         if (cs.info.request != .none) return null;
-        const verdict = f.judge(m.author, m.content, cs.info.guild == 0, app.mentionsMe(m, cs.info.guild));
+        // Menção pela regra do Discord (core/mencao.zig): a mesma do destaque.
+        const verdict = f.judge(m.author, m.content, cs.info.guild == 0, app.store.mentionsMe(cs.info.guild, &m));
         if (verdict == .important) f.bump(app.gpa, &app.store, m.channel);
         // Silêncio e nível de notificação vêm da conta (app_conta.zig).
         if (verdict != .hidden and @import("app_conta.zig").allowsNotify(app, m, cs, verdict == .important)) {
@@ -2098,26 +2099,6 @@ pub const App = struct {
         var args = [_:null]?[*:0]const u8{ "notify-send", "--app-name=larperCord", "--", title.ptr, body.ptr };
         const proc = c.SDL_CreateProcess(@ptrCast(&args), false) orelse return;
         app.notifiers.append(app.gpa, proc) catch c.SDL_DestroyProcess(proc);
-    }
-
-    /// A mensagem chama a gente: quem decide é o servidor, que já desconta
-    /// bloco de código e quem não tem permissão de usar @everyone.
-    fn mentionsMe(app: *App, m: types.Message, guild: types.Id) bool {
-        if (m.mention_everyone or m.mentions_me) return true;
-        // Menção a um cargo nosso (`<@&id>`).
-        var rest = m.content;
-        while (std.mem.indexOf(u8, rest, "<@&")) |i| {
-            rest = rest[i + 3..];
-            const end = std.mem.indexOfScalar(u8, rest, '>') orelse break;
-            const role = std.fmt.parseInt(types.Id, rest[0..end], 10) catch continue;
-            if (app.store.hasRole(guild, role)) return true;
-        }
-        // A demonstração não tem os campos do servidor.
-        if (!app.store.demo) return false;
-        var b: [32]u8 = undefined;
-        const a = std.fmt.bufPrint(&b, "<@{d}>", .{app.store.me}) catch return false;
-        if (std.mem.indexOf(u8, m.content, a) != null) return true;
-        return std.mem.indexOf(u8, m.content, "@everyone") != null or std.mem.indexOf(u8, m.content, "@here") != null;
     }
 
     /// Recolhe os notify-send que já terminaram (sem deixar processo zumbi).

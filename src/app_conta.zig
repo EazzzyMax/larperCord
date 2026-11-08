@@ -42,6 +42,22 @@ pub fn handle(app: *App, a: conta.Action) void {
             st.conta.friends.put(ca, uid, .sending) catch return;
             app.cmd(.{ .conta = .{ .friend_request = uid } });
         },
+        .friend_by_name => |raw| {
+            defer st.gpa.free(raw);
+            // Um clique, um pedido: enquanto vai, o botão não manda outro.
+            if (st.conta.name_busy) return;
+            const body = conta.friendNameBody(ca, raw) catch |err| {
+                st.conta.name_status = if (err == error.TooLong) .too_long else null;
+                return;
+            };
+            const shown = utf8Chars(std.mem.trim(u8, raw, " \t\r\n"), conta.max_username + 5);
+            const n = @min(shown.len, st.conta.name_buf.len);
+            @memcpy(st.conta.name_buf[0..n], shown[0..n]);
+            st.conta.name_len = @intCast(n);
+            st.conta.name_busy = true;
+            st.conta.name_status = null;
+            app.cmd(.{ .conta = .{ .friend_by_name = body } });
+        },
         .notif => |n| notif(app, n.target, n.change),
         .custom_status => |cs| {
             defer st.gpa.free(cs.text);
@@ -133,10 +149,12 @@ pub fn onEvent(app: *App, e: conta.Event) void {
         .guild_settings => |l| {
             st.conta.replaceAll(l);
             refreshMuted(app);
+            syncSuppress(app);
         },
         .guild_settings_one => |gs| {
             st.conta.put(gs);
             refreshMuted(app);
+            syncSuppress(app);
         },
         .ignored_list => |ids| {
             defer ca.free(ids);
@@ -173,6 +191,12 @@ pub fn onEvent(app: *App, e: conta.Event) void {
                 .failed => {},
             }
         },
+        .friend_by_name => |result| {
+            st.conta.name_busy = false;
+            st.conta.name_status = result;
+            // Foi: a caixa fica livre para o próximo nome, como no Discord.
+            if (result == .sent) @import("ui/comp_friends.zig").clearAddFriend();
+        },
         .profile_saved => |ok| {
             st.conta.profile_busy = false;
             if (!ok) return;
@@ -200,6 +224,21 @@ pub fn refreshMuted(app: *App) void {
     st.muted_channels.clearRetainingCapacity();
     leitura.applyMuted(&app.store, &st.muted_channels, app.gpa, ids.items);
     for (app.store.guilds.items) |g| app.store.refreshGuildUnread(g.id);
+}
+
+/// "Suprimir @everyone e @here" e "Suprimir menções a cargos" vão para o
+/// Store, que refaz o "chama a gente" das mensagens (core/mencao.zig). Só
+/// quando as configurações chegam ou mudam.
+fn syncSuppress(app: *App) void {
+    const st = &app.st;
+    // Servidor que saiu das configurações volta ao padrão (nada suprimido).
+    var stale: std.ArrayList(Id) = .empty;
+    defer stale.deinit(app.gpa);
+    var old = app.store.suppress.keyIterator();
+    while (old.next()) |g| if (st.conta.settings(g.*) == null) stale.append(app.gpa, g.*) catch {};
+    for (stale.items) |g| app.store.setSuppress(g, .{});
+    var it = st.conta.guilds.valueIterator();
+    while (it.next()) |gs| if (gs.guild != 0) app.store.setSuppress(gs.guild, .{ .everyone = gs.suppress_everyone, .roles = gs.suppress_roles });
 }
 
 /// Servidor que chegou depois do READY: os silêncios dele valem já.
@@ -233,27 +272,13 @@ pub fn allowsNotify(app: *App, m: types.Message, cs: *const store_mod.ChannelSta
     return conta.shouldNotify(level, s.suppress_everyone, s.suppress_roles, ping);
 }
 
+/// O que a mensagem chama, lido como no destaque (core/mencao.zig); as
+/// supressões entram depois, em `conta.shouldNotify`. `important` sem menção
+/// que valha e fora de DM é palavra de alerta.
 fn pingOf(app: *App, m: types.Message, guild: Id, important: bool) conta.Ping {
-    var p: conta.Ping = .{ .dm = guild == 0, .me = m.mentions_me, .everyone = m.mention_everyone };
-    var rest = m.content;
-    while (std.mem.indexOf(u8, rest, "<@&")) |i| {
-        rest = rest[i + 3 ..];
-        const end = std.mem.indexOfScalar(u8, rest, '>') orelse break;
-        const role = std.fmt.parseInt(Id, rest[0..end], 10) catch continue;
-        if (app.store.hasRole(guild, role)) {
-            p.role = true;
-            break;
-        }
-    }
-    // A demonstração não tem os campos do servidor (como App.mentionsMe).
-    if (app.store.demo) {
-        var b: [32]u8 = undefined;
-        if (std.fmt.bufPrint(&b, "<@{d}>", .{app.store.me})) |a| {
-            if (std.mem.indexOf(u8, m.content, a) != null) p.me = true;
-        } else |_| {}
-        if (std.mem.indexOf(u8, m.content, "@everyone") != null or std.mem.indexOf(u8, m.content, "@here") != null) p.everyone = true;
-    }
-    p.alert = important and !p.dm and !p.me and !p.everyone and !p.role;
+    const ch = app.store.mentionFacts(guild, &m);
+    var p: conta.Ping = .{ .dm = guild == 0, .me = ch.me, .everyone = ch.everyone, .role = ch.role };
+    p.alert = important and !p.dm and !app.store.mentionsMe(guild, &m);
     return p;
 }
 

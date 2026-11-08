@@ -683,6 +683,15 @@ pub fn card(ctx: *d.Ctx, uid: Id, x: f32, y: f32) void {
         const mr: d.Rect = .{ .x = fr.x - 34, .y = fr.y, .w = 28, .h = 28 };
         if (cornerButton(ctx, dl, 906, mr, i18n.tr("Mais", "More"), "profile-more")) return ctx.popup(.{ .menu = .{ .kind = .user, .id = uid, .x = mr.x, .y = mr.bottom() + 4 } });
         for (0..3) |i| d.circle(dl, mr.x + 8 + @as(f32, @floatFromInt(i)) * 6, mr.y + 14, 1.8, d.Rgba.white.alpha(0.9));
+        // Quem ainda não é amigo: o pedido a um clique, como no Discord (o mesmo
+        // do menu "Mais" e do perfil grande; some depois de mandar).
+        const u = ctx.store.user(uid).?;
+        const fs = ctx.st.conta.friends.get(uid);
+        if (!u.bot and ctx.store.relationship(uid) == .none and (fs == null or (fs.? != .sending and fs.? != .sent))) {
+            const ar: d.Rect = .{ .x = mr.x - 34, .y = fr.y, .w = 28, .h = 28 };
+            if (cornerButton(ctx, dl, 907, ar, i18n.tr("Adicionar amigo", "Add Friend"), "profile-add")) ctx.act(.{ .conta = .{ .friend_request = uid } });
+            icons.addFriend(dl, ar.x + 14, ar.y + 14, d.Rgba.white.alpha(0.9).u());
+        }
     }
 
     var col: Col = .{ .ctx = ctx, .dl = dl, .x = r.x + 16, .w = width - 32, .y = top, .ids = 1000 };

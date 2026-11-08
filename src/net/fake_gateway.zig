@@ -247,6 +247,9 @@ pub const Gateway = struct {
     bans_seeded: bool = false,
     timeouts: std.AutoHashMapUnmanaged([2]Id, u32) = .empty,
     vflags: std.AutoHashMapUnmanaged(Id, ev.VoiceFlags) = .empty,
+    /// O que cada pessoa é da gente agora (amigo, pedido, bloqueado), do que já
+    /// saiu: o pedido pelo nome de usuário responde como o Discord (fake_conta.zig).
+    rels: std.AutoHashMapUnmanaged(Id, types.Relationship) = .empty,
 
     pub fn start(g: *Gateway) !void {
         g.thread = c.SDL_CreateThread(threadMain, "gateway", g) orelse return error.SdlThread;
@@ -303,6 +306,7 @@ pub const Gateway = struct {
         if (g.thread) |t| c.SDL_WaitThread(t, null);
         g.presence.deinit(alloc);
         g.conta.deinit();
+        g.rels.deinit(alloc);
     }
 
     /// Rich Presence: o mesmo op 3 que o gateway de verdade mandaria (o QA
@@ -412,6 +416,7 @@ pub const Gateway = struct {
     }
 
     pub fn emit(g: *Gateway, e: ev.Event) void {
+        if (e == .relationship) g.rels.put(alloc, e.relationship.user, e.relationship.kind) catch {};
         g.sink.push(g.sink.ctx, e);
     }
 
@@ -1637,6 +1642,8 @@ fn pick(pt: []const u8, en: ?[]const u8) []const u8 {
 }
 
 const me_id: Id = 1000;
+/// A conta da demonstração (o "rsha").
+pub const me_user: Id = me_id;
 
 /// Emojis personalizados da demonstração (a imagem sai do carregador:
 /// "demo:emoji:<id>:<animado>"). `guild`: índice do servidor. Sem Nitro na conta
@@ -1709,6 +1716,13 @@ const users = [_]UserSeed{
     .{ .id = 1012, .name = "zigbot", .role = 4, .status = .online, .activity = "Usando /ajuda", .activity_en = "Using /help", .avatar = true, .bot = true, .verified = true },
     .{ .id = 1013, .name = "radinho", .role = 6, .status = .online, .activity = "Tocando na call", .activity_en = "Playing in the call", .bot = true },
 };
+
+/// Alguém da demonstração pelo nome de usuário (sem diferenciar maiúsculas),
+/// para o pedido de amizade pelo nome (fake_conta.zig).
+pub fn demoUserNamed(name: []const u8) ?struct { id: Id, bot: bool } {
+    for (users) |u| if (std.ascii.eqlIgnoreCase(u.name, name)) return .{ .id = u.id, .bot = u.bot };
+    return null;
+}
 
 /// A DM com o bot verificado (canal 900_011 conversa com users[12]).
 pub const bot_dm: Id = 900_011;
@@ -2200,6 +2214,7 @@ fn demoInvite(code: []const u8) !types.Invite {
 
 fn freeOne(m: types.Message) void {
     alloc.free(m.content);
+    if (m.mention_roles.len > 0) alloc.free(m.mention_roles);
     types.freeAttachments(alloc, m.attachments);
     types.freeEmbeds(alloc, m.embeds);
 }
@@ -2348,11 +2363,7 @@ fn buildOlder(channel: Id, before: Id) ![]types.Message {
 
 /// Devolve uma lista de mensagens que ninguém assumiu.
 fn freeMessages(msgs: []types.Message) void {
-    for (msgs) |m| {
-        alloc.free(m.content);
-        types.freeAttachments(alloc, m.attachments);
-        types.freeEmbeds(alloc, m.embeds);
-    }
+    for (msgs) |m| freeOne(m);
     alloc.free(msgs);
 }
 
@@ -2593,7 +2604,68 @@ fn buildHistory(channel: Id, now_ms: i64) ![]types.Message {
         e[0] = try envio_json.pollEmbed(p);
         m.embeds = e;
     };
+    if (channel == mention_channel) try demoMentionMessages(msgs);
     return msgs;
+}
+
+/// #setups do "Zig Brasil" (onde somos da Moderação): uma mensagem de cada jeito
+/// de chamar a gente, mais duas que não chamam (QA da bateria por tema,
+/// qa_mencao.zig). Os campos vêm preenchidos como o servidor preencheria.
+pub const mention_channel: Id = channelId(mod_guild, 6);
+/// Cargos do servidor (os de `memberList`): o nosso e um que não temos.
+pub const mention_my_role: Id = guildId(mod_guild) + 902;
+pub const mention_other_role: Id = guildId(mod_guild) + 901;
+/// O que cada uma das últimas mensagens do canal é, da mais antiga para a mais nova.
+pub const MentionCase = enum { mine, direct, reply_ping, everyone, here, my_role, other_role, normal };
+
+fn demoMentionMessages(msgs: []types.Message) !void {
+    const cases = std.enums.values(MentionCase);
+    const base = msgs.len - cases.len;
+    const reply_to = msgs[base].id;
+    for (cases, 0..) |k, i| {
+        const m = &msgs[base + i];
+        var role_buf: [64]u8 = undefined;
+        const text: []const u8 = switch (k) {
+            .mine => pick("alguém revisa o meu PR do allocator?", "can someone review my allocator PR?"),
+            .direct => pick("<@1000> revisei, ficou ótimo", "<@1000> reviewed it, looks great"),
+            // A resposta que marca: estamos no `mentions`, sem nada no texto.
+            .reply_ping => pick("concordo, manda ver", "agreed, ship it"),
+            .everyone => pick("@everyone live de Zig hoje às 20h", "@everyone Zig stream tonight at 8pm"),
+            .here => pick("@here alguém para testar o build novo?", "@here anyone around to test the new build?"),
+            .my_role => try std.fmt.bufPrint(&role_buf, "<@&{d}> {s}", .{ mention_my_role, pick("podem fixar as regras?", "can you pin the rules?") }),
+            .other_role => try std.fmt.bufPrint(&role_buf, "<@&{d}> {s}", .{ mention_other_role, pick("votação do logo novo", "vote on the new logo") }),
+            .normal => pick("valeu, <@1001>! bom dia ☕", "thanks, <@1001>! good morning ☕"),
+        };
+        const content = try alloc.dupe(u8, text);
+        errdefer alloc.free(content);
+        const role: Id = switch (k) {
+            .my_role => mention_my_role,
+            .other_role => mention_other_role,
+            else => 0,
+        };
+        const roles: []const Id = if (role != 0) try alloc.dupe(Id, &.{role}) else &.{};
+        const old = m.*;
+        freeOne(old);
+        m.* = .{
+            .id = old.id,
+            .channel = old.channel,
+            .author = switch (k) {
+                .mine => me_id,
+                .direct, .my_role => 1001,
+                .reply_ping => 1003,
+                .everyone => 1002,
+                .here => 1005,
+                .other_role => 1006,
+                .normal => 1007,
+            },
+            .timestamp = old.timestamp,
+            .content = content,
+            .reply_to = if (k == .reply_ping) reply_to else 0,
+            .mentions_me = k == .direct or k == .reply_ping,
+            .mention_everyone = k == .everyone or k == .here,
+            .mention_roles = roles,
+        };
+    }
 }
 
 /// #música: árabe e hebraico (texto da direita para a esquerda, ui/bidi.zig), um deles no

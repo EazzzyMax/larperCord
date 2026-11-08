@@ -212,6 +212,8 @@ pub fn restore(store: *Store, cs: *ChannelState) void {
             alloc.free(m.raw);
             continue;
         };
+        // Quem a mensagem chama (o arquivo é liberado logo depois).
+        m.mention_roles = if (e.msg.mention_roles.len > 0) alloc.dupe(types.Id, e.msg.mention_roles) catch &.{} else &.{};
         m.embeds = &.{};
         msgs[n] = m;
         reacts[n] = e.reactions[0..e.n_reactions];

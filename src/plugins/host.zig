@@ -308,7 +308,7 @@ fn messages(ctx: *anyopaque, channel: u64, limit: u32, out: *engine.MsgList) voi
     for (items[first..]) |*m| {
         if (!visible(m) or !out.wants(m.msg.content)) continue;
         var pm = pluginMessage(app, &app.store, &m.msg);
-        pm.mentions_me = @import("../core/inbox.zig").mentionsMe(&app.store, cs.info.guild, m);
+        pm.mentions_me = app.store.mentionsMeCached(cs.info.guild, m);
         var refs: [16]engine.FileRef = undefined;
         if (out.files) {
             var n: usize = 0;

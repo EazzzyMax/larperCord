@@ -6,6 +6,7 @@ const types = @import("../core/types.zig");
 const conta = @import("../core/conta.zig");
 const conta_json = @import("conta_json.zig");
 const ev = @import("../core/event.zig");
+const gw = @import("fake_gateway.zig");
 const Id = types.Id;
 
 const alloc = std.heap.c_allocator;
@@ -19,6 +20,8 @@ pub const sent = struct {
     pub var block_user: A = .init(0);
     pub var ignores: A = .init(0);
     pub var friend_requests: A = .init(0);
+    /// Pedidos pelo nome de usuário (o corpo do último fica em `last_body`).
+    pub var friend_names: A = .init(0);
     pub var settings_patches: A = .init(0);
     pub var settings_guild: A = .init(0);
     pub var statuses: A = .init(0);
@@ -57,6 +60,11 @@ pub fn execute(g: anytype, cmd: conta.Cmd) void {
             g.emit(.{ .relationship = .{ .user = uid, .kind = .outgoing } });
             g.emit(.{ .conta = .{ .friend_request = .{ .user = uid, .status = .sent } } });
         },
+        .friend_by_name => |body| {
+            keep(body);
+            _ = sent.friend_names.fetchAdd(1, .release);
+            g.emit(.{ .conta = .{ .friend_by_name = byName(g, body) } });
+        },
         .guild_settings => |gs| {
             keep(gs.body);
             sent.settings_guild.store(gs.guild, .monotonic);
@@ -78,6 +86,31 @@ pub fn execute(g: anytype, cmd: conta.Cmd) void {
             g.emit(.{ .conta = .{ .profile_saved = true } });
         },
     }
+}
+
+/// O que o Discord responde ao pedido pelo nome, com os códigos da API (ver
+/// `conta.nameStatus`); deu certo, chega o RELATIONSHIP_ADD.
+fn byName(g: anytype, body: []const u8) conta.NameStatus {
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const v = std.json.parseFromSliceLeaky(std.json.Value, arena.allocator(), body, .{}) catch return .failed;
+    const name = switch (v.object.get("username") orelse return .failed) {
+        .string => |x| x,
+        else => return .failed,
+    };
+    const u = gw.demoUserNamed(name) orelse return conta.nameStatus(400, 80004, false);
+    if (u.id == gw.me_user) return conta.nameStatus(400, 80003, false);
+    if (u.bot) return conta.nameStatus(400, 80002, false);
+    if (u.id == captcha_user) return conta.nameStatus(400, null, true);
+    const rel = g.rels.get(u.id) orelse .none;
+    switch (rel) {
+        .friend => return conta.nameStatus(400, 80007, false),
+        .blocked => return conta.nameStatus(400, 80001, false),
+        // Quem já tinha mandado pedido para a gente vira amigo.
+        .incoming => g.emit(.{ .relationship = .{ .user = u.id, .kind = .friend } }),
+        .none, .outgoing => g.emit(.{ .relationship = .{ .user = u.id, .kind = .outgoing } }),
+    }
+    return conta.nameStatus(204, null, false);
 }
 
 /// Uma cópia para a interface (que libera a dela).

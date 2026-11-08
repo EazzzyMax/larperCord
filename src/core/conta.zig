@@ -1,8 +1,9 @@
 //! Configurações da conta que moram no Discord: silenciar e notificações
 //! (user guild settings), status personalizado, ignorar, bloquear, pedido de
-//! amizade e o perfil. Aqui ficam os tipos, a lógica pura e os textos JSON
-//! que vão para a API (testados no `zig build test`). A rede fica em
-//! net/conta_net.zig, o lado do app em app_conta.zig e as telas em ui/.
+//! amizade (pelo perfil ou pelo nome de usuário) e o perfil. Aqui ficam os
+//! tipos, a lógica pura e os textos JSON que vão para a API (testados no
+//! `zig build test`). A rede fica em net/conta_net.zig, o lado do app em
+//! app_conta.zig e as telas em ui/.
 //!
 //! Tudo aqui sai de um clique: nada roda sozinho nem em lote.
 const std = @import("std");
@@ -242,6 +243,71 @@ pub const block_body = "{\"type\":2}";
 /// Pedido de amizade (ou aceitar o que veio): o `type` fica no padrão.
 pub const friend_body = "{}";
 
+/// Pedido de amizade pelo nome de usuário (POST /users/@me/relationships).
+pub const friend_name_path = "/users/@me/relationships";
+/// Nome de usuário do Discord: até 32 caracteres (mais "#1234" nas contas antigas).
+pub const max_username = 32;
+
+pub const NameError = error{ Empty, TooLong, OutOfMemory };
+
+/// O corpo do pedido pelo nome: `{"username":"…","discriminator":null}`. Aceita
+/// "@nome" e, das contas que ainda não migraram, "Nome#1234". Os nomes novos
+/// são sempre em minúsculas: o que foi digitado em maiúsculas desce.
+pub fn friendNameBody(gpa: std.mem.Allocator, input: []const u8) NameError![]u8 {
+    var t = std.mem.trim(u8, input, " \t\r\n");
+    if (t.len > 0 and t[0] == '@') t = std.mem.trim(u8, t[1..], " \t");
+    var disc: ?[]const u8 = null;
+    if (std.mem.lastIndexOfScalar(u8, t, '#')) |i| {
+        const d = t[i + 1 ..];
+        const digits = d.len >= 1 and d.len <= 4 and for (d) |ch| {
+            if (!std.ascii.isDigit(ch)) break false;
+        } else true;
+        if (digits) {
+            disc = d;
+            t = std.mem.trimEnd(u8, t[0..i], " ");
+        }
+    }
+    if (t.len == 0) return error.Empty;
+    if (chars(t) > max_username) return error.TooLong;
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    try out.appendSlice(gpa, "{\"username\":");
+    if (disc == null) {
+        var low: [max_username * 4]u8 = undefined;
+        writeString(&out, gpa, std.ascii.lowerString(low[0..t.len], t)) catch return error.OutOfMemory;
+    } else try writeString(&out, gpa, t);
+    try out.appendSlice(gpa, ",\"discriminator\":");
+    if (disc) |d| {
+        // "#7" e "#0007" são a mesma conta: o Discord guarda com quatro dígitos.
+        try out.print(gpa, "\"{s}{s}\"", .{ "0000"[0 .. 4 - d.len], d });
+    } else try out.appendSlice(gpa, "null");
+    try out.append(gpa, '}');
+    return out.toOwnedSlice(gpa);
+}
+
+/// No que deu o pedido pelo nome (a página Amigos mostra a frase de cada um).
+/// `too_long` é daqui mesmo: o pedido nem sai.
+pub const NameStatus = enum { sent, unknown, already, self, bot, disabled, blocked, captcha, verify, rate_limited, failed, too_long };
+
+/// O que o Discord respondeu: HTTP, o `code` do erro (null = sem) e se pediu
+/// captcha. Os códigos são os da API (80004: ninguém com esse nome…).
+pub fn nameStatus(http: i64, code: ?i64, captcha: bool) NameStatus {
+    if (http >= 200 and http < 300) return .sent;
+    if (captcha) return .captcha;
+    if (http == 429) return .rate_limited;
+    return switch (code orelse 0) {
+        // Ninguém com esse nome, ou um nome que nem é válido.
+        80004, 10013, 50035 => .unknown,
+        80007 => .already,
+        80003 => .self,
+        80002 => .bot,
+        80000 => .disabled,
+        80001 => .blocked,
+        40002 => .verify,
+        else => .failed,
+    };
+}
+
 pub const max_global_name = 32;
 pub const max_pronouns = 40;
 pub const max_bio = 190;
@@ -370,6 +436,8 @@ pub const Cmd = union(enum) {
     /// Ignorar pela conta (true) ou deixar de ignorar.
     ignore: struct { user: Id, on: bool },
     friend_request: Id,
+    /// O corpo de `friendNameBody`.
+    friend_by_name: []const u8,
     /// `guild` 0 = DMs ("@me"). `body` é o JSON de `settingsBody`.
     /// `demo`: só na demonstração, o que o Discord devolveria (`applied`).
     guild_settings: struct { guild: Id, body: []const u8, demo: ?GuildSettings = null },
@@ -379,6 +447,7 @@ pub const Cmd = union(enum) {
 
     pub fn deinit(cmd: Cmd, gpa: std.mem.Allocator) void {
         switch (cmd) {
+            .friend_by_name => |b| gpa.free(b),
             .guild_settings => |g| {
                 gpa.free(g.body);
                 if (g.demo) |x| if (x.overrides.len > 0) gpa.free(x.overrides);
@@ -408,6 +477,7 @@ pub const Event = union(enum) {
     /// O status personalizado não foi salvo (o motivo vai num aviso).
     custom_status_failed,
     friend_request: struct { user: Id, status: FriendStatus },
+    friend_by_name: NameStatus,
     /// Perfil salvo (`ok`) ou não.
     profile_saved: bool,
 
@@ -428,6 +498,8 @@ pub const Action = union(enum) {
     /// Desbloquear é o "remover relação" que já existe.
     ignore: struct { user: Id, on: bool },
     friend_request: Id,
+    /// O nome de usuário digitado na página Amigos.
+    friend_by_name: []const u8,
     /// `target`: servidor, canal ou DM; o app descobre de onde é.
     notif: struct { target: Id, change: Change },
     /// `choice` como em `expiryFor`.
@@ -454,6 +526,12 @@ pub const State = struct {
     profile_busy: bool = false,
     /// Pedidos de amizade feitos nesta sessão.
     friends: std.AutoHashMapUnmanaged(Id, FriendState) = .empty,
+    /// Pedido pelo nome de usuário: indo, no que deu o último e para quem.
+    name_busy: bool = false,
+    name_status: ?NameStatus = null,
+    /// O nome como foi digitado (até 37 caracteres: "nome#1234").
+    name_buf: [(max_username + 5) * 4]u8 = undefined,
+    name_len: u8 = 0,
 
     const ca = std.heap.c_allocator;
 
@@ -511,6 +589,14 @@ pub const State = struct {
         s.status_busy = false;
         s.profile_busy = false;
         s.friends.clearRetainingCapacity();
+        s.name_busy = false;
+        s.name_status = null;
+        s.name_len = 0;
+    }
+
+    /// Para quem foi o último pedido pelo nome.
+    pub fn nameAsked(s: *const State) []const u8 {
+        return s.name_buf[0..s.name_len];
     }
 
     pub fn deinit(s: *State) void {
@@ -521,6 +607,35 @@ pub const State = struct {
 };
 
 // --- Testes -----------------------------------------------------------------------
+
+test "pedido de amizade pelo nome de usuário: corpo e respostas" {
+    const gpa = std.testing.allocator;
+    const cases = [_]struct { in: []const u8, want: []const u8 }{
+        .{ .in = "  Ana.Exe ", .want = "{\"username\":\"ana.exe\",\"discriminator\":null}" },
+        .{ .in = "@duda", .want = "{\"username\":\"duda\",\"discriminator\":null}" },
+        .{ .in = "Velho Nome#0420", .want = "{\"username\":\"Velho Nome\",\"discriminator\":\"0420\"}" },
+        .{ .in = "antigo#7", .want = "{\"username\":\"antigo\",\"discriminator\":\"0007\"}" },
+        // "#" que não é discriminador fica no nome (o Discord recusa).
+        .{ .in = "a\"b#xyz", .want = "{\"username\":\"a\\\"b#xyz\",\"discriminator\":null}" },
+    };
+    for (cases) |c| {
+        const b = try friendNameBody(gpa, c.in);
+        defer gpa.free(b);
+        try std.testing.expectEqualStrings(c.want, b);
+    }
+    try std.testing.expectError(error.Empty, friendNameBody(gpa, " @ "));
+    try std.testing.expectError(error.Empty, friendNameBody(gpa, "#1234"));
+    try std.testing.expectError(error.TooLong, friendNameBody(gpa, &@as([max_username + 1]u8, @splat('a'))));
+
+    try std.testing.expectEqual(NameStatus.sent, nameStatus(204, null, false));
+    try std.testing.expectEqual(NameStatus.unknown, nameStatus(400, 80004, false));
+    try std.testing.expectEqual(NameStatus.already, nameStatus(400, 80007, false));
+    try std.testing.expectEqual(NameStatus.self, nameStatus(400, 80003, false));
+    try std.testing.expectEqual(NameStatus.captcha, nameStatus(400, null, true));
+    try std.testing.expectEqual(NameStatus.rate_limited, nameStatus(429, null, false));
+    try std.testing.expectEqual(NameStatus.verify, nameStatus(403, 40002, false));
+    try std.testing.expectEqual(NameStatus.failed, nameStatus(500, null, false));
+}
 
 test "estado: trocar, substituir e silenciar" {
     var s: State = .{};

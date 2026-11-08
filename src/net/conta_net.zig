@@ -178,6 +178,17 @@ pub fn execute(g: anytype, cmd: conta.Cmd) void {
             if (status == .failed) g.noticeHttp(i18n.tr("pedido de amizade recusado", "friend request refused"), &resp);
             emit(g, .{ .friend_request = .{ .user = uid, .status = status } });
         },
+        .friend_by_name => |body| {
+            // Um pedido só, como o de cima.
+            g.no_retry = true;
+            defer g.no_retry = false;
+            var resp = g.request("POST", conta.friend_name_path, body) orelse return emit(g, .{ .friend_by_name = .failed });
+            defer resp.body.deinit(alloc);
+            const status = conta.nameStatus(resp.status, errorCode(resp.body.items), hasCaptcha(resp.body.items));
+            // O que a página não sabe explicar vai para o aviso, com o motivo do Discord.
+            if (status == .failed) g.noticeHttp(i18n.tr("pedido de amizade recusado", "friend request refused"), &resp);
+            emit(g, .{ .friend_by_name = status });
+        },
         .guild_settings => |gs| {
             const path = (if (gs.guild == 0)
                 std.fmt.bufPrint(&pb, "/users/@me/guilds/@me/settings", .{})
@@ -214,6 +225,14 @@ pub fn execute(g: anytype, cmd: conta.Cmd) void {
             emit(g, .{ .profile_saved = ok });
         },
     }
+}
+
+/// O `code` de um erro da API (null = não veio).
+pub fn errorCode(body: []const u8) ?i64 {
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const v = std.json.parseFromSliceLeaky(Value, arena.allocator(), body, .{}) catch return null;
+    return j.int(j.get(v, "code"));
 }
 
 /// O Discord pediu captcha (não dá para resolver aqui: a pessoa usa o app oficial).

@@ -89,7 +89,9 @@ pub const Event = union(enum) {
     /// `raw`: o texto como o Discord guarda, quando difere de `content`
     /// (emoji personalizado); passa a pertencer ao Store.
     /// `pinned`: mudou o estado de fixada (null = não mudou).
-    message_update: struct { channel: Id, id: Id, content: ?[]const u8, raw: ?[]const u8 = null, embeds: ?[]types.Embed = null, attachments: ?[]types.Attachment = null, local: bool = false, pinned: ?bool = null },
+    /// `mentions`: quem a mensagem chama, quando a atualização traz a mensagem
+    /// inteira (uma edição); os cargos alocados com o c_allocator.
+    message_update: struct { channel: Id, id: Id, content: ?[]const u8, raw: ?[]const u8 = null, embeds: ?[]types.Embed = null, attachments: ?[]types.Attachment = null, local: bool = false, pinned: ?bool = null, mentions: ?struct { me: bool = false, everyone: bool = false, roles: []const Id = &.{} } = null },
     /// O Discord não aceitou (ou não recebeu) uma mensagem nossa.
     send_failed: struct { channel: Id, nonce: u64 },
     /// `local`: apagada por nós (some de vez, mesmo com o registro ligado).
