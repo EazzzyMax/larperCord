@@ -50,8 +50,12 @@ fn remaining(buf: []u8, secs: i64) []const u8 {
 
 fn votesLabel(buf: []u8, p: *const polls.Poll) []const u8 {
     if (!p.known) return i18n.tr("votos desconhecidos", "votes unknown");
-    const t = p.total();
-    return if (t == 1) i18n.tr("1 voto", "1 vote") else i18n.fmt(buf, "{d} votos", "{d} votes", .{t});
+    return votesText(buf, p.total());
+}
+
+/// "1 voto" ou "N votos" (aqui e em quem votou numa opção, ui/reactors.zig).
+pub fn votesText(buf: []u8, n: u32) []const u8 {
+    return if (n == 1) i18n.tr("1 voto", "1 vote") else i18n.fmt(buf, "{d} votos", "{d} votes", .{n});
 }
 
 pub fn draw(ctx: *d.Ctx, dl: *c.ImDrawList, m: *const StoredMessage, p: *const polls.Poll, x: f32, y: f32, wd: f32, alpha: f32) void {

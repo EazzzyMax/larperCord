@@ -171,7 +171,7 @@ pub fn drawVoters(ctx: *d.Ctx, msg: Id, answer: u32, x: f32, y: f32) void {
     if (a.emoji.len > 0) ax += 6;
     _ = d.textClipped(dl, fam.get(.bold), 15, ax, r.y + 13, ctx.col(.text), a.text, r.right() - ax - 14);
     var vb: [48]u8 = undefined;
-    const votes = if (p.known) i18n.fmt(&vb, "{d} votos", "{d} votes", .{a.count}) else i18n.tr("votos desconhecidos", "votes unknown");
+    const votes = if (p.known) @import("poll_card.zig").votesText(&vb, a.count) else i18n.tr("votos desconhecidos", "votes unknown");
     d.text(dl, fam.get(.regular), 12.5, r.x + 14, r.y + 36, ctx.col(.muted), votes);
     const top = r.y + 58;
     d.line(dl, r.x, top, r.right(), top, ctx.col(.border), 1);
