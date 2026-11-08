@@ -358,7 +358,7 @@ pub const ops_theme = [_]Op{
 
 // --- Configurações sem nada sobreposto ------------------------------------------
 
-const page_marks = [_][]const u8{ "pg:", "button:", "toggle:", "select:", "slider:", "seg:", "radio:", "accent:", "theme-card:", "theme-color:", "changelog-version:", "changelog-section:", "changelog-item:", "som-var:", "som-play:", "som-vol:", "som-nome:" };
+const page_marks = [_][]const u8{ "pg:", "button:", "toggle:", "toggle-off:", "select:", "slider:", "seg:", "radio:", "accent:", "theme-card:", "theme-color:", "changelog-version:", "changelog-section:", "changelog-item:", "som-var:", "som-play:", "som-vol:", "som-nome:" };
 
 fn noOverlap(_: *App) bool {
     return qa.overlapping(&page_marks) == null;

@@ -2,8 +2,9 @@
 # Bandeja e instância única com processos de verdade: janela X11 num Xvfb, D-Bus
 # particular e um painel falso (tools/qa_bandeja.py). Nada aparece na tela de
 # quem roda, nada conecta em lugar nenhum (--demo). Antes, as baterias de QA que
-# terminam com o app saindo: fechar sem bandeja e Sair no menu, os dois com a
-# thread de voz de pé, e o pedido de reinício.
+# terminam com o app saindo: fechar sem bandeja, Sair no menu com a janela
+# escondida e com ela aberta (ícone sempre na bandeja), os três com a thread de voz
+# de pé, e o pedido de reinício.
 #   tools/qa_bandeja.sh [--slow]   (--slow: inclui o painel morrendo, ~3 min)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -11,7 +12,7 @@ zig build -Doptimize=debug -p .zig-cache/qa || exit 1
 bin=$PWD/.zig-cache/qa/bin/larpercord
 fail=0
 mkdir -p qa-out
-for suite in bandeja-sair bandeja-menu bandeja-reinicio; do
+for suite in bandeja-sair bandeja-menu bandeja-sair-aberta bandeja-reinicio; do
     start=$(date +%s%N)
     out=$(QA_SUITE=$suite timeout 60 "$bin" --qa --theme classico 2>&1)
     code=$?
