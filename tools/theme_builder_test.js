@@ -3,6 +3,8 @@
 // arquivo que a página usa). Exporta um tema a partir de cada tema embutido e de
 // várias edições, e confere que o .kdl gerado é lido do jeito que o app lê:
 // mesmo leitor de KDL, mesmas contas de cor e as mesmas regras de theme.zig e fx.zig.
+// Também testa o link de compartilhar, as mensagens de erro nos dois idiomas, o contraste
+// e a prévia (theme-builder-preview.js): nada que vem do arquivo pode virar marcação.
 //
 //   node tools/theme_builder_test.js            roda os testes
 //   node tools/theme_builder_test.js --out DIR  também grava os .kdl gerados em DIR
@@ -316,11 +318,224 @@ tasks.push(test("share link with a custom layout, compressed", () => {
   });
 }));
 
+// Cores translúcidas na paleta e nos cargos (8 dígitos) e links do formato antigo.
+tasks.push(test("share link keeps translucent palette and role colors", () => {
+  const src = sources.orbital.replace(/\npalette [^\n]*/, "") + '\npalette "#11223380" "#ff0000"\nroles "alpha(#ff0000, 0.5)" "#00ff00"\n';
+  const state = TB.fromSource(src, { name: "translucido" });
+  assert.strictEqual(state.palette.dark[0], "#11223380");
+  assert.strictEqual(state.roles.dark[0], "#ff000080");
+  return Promise.all([TB.encode(state, builtinStructure), Promise.resolve(TB.encodeSync(state, builtinStructure))]).then((tokens) =>
+    Promise.all(tokens.map((tk) => TB.decode(tk, builtinStructure)))).then((backs) => {
+    for (const back of backs) assert.strictEqual(TB.toKdl(back), TB.toKdl(state));
+  });
+}));
+tasks.push(test("share links from the first format still open", () => {
+  const state = TB.fromSource(sources.papel, { base: "papel", name: "antigo" });
+  const c = TB.compact(state, builtinStructure);
+  for (const k of ["pd", "pl", "rd", "rl"]) c[k] = c[k].split(".").join("");
+  assert.strictEqual(TB.toKdl(TB.expand(c, builtinStructure)), TB.toKdl(state));
+}));
+tasks.push(test("damaged or hostile share links are refused with a reason", () => {
+  const state = TB.fromSource(sources.zen, { base: "zen", name: "z" });
+  const good = TB.compact(state, builtinStructure);
+  const bad = (patch) => Object.assign(TB.clone(good), patch);
+  const cases = [
+    [bad({ v: 2 }), "link-version"],
+    [bad({ pd: good.pd.replace(/^[0-9a-f]+/, "zz") }), "link-broken"],
+    [bad({ rd: good.rd.split(".").slice(1).join(".") }), "link-broken"],
+    [bad({ cd: "" }), "link-broken"],
+    [bad({ l: "__proto__" }), "link-layout"],
+    [bad({ l: "nao-existe" }), "link-layout"],
+    [[1, 2], "link-broken"],
+  ];
+  for (const [c, code] of cases) assert.throws(() => TB.expand(c, builtinStructure), (e) => e.code === code, code);
+  // Campos de texto viram texto; o tema de partida só aceita um nome simples (ele vai num comentário do arquivo).
+  assert.strictEqual(TB.expand(bad({ r: "1e999" }), builtinStructure).radius, 6);
+  const odd = TB.expand(bad({ b: "zen\nlayout { }", m: [{}, 7, null, ["x"], "nada"], f: [null, 3, "x"], r: 999 }), builtinStructure);
+  assert.strictEqual(odd.base, null);
+  assert.deepStrictEqual(odd.meta, { name: "", author: "7", desc: "", descEn: "", preview: "classic" });
+  assert.deepStrictEqual(odd.fonts, { ui: "Inter", mono: "3", size: 16 });
+  assert.strictEqual(odd.radius, 64);
+  assert.strictEqual(TB.toKdl(Object.assign(odd, { base: "x\nlayout {}" })).split("\n")[1], "// Made in the larperCord theme builder, starting from xlayout.");
+  return Promise.all([
+    TB.decode("j.@@@", builtinStructure).then(() => { throw new Error("accepted j.@@@"); }, (e) => assert.strictEqual(e.code, "link-broken")),
+    TB.decode("d.AAAA", builtinStructure).then(() => { throw new Error("accepted d.AAAA"); }, (e) => assert.strictEqual(e.code, "link-broken")),
+    TB.decode("x.", builtinStructure).then(() => { throw new Error("accepted x."); }, (e) => assert.strictEqual(e.code, "link-broken")),
+  ]);
+}));
+
 // 8. Erros: o leitor aponta linha e coluna, como o app.
 tasks.push(test("syntax errors point to line and column", () => {
   assert.throws(() => TB.parseKdl('layout {\n  row {\n    messages "sem fim\n'), (e) => e instanceof TB.KdlError && e.line >= 3);
   assert.throws(() => TB.loadTheme("colors {\n  nao-existe \"#fff\"\n}\nlayout { messages }"), (e) => e.line === 2);
   assert.throws(() => TB.loadTheme("layout {\n  row {\n    label tracking=2 color=\"@nada\"\n  }\n}"), (e) => e.line === 3);
+}));
+
+// Cada erro tem código e texto nos dois idiomas; o português usa as palavras do app.
+tasks.push(test("every error has English and Portuguese text", () => {
+  const en = Object.keys(TB.MSG.en).sort(), pt = Object.keys(TB.MSG.pt).sort();
+  assert.deepStrictEqual(pt, en);
+  const L = (s) => TB.loadTheme(s);
+  const cases = [
+    ["comment", () => TB.parseKdl("/* x")], ["depth", () => TB.parseKdl("a {".repeat(70))], ["close", () => TB.parseKdl("a {")],
+    ["extra-close", () => TB.parseKdl("}")], ["long-number", () => TB.parseKdl("a " + "1".repeat(70))], ["number", () => TB.parseKdl("a 1.2.3")],
+    ["name", () => TB.parseKdl("= x")], ["string", () => TB.parseKdl('a "abc')], ["escape", () => TB.parseKdl('a "\\q"')],
+    ["option-name", () => L("options { option }\nlayout { }")], ["option-string", () => L("options { option 1 }\nlayout { }")],
+    ["palette", () => L('palette "zz"\nlayout { }')], ["token", () => L('colors { nope "#fff" }\nlayout { }'), "nope"],
+    ["missing-color", () => L("colors { bg }\nlayout { }")], ["color-string", () => L("colors { bg 1 }\nlayout { }")],
+    ["color-expr", () => L('colors { bg "nope(" }\nlayout { }')], ["role", () => L('roles "nope"\nlayout { }')],
+    ["style-name", () => L("styles { style }\nlayout { }")], ["style-string", () => L("styles { style 1 }\nlayout { }")],
+    ["invalid", () => L('styles { style "s" bg="nope" }\nlayout { }'), "bg"], ["invalid", () => L('layout { row { messages vignette="nope" } }'), "vignette"],
+    ["no-layout", () => L('theme "x"')], ["c-token", () => L('layout { row c-nope="#fff" { messages } }')],
+    ["gradient-count", () => L('layout { row gradient="#fff" { messages } }')], ["gradient-color", () => L('layout { row gradient="#fff nope" { messages } }')],
+    ["pattern-kind", () => L('layout { row pattern="x" pattern-color="#fff" { messages } }')], ["pattern-color", () => L('layout { row pattern="dots" { messages } }')],
+    ["side", () => L('layout { row border-top="nope" { messages } }')], ["corners", () => L('layout { row corners="x" { messages } }')],
+    ["weight", () => L('layout { row { label tracking=1 weight="gorda" } }')], ["span-text", () => L("layout { row { label { span } } }")],
+    ["span-color", () => L('layout { row { label { span "x" color="nope" } } }')],
+    ["link-version", () => TB.expand({ v: 9 })], ["link-broken", () => TB.expand(null)], ["link-layout", () => TB.expand(Object.assign(TB.compact(TB.fromSource(sources.zen)), { l: "nada" }), builtinStructure)],
+  ];
+  const seen = new Set();
+  for (const [code, fn, arg] of cases) {
+    let err = null;
+    try { fn(); } catch (e) { err = e; }
+    assert.ok(err, code + " was not thrown");
+    assert.strictEqual(err.code, code, "expected " + code + ", got " + err.code + " (" + err.message + ")");
+    if (arg !== undefined) assert.strictEqual(err.arg, arg);
+    const ptText = TB.errorText(err, "pt"), enText = TB.errorText(err, "en");
+    assert.strictEqual(enText, err.message);
+    assert.notStrictEqual(ptText, enText, code);
+    seen.add(code);
+  }
+  assert.strictEqual(TB.errorText(cases[12][1] && (() => { try { cases[12][1](); } catch (e) { return e; } })(), "pt"), "token de cor desconhecido: nope");
+  assert.strictEqual(TB.errorText({ code: "invalid", arg: "border" }, "pt"), "border inválida");
+  assert.strictEqual(TB.errorText({ code: "invalid", arg: "grain" }, "pt"), "grain inválido");
+  // Sem DecompressionStream, o link comprimido diz que o navegador não abre.
+  const saved = global.DecompressionStream;
+  delete global.DecompressionStream;
+  return TB.decode("d.AAAA", builtinStructure).then(() => { throw new Error("accepted"); }, (e) => {
+    global.DecompressionStream = saved;
+    assert.strictEqual(e.code, "link-unsupported");
+    seen.add("link-unsupported");
+    assert.deepStrictEqual([...seen].sort(), en, "every message is reachable");
+  });
+}));
+
+// 9. A prévia: nada do arquivo vira marcação. Um link compartilhado pode trazer
+// qualquer layout, então cada componente é desenhado com valores hostis em todas as
+// propriedades que ele lê, e o HTML só pode ter as tags e os atributos da própria prévia.
+const PREVIEW = require(path.join(ROOT, "docs/assets/site/theme-builder-preview.js"));
+const TAGS = new Set(["div", "span", "b", "i", "em", "small", "u", "a", "p", "time", "hr", "svg", "path", "circle", "line", "pre", "kbd", "strong"]);
+const ATTRS = new Set(["class", "style", "viewBox", "aria-hidden", "d", "cx", "cy", "r", "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap", "opacity", "x1", "y1", "x2", "y2", "preserveAspectRatio"]);
+// Lê o HTML como o navegador lê os atributos entre aspas duplas: uma aspa sem escape
+// fecharia o valor, e o resto viraria outro atributo (pego pela lista acima).
+function scanHtml(html) {
+  const tags = [], attrs = [];
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf("<", i);
+    if (lt < 0) break;
+    const m = /^<(\/?)([a-zA-Z][a-zA-Z0-9-]*)/.exec(html.slice(lt));
+    if (!m) throw new Error("stray < at " + lt + ": " + html.slice(lt, lt + 40));
+    if (!m[1]) tags.push(m[2]);
+    let j = lt + m[0].length;
+    for (;;) {
+      while (/\s/.test(html[j])) j++;
+      if (html[j] === ">") { j++; break; }
+      if (html.startsWith("/>", j)) { j += 2; break; }
+      const am = /^([^\s=>\/"']+)(?:="([^"]*)")?/.exec(html.slice(j));
+      if (!am) throw new Error("bad attribute at " + j + ": " + html.slice(j, j + 40));
+      attrs.push(am[1]);
+      if (am[2] !== undefined && /[<>]/.test(am[2])) throw new Error("< or > inside an attribute: " + am[2].slice(0, 60));
+      j += am[0].length;
+    }
+    i = j;
+  }
+  return { tags, attrs };
+}
+const HOSTILE = 'x" onmouseover="alert(1)" a=\'<img src=x onerror=alert(2)>\' b="';
+const KEYS = ["variant", "shape", "icon-style", "orientation", "avatar", "align", "kind", "font", "items", "ornament", "ornament-text", "text", "text-en",
+  "weight", "color", "color2", "color3", "fill", "dot", "ornament-color", "style", "corners", "labels", "home", "indicators", "banner", "header", "divider",
+  "ruled", "ticks", "vertical", "fade", "bg", "gradient", "pattern", "pattern-color", "grain", "border", "border-top", "vignette", "drop-shadow", "inner-shadow"];
+for (const lang of ["en", "pt"]) {
+  tasks.push(test("preview escapes everything from the file (" + lang + ")", () => {
+    const P = PREVIEW(TB, lang);
+    const th = TB.loadTheme(sources.orbital, { mode: "dark" });
+    const props = KEYS.map((k) => k + "=" + TB.quote(HOSTILE)).join(" ");
+    const kids = " {\n  span " + TB.quote(HOSTILE) + " en=" + TB.quote(HOSTILE) + " font=" + TB.quote(HOSTILE) + " weight=" + TB.quote(HOSTILE) + " color=" + TB.quote(HOSTILE) + "\n}";
+    for (const name of P.names) {
+      for (const src of [name + " " + props, name + " " + props + kids, name + " size=1e999 spacing=1e999 density=1e999 rings=1e999 levels=1e999 thickness=-5"]) {
+        const nd = TB.parseKdl(src)[0];
+        const out = P.component(name, th, nd, th.tokens);
+        assert.strictEqual(typeof out, "string", name);
+        const { tags, attrs } = scanHtml(out);
+        for (const t of tags) assert.ok(TAGS.has(t), name + ": tag <" + t + ">");
+        for (const a of attrs) assert.ok(ATTRS.has(a), name + ": attribute " + a);
+      }
+      // A caixa do nó (fundo, borda, sombra) com cores hostis: nada é escrito.
+      const el = { style: {} };
+      P.paintBox(th, el, TB.parseKdl("x " + props)[0], th.tokens);
+      assert.deepStrictEqual(el.style, {}, name + " paintBox");
+    }
+    // Nomes que existem em todo objeto do JavaScript não são componentes.
+    for (const name of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"]) assert.strictEqual(P.component(name, th, TB.parseKdl("x")[0], th.tokens), null, name);
+    // Valores que o app conhece passam; os outros caem no padrão do componente, como no app.
+    const msg = (s) => P.component("messages", th, TB.parseKdl("messages " + s)[0], th.tokens);
+    assert.ok(msg("variant=irc").includes('class="pv-msgs irc'));
+    assert.ok(msg("avatar=square").includes('class="pv-av square"'));
+    assert.ok(msg('variant="weird"').includes('class="pv-msgs cozy'));
+    const rule = P.component("rule", th, TB.parseKdl('rule ornament-text="§" font="Liberation Serif"')[0], th.tokens);
+    assert.ok(rule.includes("font-family:&quot;Liberation Serif&quot;,var(--f-ui)"), rule);
+  }));
+}
+
+// Opções e estilos com nomes de propriedades do JavaScript não confundem o carregamento.
+tasks.push(test("option and style names like constructor are plain names", () => {
+  const th = TB.loadTheme('styles { style "card" bg="#fff" }\nlayout { row { messages when=constructor style="toString" } }', { mode: "dark" });
+  assert.strictEqual(th.values.constructor, undefined);
+  assert.strictEqual(th.styles.toString, undefined);
+}));
+
+// Contraste: blocos do layout que trocam cores contam, e o conserto de um clique limpa o aviso.
+tasks.push(test("contrast uses the colors an option block puts in place", () => {
+  const state = TB.fromSource(sources.terminal, { base: "terminal", name: "t" });
+  const verde = TB.structureOptions(state.structure).find((o) => o.name === "verde");
+  state.structure = TB.setProp(state.structure, verde.node.start, "default", true);
+  state.colors.dark.text = "#555555";
+  const blocks = TB.layoutColorBlocks(state, "dark");
+  assert.ok(blocks.some((b) => b.kind === "colors" && b.when === "verde" && b.tokens.includes("text")));
+  assert.ok(blocks.some((b) => b.kind === "roles" && b.when === "verde"));
+  assert.deepStrictEqual(TB.layoutColorBlocks(state, "light"), []);
+  const th = TB.loadTheme(TB.toKdl(state), { mode: "dark" });
+  const text = TB.contrastReport(state, "dark").find((r) => r.id === "text");
+  assert.strictEqual(TB.toHex(TB.effectiveColors(state, "dark").toks.text), TB.toHex(th.authored.text));
+  assert.deepStrictEqual(text.fails, []);
+  // Um token trocado pelo layout que falha não ganha botão: mudar o campo não mudaria nada.
+  state.structure = state.structure.replace(/(colors mode=dark when=verde \{[^}]*?)(\n\s*muted\s+)"[^"]+"/, '$1$2"#0a0a0a"');
+  const muted = TB.contrastReport(state, "dark").find((r) => r.id === "muted");
+  assert.ok(muted.fails.length && muted.gated && muted.fix === null, JSON.stringify(muted));
+}));
+tasks.push(test("one-click contrast fix always clears the warning", () => {
+  let fixes = 0;
+  for (let seed = 1; seed <= 300; seed++) {
+    const s = TB.fromSource(sources.orbital, { name: "z" });
+    const r = TB.rng(seed);
+    for (const m of MODES) {
+      const bg = TB.hexRgba(s.colors[m].bg);
+      for (const tok of ["muted", "faint", "link"]) s.colors[m][tok] = TB.toHex(TB.mix(TB.hexRgba(s.colors[m][tok]), bg, 0.3 + r() * 0.65));
+      for (const row of TB.contrastReport(s, m).filter((x) => x.fails.length && x.fix)) {
+        s.colors[m][row.fix.tok] = row.fix.value;
+        assert.deepStrictEqual(TB.contrastReport(s, m).find((x) => x.id === row.id).fails, [], m + " " + row.id + " " + row.fix.value);
+        fixes++;
+      }
+    }
+  }
+  assert.ok(fixes > 500, "fixes " + fixes);
+  // Quando nem o texto chega no mínimo, a linha diz isso em vez de sugerir uma cor que não resolve.
+  const s = TB.fromSource(sources.orbital, { name: "z" });
+  s.colors.dark.text = "#6b6b6b";
+  s.colors.dark.muted = "#202020";
+  const row = TB.contrastReport(s, "dark").find((x) => x.id === "muted");
+  assert.ok(row.stuck && row.fix === null && row.lift, JSON.stringify(row));
 }));
 
 Promise.all(tasks).then(() => {

@@ -960,7 +960,11 @@ def build_builder(lang, themes):
     title = t(lang, "Theme builder · larperCord", "Criador de temas · larperCord")
     desc = t(lang, "Build a larperCord theme in the browser: colors for dark and light, fonts, layout and options, a live preview, a contrast check and a .kdl file to download.",
              "Monte um tema do larperCord no navegador: cores do claro e do escuro, fontes, layout e opções, prévia ao vivo, checagem de contraste e um .kdl para baixar.")
-    head = f'\n<link rel="stylesheet" href="{root}assets/site/theme-builder.css">'
+    # A página desenha temas que chegam por link: só roda script dos arquivos do próprio site
+    # e não pede nada a outro endereço (CSP). A prévia usa style="…", por isso o estilo inline.
+    csp = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+           "font-src 'self'; connect-src 'self'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'self'; form-action 'none'")
+    head = f'\n<meta http-equiv="Content-Security-Policy" content="{csp}">\n<link rel="stylesheet" href="{root}assets/site/theme-builder.css">'
     write(path, shell(lang, path, alt, title, desc, src, "builder", head))
     return [{"t": t(lang, "Theme builder", "Criador de temas"), "s": "larperCord", "u": path,
              "x": t(lang, "Colors, fonts, layout, contrast check and a .kdl to download.", "Cores, fontes, layout, checagem de contraste e um .kdl para baixar.")}]

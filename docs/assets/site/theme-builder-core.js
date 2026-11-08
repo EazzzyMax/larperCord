@@ -7,9 +7,56 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
+  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+
+  // ------------------------------------------------------- Mensagens ----
+  // Cada erro tem um código; o texto sai no idioma da página. O português usa as
+  // mesmas palavras do app (src/theme/kdl.zig, theme.zig, fx.zig).
+  var MSG = {
+    en: {
+      comment: "unclosed /* comment", depth: "too many nested blocks", close: "missing '}'", "extra-close": "unexpected '}'",
+      "long-number": "number too long", number: "invalid number", name: "expected a name", string: "unterminated string", escape: "invalid escape",
+      "option-name": "option without a name", "option-string": "option name must be a string",
+      palette: "invalid palette color", token: "unknown color token: {0}", "missing-color": "missing color", "color-string": "the color must be a string",
+      "color-expr": "invalid color expression", role: "invalid role color", "style-name": "style without a name", "style-string": "style name must be a string",
+      invalid: "{0} is invalid", "no-layout": "the theme needs a `layout` node", "c-token": "unknown color token in c-…",
+      "gradient-count": "a gradient needs 2 or 3 colors", "gradient-color": "invalid color in the gradient",
+      "pattern-kind": "pattern: dots, lines, grid or diagonal", "pattern-color": "pattern needs pattern-color", side: "invalid side border",
+      corners: "corners: all, left, right, top or bottom", weight: "weight: regular, medium, semibold, bold or italic",
+      "span-text": "span without text", "span-color": "invalid color in the span",
+      "link-version": "it comes from another version of this page", "link-broken": "it is incomplete or damaged",
+      "link-layout": "it names a layout this page doesn't have", "link-unsupported": "this browser can't open compressed links",
+    },
+    pt: {
+      comment: "comentário /* sem fechar", depth: "blocos aninhados demais", close: "faltou fechar '}'", "extra-close": "'}' sobrando",
+      "long-number": "número longo demais", number: "número inválido", name: "esperava um nome", string: "string sem fechar", escape: "escape inválido",
+      "option-name": "opção sem nome", "option-string": "nome da opção deve ser string",
+      palette: "cor inválida na paleta", token: "token de cor desconhecido: {0}", "missing-color": "faltou a cor", "color-string": "a cor deve ser uma string",
+      "color-expr": "expressão de cor inválida", role: "cor de cargo inválida", "style-name": "estilo sem nome", "style-string": "nome do estilo deve ser string",
+      invalid: "{0} inválido", "no-layout": "o tema precisa de um nó `layout`", "c-token": "token de cor desconhecido em c-…",
+      "gradient-count": "gradiente pede 2 ou 3 cores", "gradient-color": "cor inválida no gradiente",
+      "pattern-kind": "pattern: dots, lines, grid ou diagonal", "pattern-color": "pattern precisa de pattern-color", side: "borda de lado inválida",
+      corners: "corners: all, left, right, top ou bottom", weight: "weight: regular, medium, semibold, bold ou italic",
+      "span-text": "span sem texto", "span-color": "cor inválida no span",
+      "link-version": "ele é de outra versão desta página", "link-broken": "ele está incompleto ou danificado",
+      "link-layout": "ele cita um layout que esta página não tem", "link-unsupported": "este navegador não abre links comprimidos",
+    },
+  };
+  // As propriedades femininas, como o app escreve ("border inválida", "grain inválido").
+  var FEM = ["border", "vignette", "inner-shadow", "drop-shadow", "pattern-color", "shadow", "color"];
+  function errorText(e, lang) {
+    var L = lang === "pt" ? "pt" : "en";
+    if (!e || !e.code || !own(MSG[L], e.code)) return e && e.message ? String(e.message) : String(e);
+    var t = MSG[L][e.code];
+    if (L === "pt" && e.code === "invalid" && FEM.indexOf(e.arg) >= 0) t = "{0} inválida";
+    return t.replace("{0}", e.arg === undefined ? "" : String(e.arg));
+  }
+
   // ------------------------------------------------------------ KDL ----
-  function KdlError(message, line, column) {
-    this.message = message;
+  function KdlError(code, line, column, arg) {
+    this.code = code;
+    this.arg = arg;
+    this.message = errorText(this, "en");
     this.line = line;
     this.column = column;
   }
@@ -19,7 +66,7 @@
   // texto, e cada propriedade onde está o valor: assim um ajuste troca só aquele pedaço.
   function parseKdl(src) {
     var i = 0, line = 1, lineStart = 0, depth = 0, n = src.length;
-    function fail(msg) { throw new KdlError(msg, line, i - lineStart + 1); }
+    function fail(code) { throw new KdlError(code, line, i - lineStart + 1); }
     function peek() { return i < n ? src[i] : ""; }
     function starts(s) { return src.startsWith(s, i); }
     function adv() {
@@ -45,7 +92,7 @@
             else if (starts("*/")) { d--; adv(); adv(); if (d === 0) break; }
             else adv();
           }
-          if (d !== 0) fail("unclosed /* comment");
+          if (d !== 0) fail("comment");
         } else break;
       }
     }
@@ -63,20 +110,20 @@
       if (peek() === '"') return string();
       var s = i;
       while (i < n && STOP.indexOf(src[i]) < 0) i++;
-      if (i === s) fail("expected a name");
+      if (i === s) fail("name");
       return src.slice(s, i);
     }
     function string() {
       adv();
       var out = "";
       for (;;) {
-        if (i >= n) fail("unterminated string");
+        if (i >= n) fail("string");
         var ch = src[i];
         if (ch === '"') { adv(); break; }
         if (ch === "\\") {
           adv();
           var e = peek(), r = { n: "\n", t: "\t", r: "\r", '"': '"', "\\": "\\", "/": "/" }[e];
-          if (r === undefined) fail("invalid escape");
+          if (r === undefined) fail("escape");
           out += r;
           adv();
           continue;
@@ -90,7 +137,8 @@
       var s = i;
       while (i < n && /[0-9.+\-_eE]/.test(src[i])) i++;
       var txt = src.slice(s, i).replace(/_/g, "");
-      if (txt.length > 64 || !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(txt)) fail("invalid number");
+      if (txt.length > 64) fail("long-number");
+      if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(txt)) fail("number");
       return +txt;
     }
     function value() {
@@ -156,18 +204,18 @@
       return nd;
     }
     function nodeList(inBlock) {
-      if (depth >= 64) fail("too many nested blocks");
+      if (depth >= 64) fail("depth");
       depth++;
       var list = [];
       for (;;) {
         skipSpace(true);
         while (peek() === ";") { adv(); skipSpace(true); }
         if (i >= n) {
-          if (inBlock) fail("missing '}'");
+          if (inBlock) fail("close");
           break;
         }
         if (peek() === "}") {
-          if (!inBlock) fail("unexpected '}'");
+          if (!inBlock) fail("extra-close");
           adv();
           break;
         }
@@ -416,7 +464,7 @@
       if (nd.name !== "options") return;
       nd.kids.forEach(function (ch) {
         var name = arg(ch, 0);
-        if (typeof name !== "string") throw new KdlError(name === undefined ? "option without a name" : "option name must be a string", ch.line, ch.col);
+        if (typeof name !== "string") throw new KdlError(name === undefined ? "option-name" : "option-string", ch.line, ch.col);
         var d = flag(ch, "default");
         list.push({
           name: name, label: str(ch, "label") || name, desc: str(ch, "description") || "",
@@ -427,8 +475,10 @@
     return list;
   }
 
-  function ThemeError(message, line) {
-    this.message = message;
+  function ThemeError(code, line, arg) {
+    this.code = code;
+    this.arg = arg;
+    this.message = errorText(this, "en");
     this.line = line || 0;
     this.column = 0;
   }
@@ -440,7 +490,8 @@
     opt = opt || {};
     var mode = opt.mode === "light" ? "light" : "dark";
     var nodes = typeof src === "string" ? parseKdl(src) : src;
-    var options = optionList(nodes), values = {};
+    // Sem protótipo: uma opção ou um estilo chamado "constructor" não acha nada de fora.
+    var options = optionList(nodes), values = Object.create(null);
     options.forEach(function (o) {
       values[o.name] = opt.overrides && o.name in opt.overrides ? !!opt.overrides[o.name] : o.def;
     });
@@ -458,7 +509,7 @@
       nd.args.forEach(function (a, i) {
         if (i >= 16 || typeof a.v !== "string") return;
         var c = parseHex(a.v.replace(/^#+/, ""));
-        if (!c) throw new ThemeError("invalid palette color", nd.line);
+        if (!c) throw new ThemeError("palette", nd.line);
         pal[i] = c;
       });
     });
@@ -467,11 +518,11 @@
       mode: mode, name: "sem nome", description: "", descriptionEn: "", author: "", preview: "classic",
       tokens: defaults(pal, mode), roles: defaultRoles(pal, mode), palette: pal, usesWal: usesWal,
       fontUi: "Inter", fontMono: "JetBrains Mono", fontSize: 16, radius: 6, transparent: false,
-      styles: {}, layout: null, options: options, values: values, nodes: nodes,
+      styles: Object.create(null), layout: null, options: options, values: values, nodes: nodes,
     };
     var lookup = function (name) { return th.tokens[name]; };
-    function color(e, nd, msg) {
-      try { return evalColor(e, pal, lookup, false); } catch (err) { throw new ThemeError(msg, nd.line); }
+    function color(e, nd, code, arg) {
+      try { return evalColor(e, pal, lookup, false); } catch (err) { throw new ThemeError(code, nd.line, arg); }
     }
     nodes.forEach(function (nd) {
       if (!applies(nd, mode, values)) return;
@@ -486,17 +537,17 @@
         case "colors":
           nd.kids.forEach(function (ch) {
             var tok = tokenName(ch.name);
-            if (!tok) throw new ThemeError("unknown color token: " + ch.name, ch.line);
+            if (!tok) throw new ThemeError("token", ch.line, ch.name);
             var e = arg(ch, 0);
-            if (e === undefined) throw new ThemeError("missing color", ch.line);
-            if (typeof e !== "string") throw new ThemeError("the color must be a string", ch.line);
-            th.tokens[tok] = color(e, ch, "invalid color expression");
+            if (e === undefined) throw new ThemeError("missing-color", ch.line);
+            if (typeof e !== "string") throw new ThemeError("color-string", ch.line);
+            th.tokens[tok] = color(e, ch, "color-expr");
           });
           break;
         case "roles":
           nd.args.forEach(function (a, i) {
             if (i >= 8 || typeof a.v !== "string") return;
-            th.roles[i] = color(a.v, nd, "invalid role color");
+            th.roles[i] = color(a.v, nd, "role");
           });
           break;
         case "fonts":
@@ -513,9 +564,9 @@
         case "styles":
           nd.kids.forEach(function (ch) {
             var sname = arg(ch, 0);
-            if (sname === undefined) throw new ThemeError("style without a name", ch.line);
-            if (typeof sname !== "string") throw new ThemeError("style name must be a string", ch.line);
-            ["bg", "border", "glow"].forEach(function (k) { if (str(ch, k) !== null) color(str(ch, k), ch, k + " is invalid"); });
+            if (sname === undefined) throw new ThemeError("style-name", ch.line);
+            if (typeof sname !== "string") throw new ThemeError("style-string", ch.line);
+            ["bg", "border", "glow"].forEach(function (k) { if (str(ch, k) !== null) color(str(ch, k), ch, "invalid", k); });
             th.styles[sname] = ch;
           });
           break;
@@ -526,7 +577,7 @@
     });
     th.authored = Object.assign({}, th.tokens);
     legibleText(th.tokens);
-    if (!th.layout) throw new ThemeError("the theme needs a `layout` node", 0);
+    if (!th.layout) throw new ThemeError("no-layout", 0);
     // As primitivas são checadas com os tokens do fim, como o app compila.
     Object.keys(th.styles).forEach(function (k) { checkBox(th, th.styles[k], true); });
     checkLayout(th, th.layout);
@@ -539,29 +590,29 @@
   var PAINTED = ["shape", "rule", "starfield", "orbit", "aurora", "dunes", "topography", "radar", "window-controls"];
   var PAINT_KEYS = ["color", "color2", "color3", "fill", "dot", "ornament-color"];
 
-  function fxColor(th, e, nd, msg) {
-    try { return evalColor(e, th.palette, function (n) { return th.tokens[n]; }, true); } catch (err) { throw new ThemeError(msg, nd.line); }
+  function fxColor(th, e, nd, code, arg) {
+    try { return evalColor(e, th.palette, function (n) { return th.tokens[n]; }, true); } catch (err) { throw new ThemeError(code, nd.line, arg); }
   }
   function checkGradient(th, nd, key) {
     var parts = splitColors(str(nd, key));
-    if (parts.length < 2 || parts.length > 3) throw new ThemeError("a gradient needs 2 or 3 colors", nd.line);
-    parts.forEach(function (p) { fxColor(th, p, nd, "invalid color in the gradient"); });
+    if (parts.length < 2 || parts.length > 3) throw new ThemeError("gradient-count", nd.line);
+    parts.forEach(function (p) { fxColor(th, p, nd, "gradient-color"); });
   }
   function checkBox(th, nd, isStyle) {
     if (str(nd, "gradient") !== null) checkGradient(th, nd, "gradient");
     if (str(nd, "pattern") !== null) {
-      if (["dots", "lines", "grid", "diagonal"].indexOf(str(nd, "pattern")) < 0) throw new ThemeError("pattern: dots, lines, grid or diagonal", nd.line);
-      if (str(nd, "pattern-color") === null) throw new ThemeError("pattern needs pattern-color", nd.line);
-      fxColor(th, str(nd, "pattern-color"), nd, "invalid pattern-color");
+      if (["dots", "lines", "grid", "diagonal"].indexOf(str(nd, "pattern")) < 0) throw new ThemeError("pattern-kind", nd.line);
+      if (str(nd, "pattern-color") === null) throw new ThemeError("pattern-color", nd.line);
+      fxColor(th, str(nd, "pattern-color"), nd, "invalid", "pattern-color");
     }
     ["grain", "vignette", "inner-shadow", "drop-shadow", "hover-bg"].forEach(function (k) {
-      if (str(nd, k) !== null) fxColor(th, str(nd, k), nd, k + " is invalid");
+      if (str(nd, k) !== null) fxColor(th, str(nd, k), nd, "invalid", k);
     });
     if (str(nd, "border-gradient") !== null) checkGradient(th, nd, "border-gradient");
-    if (!isStyle && str(nd, "border") !== null) fxColor(th, str(nd, "border"), nd, "invalid border");
-    SIDES.forEach(function (k) { if (str(nd, k) !== null) fxColor(th, str(nd, k), nd, "invalid side border"); });
+    if (!isStyle && str(nd, "border") !== null) fxColor(th, str(nd, "border"), nd, "invalid", "border");
+    SIDES.forEach(function (k) { if (str(nd, k) !== null) fxColor(th, str(nd, k), nd, "side"); });
     var c = str(nd, "corners");
-    if (c !== null && ["all", "left", "right", "top", "bottom"].indexOf(c) < 0) throw new ThemeError("corners: all, left, right, top or bottom", nd.line);
+    if (c !== null && ["all", "left", "right", "top", "bottom"].indexOf(c) < 0) throw new ThemeError("corners", nd.line);
   }
   var WEIGHTS = ["regular", "medium", "semibold", "bold", "italic"];
   function checkLabel(th, ch) {
@@ -570,34 +621,34 @@
     var wants = colExpr || ch.kids.some(function (k) { return k.name === "span"; }) ||
       ["tracking", "shadow", "outline", "text-gradient", "text-en"].some(function (k) { return prop(ch, k) !== null; });
     if (!wants) return;
-    if (col !== null) fxColor(th, col, ch, "invalid color");
-    if (str(ch, "weight") !== null && WEIGHTS.indexOf(str(ch, "weight")) < 0) throw new ThemeError("weight: regular, medium, semibold, bold or italic", ch.line);
-    ["shadow", "outline"].forEach(function (k) { if (str(ch, k) !== null) fxColor(th, str(ch, k), ch, k + " is invalid"); });
+    if (col !== null) fxColor(th, col, ch, "invalid", "color");
+    if (str(ch, "weight") !== null && WEIGHTS.indexOf(str(ch, "weight")) < 0) throw new ThemeError("weight", ch.line);
+    ["shadow", "outline"].forEach(function (k) { if (str(ch, k) !== null) fxColor(th, str(ch, k), ch, "invalid", k); });
     if (str(ch, "text-gradient") !== null) checkGradient(th, ch, "text-gradient");
     ch.kids.forEach(function (sp) {
       if (sp.name !== "span") return;
       var txt = typeof arg(sp, 0) === "string" ? arg(sp, 0) : str(sp, "text");
-      if (txt === null) throw new ThemeError("span without text", sp.line);
-      if (str(sp, "weight") !== null && WEIGHTS.indexOf(str(sp, "weight")) < 0) throw new ThemeError("weight: regular, medium, semibold, bold or italic", sp.line);
-      if (str(sp, "color") !== null) fxColor(th, str(sp, "color"), sp, "invalid color in the span");
+      if (txt === null) throw new ThemeError("span-text", sp.line);
+      if (str(sp, "weight") !== null && WEIGHTS.indexOf(str(sp, "weight")) < 0) throw new ThemeError("weight", sp.line);
+      if (str(sp, "color") !== null) fxColor(th, str(sp, "color"), sp, "span-color");
     });
   }
   function checkLayout(th, nd) {
     nd.kids.forEach(function (ch) {
       var bg = str(ch, "bg");
-      if (bg !== null && !tokenName(bg)) fxColor(th, bg, ch, "invalid bg");
+      if (bg !== null && !tokenName(bg)) fxColor(th, bg, ch, "invalid", "bg");
       checkBox(th, ch, false);
       if (ch.name === "label") {
         checkLabel(th, ch);
       } else if (PAINTED.indexOf(ch.name) >= 0) {
-        PAINT_KEYS.forEach(function (k) { if (str(ch, k) !== null) fxColor(th, str(ch, k), ch, "invalid color"); });
+        PAINT_KEYS.forEach(function (k) { if (str(ch, k) !== null) fxColor(th, str(ch, k), ch, "invalid", "color"); });
       }
       ch.props.forEach(function (p) {
         var m = /^(c|cl|cd)-(.+)$/.exec(p.k);
         if (!m || (m[1] === "cl" && th.mode !== "light") || (m[1] === "cd" && th.mode !== "dark")) return;
-        if (!tokenName(m[2])) throw new ThemeError("unknown color token in c-…", ch.line);
-        if (typeof p.v !== "string") throw new ThemeError("the color must be a string", ch.line);
-        try { evalColor(p.v, th.palette, function (n) { return th.tokens[n]; }, false); } catch (e) { throw new ThemeError("invalid color expression", ch.line); }
+        if (!tokenName(m[2])) throw new ThemeError("c-token", ch.line);
+        if (typeof p.v !== "string") throw new ThemeError("color-string", ch.line);
+        try { evalColor(p.v, th.palette, function (n) { return th.tokens[n]; }, false); } catch (e) { throw new ThemeError("color-expr", ch.line); }
       });
       if (ch.name !== "label") checkLayout(th, ch);
     });
@@ -685,7 +736,9 @@
     var m = state.meta, file = slug(m.name), out = [];
     var desc = m.desc || m.descEn, descEn = m.descEn && m.descEn !== desc ? m.descEn : "";
     out.push("// " + file + ".kdl" + (desc || descEn ? ": " + (descEn || desc).replace(/\s+/g, " ") : ""));
-    out.push("// Made in the larperCord theme builder" + (state.base ? ", starting from " + state.base : "") + ".");
+    // O nome do tema de partida vai num comentário: só letras, números e hífen, nunca uma quebra de linha.
+    var base = String(state.base || "").replace(/[^a-z0-9-]/g, "");
+    out.push("// Made in the larperCord theme builder" + (base ? ", starting from " + base : "") + ".");
     if (extra.url) out.push("// " + extra.url);
     var head = "theme " + q(m.name || file);
     if (desc) head += " description=" + q(desc);
@@ -790,10 +843,61 @@
     try { return optionList(parseKdl(structure)); } catch (e) { return []; }
   }
 
-  // ----------------------------------------------------------- Contraste ----
-  function contrastReport(state, mode) {
-    var toks = {};
+  // ------------------------------------------- Cores que vêm do layout ----
+  // Blocos `colors`, `palette` e `roles` que ficaram no texto do layout (os que dependem
+  // de uma opção, como `colors mode=dark when=verde`). Os que valem neste modo, com as
+  // opções no padrão, trocam por cima o que a aba Cores edita.
+  function layoutColorBlocks(state, mode) {
+    var nodes, opts;
+    try {
+      nodes = parseKdl(String(state.structure || ""));
+      opts = optionList(nodes);
+    } catch (e) { return []; }
+    var values = Object.create(null);
+    opts.forEach(function (o) { values[o.name] = o.def; });
+    values["modo-claro"] = mode === "light";
+    values["modo-escuro"] = mode === "dark";
+    var out = [];
+    nodes.forEach(function (nd) {
+      if (ABSORB_MODED.indexOf(nd.name) < 0 || !applies(nd, mode, values)) return;
+      out.push({ kind: nd.name, line: nd.line, when: str(nd, "when"), unless: str(nd, "unless"),
+        tokens: nd.name === "colors" ? nd.kids.map(function (k) { return tokenName(k.name); }).filter(Boolean) : [] });
+    });
+    return out;
+  }
+  // Os tokens como o app vai usar: os da aba Cores, menos os que um bloco do layout troca.
+  function effectiveColors(state, mode) {
+    var toks = {}, gated = {};
     TOKENS.forEach(function (t) { toks[t] = hexRgba(state.colors[mode][t]); });
+    layoutColorBlocks(state, mode).forEach(function (b) { b.tokens.forEach(function (t) { gated[t] = b; }); });
+    if (Object.keys(gated).length) {
+      try {
+        var th = loadTheme(toKdl(state), { mode: mode });
+        Object.keys(gated).forEach(function (t) { toks[t] = th.authored[t]; });
+      } catch (e) {}
+    }
+    return { toks: toks, gated: gated };
+  }
+
+  // ----------------------------------------------------------- Contraste ----
+  // O conserto de um clique: a primeira cor no caminho até o texto que passa depois de
+  // virar hex de 8 bits (é o que o arquivo guarda). Sem isso, 5,4907:1 contra 5,5:1 fica marcado.
+  function legibleFix(toks, tok, min) {
+    function ok(c) {
+      for (var j = 0; j < BACKS.length; j++) if (contrast(c, toks[BACKS[j]]) < min) return false;
+      return true;
+    }
+    for (var k = 0; k <= 1; k = Math.fround(k + Math.fround(0.05))) {
+      var hx = toHex(mix(toks[tok], toks.text, k));
+      if (ok(hexRgba(hx))) return { value: hx, ok: true };
+    }
+    var t = toHex(toks.text);
+    return { value: t, ok: ok(hexRgba(t)) };
+  }
+
+  function contrastReport(state, mode) {
+    var eff = effectiveColors(state, mode), toks = eff.toks;
+    function gate(tok) { return own(eff.gated, tok) ? eff.gated[tok] : null; }
     var rows = [];
     LEGIBLE.forEach(function (w) {
       var worst = 99, fails = [];
@@ -802,8 +906,16 @@
         if (r < worst) worst = r;
         if (r < w.min) fails.push(b);
       });
-      rows.push({ id: w.tok, fg: w.tok, backs: BACKS.slice(), min: w.min, ratio: worst, fails: fails, app: true,
-        fix: fails.length ? { tok: w.tok, value: toHex(legibleFor(toks, w.tok, w.min)) } : null });
+      var g = gate(w.tok);
+      var row = { id: w.tok, fg: w.tok, backs: BACKS.slice(), min: w.min, ratio: worst, fails: fails, app: true, gated: g, fix: null, lift: null, stuck: false };
+      if (fails.length) {
+        // O que o app faz ao carregar, e o valor que deixa o aviso limpo.
+        row.lift = toHex(legibleFor(toks, w.tok, w.min));
+        var f = legibleFix(toks, w.tok, w.min);
+        if (!f.ok) row.stuck = true;
+        else if (!g) row.fix = { tok: w.tok, value: f.value };
+      }
+      rows.push(row);
     });
     // O resto não é regra do app: é o mínimo da WCAG para texto (AA), medido como a cor
     // aparece: a translúcida por cima do fundo (e o fundo translúcido por cima do preto ou branco).
@@ -819,14 +931,16 @@
         if (r < worst) worst = r;
         if (r < min) fails.push(b);
       });
-      rows.push({ id: fg, fg: fg, backs: backs, min: min, ratio: worst, fails: fails, app: false, fix: fails.length ? fixer() : null });
+      var g = gate(fg);
+      rows.push({ id: fg, fg: fg, backs: backs, min: min, ratio: worst, fails: fails, app: false, gated: g, fix: fails.length && !g ? fixer() : null, lift: null, stuck: false });
     }
     function towards(tok, backs, min) {
       var base = toks[tok], avg = backs.reduce(function (a, b) { return a + luminance(seen(tok, b)[1]); }, 0) / backs.length;
       var target = avg > 0.18 ? BLACK : WHITE;
       for (var k = 0.05; k <= 1.0001; k += 0.05) {
-        var col = mix(base, target, k);
-        if (backs.every(function (b) { var s = seen(tok, b); return contrast(over(col, s[1]), s[1]) >= min; })) return { tok: tok, value: toHex(col) };
+        // Conferido já em hex, como vai para o arquivo.
+        var hx = toHex(mix(base, target, k)), col = hexRgba(hx);
+        if (backs.every(function (b) { var s = seen(tok, b); return contrast(over(col, s[1]), s[1]) >= min; })) return { tok: tok, value: hx };
       }
       return { tok: tok, value: toHex(target) };
     }
@@ -1045,36 +1159,57 @@
   function utf8(s) { return new TextEncoder().encode(s); }
   function fromUtf8(b) { return new TextDecoder().decode(b); }
 
+  // Todas as cores separadas por ponto: uma cor translúcida tem 8 dígitos, não 6.
   function compact(state, builtinStructure) {
     var hx = function (h) { return normHex(h).slice(1); };
     var c = { v: 1, b: state.base || "", m: [state.meta.name, state.meta.author, state.meta.desc, state.meta.descEn, state.meta.preview],
       f: [state.fonts.ui, state.fonts.mono, state.fonts.size], r: state.radius, w: state.transparent ? 1 : 0 };
     ["dark", "light"].forEach(function (mode) {
       var k = mode[0];
-      c["p" + k] = state.palette[mode].map(hx).join("");
+      c["p" + k] = state.palette[mode].map(hx).join(".");
       c["c" + k] = TOKENS.map(function (t) { return hx(state.colors[mode][t]); }).join(".");
-      c["r" + k] = state.roles[mode].map(hx).join("");
+      c["r" + k] = state.roles[mode].map(hx).join(".");
     });
     var ref = state.layoutFrom && builtinStructure && builtinStructure(state.layoutFrom) === state.structure;
     if (ref) c.l = state.layoutFrom; else c.s = state.structure;
     return c;
   }
+  function linkError(code) { var e = new Error(MSG.en[code]); e.code = code; return e; }
+  // O link vem de qualquer pessoa: cada campo é conferido antes de virar estado.
   function expand(c, builtinStructure) {
-    if (!c || c.v !== 1) throw new Error("unknown link version");
-    var six = function (s) { var o = []; for (var i = 0; i < s.length; i += 6) o.push("#" + s.slice(i, i + 6)); return o; };
-    var state = { v: 1, base: c.b || null, layoutFrom: c.l || null,
-      meta: { name: c.m[0] || "", author: c.m[1] || "", desc: c.m[2] || "", descEn: c.m[3] || "", preview: c.m[4] || "classic" },
-      fonts: { ui: c.f[0], mono: c.f[1], size: +c.f[2] || 16 }, radius: +c.r || 0, transparent: !!c.w,
-      palette: {}, colors: {}, roles: {}, structure: c.l ? builtinStructure(c.l) : String(c.s || "") };
+    if (!c || typeof c !== "object" || Array.isArray(c)) throw linkError("link-broken");
+    if (c.v !== 1) throw linkError("link-version");
+    function text(v) { return typeof v === "string" ? v : typeof v === "number" ? String(v) : ""; }
+    function colors(v, n) {
+      var s = text(v);
+      // Os primeiros links juntavam a paleta e os cargos em 6 dígitos, sem separador.
+      var parts = s.indexOf(".") >= 0 ? s.split(".") : s.length === n * 6 ? s.match(/.{6}/g) : [];
+      if (parts.length !== n) throw linkError("link-broken");
+      return parts.map(function (p) {
+        if (!/^([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(p)) throw linkError("link-broken");
+        return normHex("#" + p);
+      });
+    }
+    function clampNum(v, lo, hi, d) { var x = +v; return isFinite(x) && v !== "" && v !== null ? Math.min(hi, Math.max(lo, x)) : d; }
+    var m = Array.isArray(c.m) ? c.m : [], f = Array.isArray(c.f) ? c.f : [];
+    var base = /^[a-z0-9-]{1,40}$/.test(text(c.b)) ? c.b : null;
+    var structure;
+    if (c.l !== undefined && c.l !== null && c.l !== "") {
+      structure = /^[a-z0-9-]{1,40}$/.test(text(c.l)) && builtinStructure ? builtinStructure(c.l) : undefined;
+      if (typeof structure !== "string") throw linkError("link-layout");
+    } else structure = text(c.s);
+    var state = { v: 1, base: base, layoutFrom: typeof c.l === "string" && c.l ? c.l : null,
+      meta: { name: text(m[0]), author: text(m[1]), desc: text(m[2]), descEn: text(m[3]), preview: PREVIEWS.indexOf(m[4]) >= 0 ? m[4] : "classic" },
+      fonts: { ui: text(f[0]) || "Inter", mono: text(f[1]) || "JetBrains Mono", size: clampNum(f[2], 6, 72, 16) },
+      radius: clampNum(c.r, 0, 64, 6), transparent: !!c.w, usesWal: false,
+      palette: {}, colors: {}, roles: {}, structure: structure };
     ["dark", "light"].forEach(function (mode) {
-      var k = mode[0], parts = String(c["c" + k]).split(".");
-      state.palette[mode] = six(c["p" + k]).map(normHex);
-      state.roles[mode] = six(c["r" + k]).map(normHex);
+      var k = mode[0], toks = colors(c["c" + k], TOKENS.length);
+      state.palette[mode] = colors(c["p" + k], 16);
+      state.roles[mode] = colors(c["r" + k], 8);
       state.colors[mode] = {};
-      TOKENS.forEach(function (t, i) { state.colors[mode][t] = normHex("#" + parts[i]); });
+      TOKENS.forEach(function (t, i) { state.colors[mode][t] = toks[i]; });
     });
-    if (state.palette.dark.length !== 16 || state.roles.dark.length !== 8) throw new Error("broken link");
-    if (state.structure === undefined || state.structure === null) throw new Error("unknown layout");
     return state;
   }
   function encodeSync(state, builtinStructure) { return "j." + b64url(utf8(JSON.stringify(compact(state, builtinStructure)))); }
@@ -1085,18 +1220,41 @@
     var stream = new Blob([utf8(json)]).stream().pipeThrough(cs);
     return new Response(stream).arrayBuffer().then(function (buf) { return "d." + b64url(new Uint8Array(buf)); });
   }
+  // Um tema tem poucos KB: um link que descomprime para mais que isto não é de tema.
+  var LINK_MAX = 1 << 20;
   function decode(token, builtinStructure) {
+    token = String(token);
     var kind = token.slice(0, 2), body = token.slice(2);
-    if (kind === "j.") return Promise.resolve(expand(JSON.parse(fromUtf8(unb64url(body))), builtinStructure));
-    if (kind !== "d." || typeof DecompressionStream === "undefined") return Promise.reject(new Error("unsupported link"));
-    var stream = new Blob([unb64url(body)]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-    return new Response(stream).arrayBuffer().then(function (buf) { return expand(JSON.parse(fromUtf8(new Uint8Array(buf))), builtinStructure); });
+    function done(json) { return expand(JSON.parse(json), builtinStructure); }
+    // Só os nossos códigos passam: DOMException e zlib também têm `code`, com outro sentido.
+    function why(e) { return e && typeof e.code === "string" && own(MSG.en, e.code) ? e : linkError("link-broken"); }
+    if (kind === "j.") {
+      try { return Promise.resolve(done(fromUtf8(unb64url(body)))); } catch (e) { return Promise.reject(why(e)); }
+    }
+    if (kind !== "d.") return Promise.reject(linkError("link-broken"));
+    if (typeof DecompressionStream === "undefined") return Promise.reject(linkError("link-unsupported"));
+    var reader, chunks = [], size = 0;
+    try { reader = new Blob([unb64url(body)]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader(); } catch (e) { return Promise.reject(why(e)); }
+    function pump() {
+      return reader.read().then(function (r) {
+        if (r.done) {
+          var out = new Uint8Array(size), at = 0;
+          chunks.forEach(function (ch) { out.set(ch, at); at += ch.length; });
+          return done(fromUtf8(out));
+        }
+        size += r.value.length;
+        if (size > LINK_MAX) { reader.cancel(); throw linkError("link-broken"); }
+        chunks.push(r.value);
+        return pump();
+      });
+    }
+    return pump().catch(function (e) { throw why(e); });
   }
 
   function clone(s) { return JSON.parse(JSON.stringify(s)); }
 
   return {
-    KdlError: KdlError, ThemeError: ThemeError, ColorError: ColorError,
+    KdlError: KdlError, ThemeError: ThemeError, ColorError: ColorError, MSG: MSG, errorText: errorText, own: own,
     parseKdl: parseKdl, prop: prop, pv: pv, str: str, num: num, flag: flag, arg: arg,
     TOKENS: TOKENS, FALLBACK: FALLBACK, BACKS: BACKS, LEGIBLE: LEGIBLE, PREVIEWS: PREVIEWS, COMPONENTS: COMPONENTS,
     tokenName: tokenName, parseHex: parseHex, hexRgba: hexRgba, toHex: toHex, normHex: normHex, cssColor: cssColor,
@@ -1104,7 +1262,7 @@
     evalColor: evalColor, splitColors: splitColors, defaults: defaults, defaultRoles: defaultRoles, legibleText: legibleText,
     loadTheme: loadTheme, fromSource: fromSource, toKdl: toKdl, slug: slug, quote: q,
     setProp: setProp, listTweaks: listTweaks, structureOptions: structureOptions, findNode: findNode,
-    contrastReport: contrastReport, oklch: oklch, toOklch: toOklch, rng: rng,
+    contrastReport: contrastReport, layoutColorBlocks: layoutColorBlocks, effectiveColors: effectiveColors, oklch: oklch, toOklch: toOklch, rng: rng,
     generate: generate, randomSeed: randomSeed, imageColors: imageColors, seedFromImage: seedFromImage,
     seedFromColors: seedFromColors, fromPalette: fromPalette,
     encode: encode, encodeSync: encodeSync, decode: decode, compact: compact, expand: expand, clone: clone,
