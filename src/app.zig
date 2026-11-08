@@ -64,7 +64,8 @@ const quadro = @import("ui/quadro.zig");
 const send_limits = @import("ui/composer_limits.zig");
 const Debounce = @import("core/debounce.zig").Debounce;
 
-/// Op 14 do canal aberto: espera a escolha parar (Ctrl+Tab, cliques em sequência).
+/// Op 14 do canal aberto: o canal escolhido depois de uma pausa pede na hora;
+/// trocas seguidas (Ctrl+Tab, cliques em sequência) esperam a escolha parar.
 const sub_delay_ms = 250;
 const SubReq = struct { guild: types.Id, channel: types.Id, thread: types.Id };
 
@@ -175,7 +176,8 @@ pub const App = struct {
     qa_blur: bool = false,
     /// O QA quer o portão dos quadros valendo (não vai ler os pixels nesse trecho).
     qa_real_gate: bool = false,
-    /// A lista de membros do canal aberto (op 14) que ainda espera a escolha parar.
+    /// A lista de membros do canal aberto (op 14): sai na hora depois de uma
+    /// pausa, ou espera a escolha parar numa rajada de trocas.
     sub_wait: Debounce(SubReq) = .{},
 
     pub fn create(gpa: std.mem.Allocator, opts: Options) !*App {
@@ -970,17 +972,22 @@ pub const App = struct {
 
     /// Lista de membros do servidor, vista deste canal. Numa thread, a do
     /// canal pai (ela não tem lista própria no op 14), mais quem está nela.
-    /// Sai `sub_delay_ms` depois da última troca: passando por vários canais
-    /// em seguida, só o que ficou aberto pede.
+    /// Depois de `sub_delay_ms` sem trocar de canal, pede na hora (a lista não
+    /// fica em "carregando" à toa); passando por vários canais em seguida, o
+    /// resto espera e só o que ficou aberto pede.
     fn subscribeTo(app: *App, cs: anytype) void {
         if (cs.info.guild == 0) return;
         const parent = if (cs.info.thread != null) cs.info.parent orelse cs.info.id else cs.info.id;
-        app.sub_wait.set(.{ .guild = cs.info.guild, .channel = parent, .thread = if (cs.info.thread != null) cs.info.id else 0 }, now(), sub_delay_ms);
+        const req: SubReq = .{ .guild = cs.info.guild, .channel = parent, .thread = if (cs.info.thread != null) cs.info.id else 0 };
+        if (app.sub_wait.push(req, now(), sub_delay_ms)) |sr| app.sendSubscribe(sr);
     }
 
-    /// O pedido do op 14 que já esperou o bastante.
+    /// O fim de uma rajada de trocas, quando a escolha parou.
     fn flushSubscribe(app: *App) void {
-        const sr = app.sub_wait.take(now()) orelse return;
+        if (app.sub_wait.take(now())) |sr| app.sendSubscribe(sr);
+    }
+
+    fn sendSubscribe(app: *App, sr: SubReq) void {
         app.cmd(.{ .subscribe_guild = .{ .guild = sr.guild, .channel = sr.channel, .thread = sr.thread } });
     }
 
