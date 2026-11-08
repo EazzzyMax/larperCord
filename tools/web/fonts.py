@@ -29,18 +29,37 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 TEXT = [(0x20, 0x7E), (0xA0, 0x17F), (0x2000, 0x206F), (0x20A0, 0x20CF), (0x2100, 0x214F),
         (0x2190, 0x21FF), (0x2200, 0x22FF), (0x2300, 0x23FF), (0x2500, 0x25FF), (0x2600, 0x27BF)]
 
+# As faixas que ui/fonts.zig (`emoji_ranges`) tira das fontes do texto para o emoji
+# colorido desenhar: o que o emoji não tiver ali cai na fonte de símbolos, mesmo que a
+# Inter tenha (✓ ★ ♪ …).
+EMOJI_RANGES = [(0x2600, 0x27BF), (0x2B00, 0x2BFF), (0x1F000, 0x1FAFF)]
+
+# Onde a fonte de símbolos entra: pontuação, setas, técnico, formas, símbolos e dingbats,
+# e o � (a Inter não tem).
+SYMBOL_RANGES = [(0x2000, 0x206F), (0x2190, 0x27BF), (0x2B00, 0x2BFF), (0xFFFD, 0xFFFD)]
+
+
+def expand(ranges):
+    out = set()
+    for a, b in ranges:
+        out.update(range(a, b + 1))
+    return out
+
 
 def demo_emoji():
-    """Os emojis dos dados da demonstração (net/fake_*.zig, core/) e os da própria interface
-    (ui/, menos a lista inteira do seletor em emoji_data.zig)."""
+    """Os emojis que o executável pode mostrar sem vir de uma mensagem de verdade: os
+    dados da demonstração, a interface e os plugins incluídos (todo o src/ e
+    docs/plugins/, menos a lista inteira do seletor em emoji_data.zig e o QA)."""
     cps = set()
-    files = glob.glob(os.path.join(ROOT, "src/net/fake_*.zig")) + glob.glob(os.path.join(ROOT, "src/core/*.zig"))
-    files += [f for f in glob.glob(os.path.join(ROOT, "src/ui/*.zig")) + glob.glob(os.path.join(ROOT, "src/app*.zig")) if not f.endswith("emoji_data.zig")]
-    for f in files:
+    files = glob.glob(os.path.join(ROOT, "src/**/*.zig"), recursive=True) + glob.glob(os.path.join(ROOT, "docs/plugins/*.lua"))
+    files = [f for f in files if not f.endswith("emoji_data.zig") and not os.path.basename(f).startswith("qa")]
+    for f in sorted(files):
         with open(f, encoding="utf-8") as fh:
             for ch in fh.read():
                 o = ord(ch)
-                if o >= 0x1F000 or 0x2600 <= o <= 0x27BF or 0x2B00 <= o <= 0x2BFF:
+                # Das setas aos dingbats (⏰ ⏱ estão no técnico) e o plano dos emojis: o
+                # recorte guarda só o que a fonte de emoji tem.
+                if o >= 0x1F000 or 0x2190 <= o <= 0x2BFF:
                     cps.add(o)
     return cps
 
@@ -54,6 +73,15 @@ def match(pattern):
 def covered(pattern):
     path, index, _ = match(pattern)
     return set(TTFont(path, fontNumber=index, lazy=True).getBestCmap())
+
+
+def symbols_needed():
+    """O que a fonte de símbolos precisa ter: tudo das faixas dela que a Inter ou a
+    JetBrains Mono não desenham (ou que o app tira delas para o emoji). O app junta a
+    fonte de símbolos às duas, então a que tiver menos manda."""
+    emoji = expand(EMOJI_RANGES)
+    both = (covered("Inter:weight=80") & covered("JetBrains Mono:weight=80")) - emoji
+    return expand(SYMBOL_RANGES) - both
 
 
 def cut(src, index, unicodes, dest, keep_color=False):
@@ -79,9 +107,7 @@ def cut(src, index, unicodes, dest, keep_color=False):
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "zig-out", "web-fonts")
     os.makedirs(out, exist_ok=True)
-    text = set()
-    for a, b in TEXT:
-        text.update(range(a, b + 1))
+    text = expand(TEXT)
     jobs = [
         ("ui-regular.ttf", "Inter:weight=80", text),
         ("ui-medium.ttf", "Inter:weight=100", text),
@@ -90,8 +116,9 @@ def main():
         ("ui-italic.ttf", "Inter:weight=80:slant=100", text),
         ("mono.ttf", "JetBrains Mono:weight=80", text),
         ("mono-bold.ttf", "JetBrains Mono:weight=200", text),
-        # Só os símbolos que a Inter não tem (⌁ ▣ ◐ ♪ …): o resto ela já desenha.
-        ("symbols.ttf", "DejaVu Sans", set(range(0x2190, 0x27C0)) - covered("Inter:weight=80")),
+        # Só os símbolos que faltam às fontes do texto (⌁ ▣ ◐ ↳ ⁂ …) e os que o app tira
+        # delas para o emoji (✓ ★ ♪): o resto a Inter e a JetBrains Mono já desenham.
+        ("symbols.ttf", "DejaVu Sans", symbols_needed()),
         ("emoji.ttf", "emoji:color=true", demo_emoji()),
     ]
     total = 0
