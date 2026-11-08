@@ -1,6 +1,6 @@
 # Maintainer: RshaCuDeVidro
 pkgname=larpercord-bin
-pkgver=0.6.2
+pkgver=0.6.3
 pkgrel=1
 pkgdesc='Native Discord client in Zig, with SDL3 and Dear ImGui'
 arch=('x86_64')

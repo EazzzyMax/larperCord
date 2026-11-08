@@ -1,5 +1,13 @@
 # O que mudou em cada versão
 
+## 0.6.3
+
+**Chamadas**
+- Ser movido para outro canal de voz não tira mais você da call: o larperCord segue você até o canal novo.
+
+**Projeto**
+- Todos os arquivos de uma release agora são compilados no GitHub, cada um com o atestado de que saiu deste código.
+
 ## 0.6.2
 
 **Chamadas**

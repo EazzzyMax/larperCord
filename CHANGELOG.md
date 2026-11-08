@@ -1,5 +1,13 @@
 # What changed in each version
 
+## 0.6.3
+
+**Calls**
+- Being moved to another voice channel no longer drops you from the call: larperCord follows you to the new channel.
+
+**Project**
+- Every file in a release is now built on GitHub, each with an attestation that it came from this code.
+
 ## 0.6.2
 
 **Calls**
