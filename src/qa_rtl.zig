@@ -4,7 +4,8 @@
 //! mono sem árabe: as letras vêm das fontes reserva). O parágrafo da direita para a esquerda
 //! termina na borda direita da coluna do texto (no balão, na do balão) e o latino continua à
 //! esquerda, também numa mensagem com os dois. Selecionar e copiar devolvem o texto como foi
-//! escrito, não a ordem da tela, e o link no meio do árabe abre.
+//! escrito, não a ordem da tela, e o link no meio do árabe abre. Numa mensagem curta que
+//! continua o grupo, a barra de ações e o "id" do modo de desenvolvedor ficam fora do texto.
 const std = @import("std");
 const c = @import("c");
 const App = @import("app.zig").App;
@@ -252,6 +253,119 @@ fn linkOpened(_: *App) bool {
     return std.mem.eql(u8, att.last_opened[0..att.last_opened_len], gw.rtl_link);
 }
 
+// --- Mensagem curta que continua o grupo -------------------------------------------------
+
+/// "obrigado": curta, em árabe, da mesma pessoa da última mensagem do #música e 20 s depois
+/// dela. Continua o grupo: no layout cozy (e no compacto) não tem a linha do nome em cima, e a
+/// barra de ações cai na altura da primeira linha do texto.
+const short_rtl = "شكرا";
+var short_id: types.Id = 0;
+
+fn pushShort(app: *App) void {
+    const cs = app.store.channel(gw.rtl_channel) orelse return;
+    const items = cs.messages.items;
+    if (items.len == 0) return;
+    const last = &items[items.len - 1];
+    const content = std.heap.c_allocator.dupe(u8, short_rtl) catch return;
+    short_id = types.makeSnowflake(gw.nowMs(), 0x3e000);
+    app.events.push(.{ .message_create = .{ .id = short_id, .channel = gw.rtl_channel, .author = last.msg.author, .timestamp = last.msg.timestamp + 20, .content = content } });
+    @import("platform/window.zig").Window.wake(app.win.wake_type, .gateway);
+    app.st.scrollOf(gw.rtl_channel).stick_bottom = true;
+}
+
+fn tShort(_: *App, buf: []u8) []const u8 {
+    return std.fmt.bufPrint(buf, "msgtext:{d}", .{short_id}) catch "";
+}
+
+fn markOf(comptime fmt: []const u8, id: types.Id) ?Rect {
+    var b: [64]u8 = undefined;
+    return qa.find(std.fmt.bufPrint(&b, fmt, .{id}) catch return null);
+}
+
+/// Na tela, alinhada à direita e sem a linha do nome em cima (o texto começa no alto da linha
+/// dela; no cozy, a que abre o grupo tem o nome antes, e no balão, o nome fora dele).
+fn shortShown(_: *App) bool {
+    const row = markOf("msg:{d}", short_id) orelse return false;
+    const t = markOf("msgtext:{d}", short_id) orelse return false;
+    return t.y - row.y < 12 and linesRight(short_id, 0);
+}
+
+fn overlaps(a: Rect, b: Rect) bool {
+    return a.x < b.right() and b.x < a.right() and a.y < b.bottom() and b.y < a.bottom();
+}
+
+/// A barra de ações da mensagem: os botões e a borda dela em volta (ui/comp_messages.zig).
+fn barOf(id: types.Id) ?Rect {
+    var b: [64]u8 = undefined;
+    var lo_x: f32 = std.math.floatMax(f32);
+    var hi_x: f32 = 0;
+    var y: f32 = 0;
+    var seen = false;
+    for (0..8) |k| {
+        const r = qa.find(std.fmt.bufPrint(&b, "tb:{d}:{d}", .{ id, k }) catch return null) orelse continue;
+        lo_x = @min(lo_x, r.x);
+        hi_x = @max(hi_x, r.right());
+        y = r.y;
+        seen = true;
+    }
+    if (!seen) return null;
+    return .{ .x = lo_x - 4, .y = y - 2, .w = hi_x - lo_x + 8, .h = 36 };
+}
+
+/// Com o mouse em cima da mensagem curta, a barra de ações aparece e não cobre nada do texto.
+fn shortUncovered(_: *App) bool {
+    const t = markOf("msgtext:{d}", short_id) orelse return false;
+    const bar = barOf(short_id) orelse return false;
+    return !overlaps(bar, t);
+}
+
+/// O duplo clique no meio dela seleciona a palavra, não aperta um botão da barra (o de
+/// responder ficava bem ali).
+fn shortWordSelected(app: *App) bool {
+    const sel = &app.st.selection;
+    if (sel.a_id != short_id or sel.b_id != short_id) return false;
+    return @min(sel.a_off, sel.b_off) == 0 and @max(sel.a_off, sel.b_off) == short_rtl.len and app.st.reply_to != short_id;
+}
+
+var dev_before = false;
+var compact_before = false;
+
+fn devOn(app: *App) void {
+    dev_before = app.st.settings.developer_mode;
+    app.st.settings.developer_mode = true;
+}
+
+fn devBack(app: *App) void {
+    app.st.settings.developer_mode = dev_before;
+}
+
+/// O "id N" do modo de desenvolvedor (só no layout cozy) fica fora do texto: a linha de baixo
+/// termina na borda direita, onde ele costuma ficar.
+fn devIdClear(_: *App) bool {
+    const id = markOf("devid:{d}", short_id) orelse return qa.find("msg-layout:cozy") == null;
+    const t = markOf("msgtext:{d}", short_id) orelse return false;
+    return !overlaps(id, t);
+}
+
+fn compactOn(app: *App) void {
+    compact_before = app.st.settings.compact;
+    app.st.settings.compact = true;
+}
+
+fn compactBack(app: *App) void {
+    app.st.settings.compact = compact_before;
+}
+
+fn dropShort(app: *App) void {
+    app.events.push(.{ .message_delete = .{ .channel = gw.rtl_channel, .id = short_id, .local = true } });
+    @import("platform/window.zig").Window.wake(app.win.wake_type, .gateway);
+}
+
+fn shortGone(app: *App) bool {
+    const cs = app.store.channel(gw.rtl_channel) orelse return false;
+    return app.store.find(cs, short_id) == null;
+}
+
 fn goHome(app: *App) void {
     if (home != 0) app.handle(.{ .open_message = .{ .channel = home, .id = 0 } });
 }
@@ -304,6 +418,27 @@ pub const ops_theme = [_]Op{
     .{ .hover = .{ .dyn_at = .{ .f = tMixed, .fx = 0.5, .fy = -60 } } },
     .{ .wait = 1000 },
     .{ .shot = "rtl-mista" },
+    // Curta, em árabe, continuando o grupo: a barra de ações não esconde a frase nem pega o
+    // clique nela, e o "id" do modo de desenvolvedor fica fora dela; no compacto também.
+    run(pushShort),
+    expect("uma mensagem curta em árabe continua o grupo, alinhada à direita", shortShown),
+    .{ .hover = .{ .dyn_at = .{ .f = tShort, .fx = 0.5, .fy = 0.5 } } },
+    expect("com o mouse em cima, a barra de ações não cobre a mensagem curta", shortUncovered),
+    .{ .dclick = .{ .dyn_at = .{ .f = tShort, .fx = 0.5, .fy = 0.5 } } },
+    expect("o duplo clique no meio dela seleciona a palavra, sem responder", shortWordSelected),
+    .{ .key = .{ .key = c.ImGuiKey_Escape } },
+    run(devOn),
+    .{ .hover = .{ .dyn_at = .{ .f = tShort, .fx = 0.5, .fy = 0.5 } } },
+    expect("no modo de desenvolvedor, o id não fica em cima dela", devIdClear),
+    run(devBack),
+    run(compactOn),
+    .{ .wait = 300 },
+    .{ .hover = .{ .dyn_at = .{ .f = tShort, .fx = 0.5, .fy = 0.5 } } },
+    expect("no modo compacto, a barra de ações também não cobre a mensagem curta", shortUncovered),
+    .{ .shot = "rtl-curta" },
+    run(compactBack),
+    run(dropShort),
+    expect("a mensagem curta sai", shortGone),
     run(goHome),
     expect("volta para o canal de antes", atHome),
 };
