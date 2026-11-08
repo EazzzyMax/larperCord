@@ -219,6 +219,85 @@ pub fn media(dl: *c.ImDrawList, cx: f32, cy: f32, col: u32) void {
     c.ImDrawList_AddCircleFilled(dl, v(cx + 3.5, cy - 3), 1.5, col, 0);
 }
 
+// --- Pequenos, para a prévia de uma resposta ------------------------------------
+// Desenhados numa grade de 24, em `s` pixels por unidade (0,6 cabe numa linha de
+// texto de 13 px), centrados em (cx, cy). O traço acompanha o tamanho.
+
+const Grid = struct {
+    cx: f32,
+    cy: f32,
+    s: f32,
+    fn init(cx: f32, cy: f32, s: f32) Grid {
+        return .{ .cx = @round(cx), .cy = @round(cy), .s = s };
+    }
+    fn at(g: Grid, x: f32, y: f32) c.ImVec2 {
+        return v(g.cx + (x - 12) * g.s, g.cy + (y - 12) * g.s);
+    }
+    fn th(g: Grid) f32 {
+        return @max(1.2, 2.4 * g.s);
+    }
+    fn seg(g: Grid, dl: *c.ImDrawList, x1: f32, y1: f32, x2: f32, y2: f32, col: u32) void {
+        c.ImDrawList_AddLineEx(dl, g.at(x1, y1), g.at(x2, y2), col, g.th(), 0);
+    }
+};
+
+/// Folha com o canto dobrado e duas linhas de texto (arquivo).
+pub fn file(dl: *c.ImDrawList, cx: f32, cy: f32, s: f32, col: u32) void {
+    const g = Grid.init(cx, cy, s);
+    const pts = [_]c.ImVec2{ g.at(5, 2), g.at(14, 2), g.at(19, 7), g.at(19, 22), g.at(5, 22) };
+    c.ImDrawList_AddPolyline(dl, &pts[0], pts.len, col, g.th(), c.ImDrawFlags_Closed);
+    g.seg(dl, 14, 2, 14, 7, col);
+    g.seg(dl, 14, 7, 19, 7, col);
+    g.seg(dl, 8.5, 12.5, 15.5, 12.5, col);
+    g.seg(dl, 8.5, 17, 13.5, 17, col);
+}
+
+/// Foto com uma montanha e o sol (imagem ou vídeo).
+pub fn picture(dl: *c.ImDrawList, cx: f32, cy: f32, s: f32, col: u32) void {
+    const g = Grid.init(cx, cy, s);
+    c.ImDrawList_AddRectEx(dl, g.at(2, 4), g.at(22, 20), col, 3 * s, g.th(), 0);
+    const hill = [_]c.ImVec2{ g.at(5, 17), g.at(10, 11), g.at(13.5, 14.5), g.at(15.5, 12.5), g.at(19, 17) };
+    c.ImDrawList_AddPolyline(dl, &hill[0], hill.len, col, g.th(), 0);
+    c.ImDrawList_AddCircleFilled(dl, g.at(16.5, 8.5), 2 * s, col, 0);
+}
+
+/// Microfone em traço (mensagem de voz).
+pub fn voice(dl: *c.ImDrawList, cx: f32, cy: f32, s: f32, col: u32) void {
+    const g = Grid.init(cx, cy, s);
+    c.ImDrawList_AddRectEx(dl, g.at(8.5, 2), g.at(15.5, 14), col, 3.5 * s, g.th(), 0);
+    c.ImDrawList_PathClear(dl);
+    c.ImDrawList_PathArcTo(dl, g.at(12, 11), 6.5 * s, 0, pi, 0);
+    c.ImDrawList_PathStroke(dl, col, g.th(), 0);
+    g.seg(dl, 12, 17.5, 12, 22, col);
+    g.seg(dl, 8.5, 22, 15.5, 22, col);
+}
+
+/// Figurinha: um quadrado com a ponta descolando e uma carinha.
+pub fn sticker(dl: *c.ImDrawList, cx: f32, cy: f32, s: f32, col: u32) void {
+    const g = Grid.init(cx, cy, s);
+    const pts = [_]c.ImVec2{ g.at(3, 3), g.at(21, 3), g.at(21, 15), g.at(15, 21), g.at(3, 21) };
+    c.ImDrawList_AddPolyline(dl, &pts[0], pts.len, col, g.th(), c.ImDrawFlags_Closed);
+    g.seg(dl, 15, 21, 15, 15, col);
+    g.seg(dl, 15, 15, 21, 15, col);
+    c.ImDrawList_AddCircleFilled(dl, g.at(8, 8.5), 1.8 * s, col, 0);
+    c.ImDrawList_AddCircleFilled(dl, g.at(14.5, 8.5), 1.8 * s, col, 0);
+    c.ImDrawList_PathClear(dl);
+    c.ImDrawList_PathArcTo(dl, g.at(11.25, 10.5), 4.6 * s, pi * 0.2, pi * 0.8, 0);
+    c.ImDrawList_PathStroke(dl, col, g.th(), 0);
+}
+
+/// Enquete: três barras de tamanhos diferentes.
+pub fn poll(dl: *c.ImDrawList, cx: f32, cy: f32, s: f32, col: u32) void {
+    const g = Grid.init(cx, cy, s);
+    const h = 1.8 * s;
+    // Cada barra: a altura dela e até onde vai (todas começam no 3).
+    for ([_][2]f32{ .{ 6, 20 }, .{ 12, 13 }, .{ 18, 17 } }) |b| {
+        const a = g.at(3, b[0]);
+        const z = g.at(b[1], b[0]);
+        c.ImDrawList_AddRectFilledEx(dl, v(a.x, a.y - h), v(z.x, z.y + h), col, h, 0);
+    }
+}
+
 /// Thread: o balão pequeno com uma linha saindo dele.
 pub fn thread(dl: *c.ImDrawList, cx: f32, cy: f32, col: u32) void {
     const th: f32 = 1.6;

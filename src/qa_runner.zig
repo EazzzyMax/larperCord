@@ -3047,6 +3047,7 @@ const ops_theme = [_]Op{
     .{ .text = "zig" },
     key(c.ImGuiKey_Enter),
     expect("paleta abre o canal", onZig),
+} ++ qa_temas.ops_reply ++ [_]Op{
     ctrl(c.ImGuiKey_I),
     expect("Ctrl+I abre a caixa de entrada", inboxOpen),
     .{ .shot = "tema-caixa" },

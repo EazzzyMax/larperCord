@@ -1,6 +1,7 @@
 //! QA das primitivas novas dos temas (entra na bateria por tema do qa_runner.zig):
 //! textura gerada uma vez, tema parado que não pede quadros, movimento lento que
 //! obedece a "reduzir movimento" e as marcas de cada tema que usa alguma coisa.
+//! Também a prévia da resposta a uma mensagem sem texto, em cada tema.
 const std = @import("std");
 const c = @import("c");
 const App = @import("app.zig").App;
@@ -10,6 +11,10 @@ const qa = @import("ui/qa.zig");
 const fx = @import("ui/fx.zig");
 const anim = @import("ui/anim.zig");
 const extra = @import("ui/comp_extra.zig");
+const messages = @import("ui/comp_messages.zig");
+const gw = @import("net/fake_gateway.zig");
+const types = @import("core/types.zig");
+const reply_preview = @import("core/reply_preview.zig");
 
 fn expect(name: []const u8, f: *const fn (*App) bool) Op {
     return .{ .expect = .{ .name = name, .check = f } };
@@ -180,3 +185,116 @@ pub const ops_motion = [_]Op{
 
 pub const ops_resize_before = [_]Op{.{ .run = remember }};
 pub const ops_resize_after = [_]Op{expect("redimensionar refaz só o que depende do tamanho", fewNewTextures)};
+
+// --- Prévia da resposta a uma mensagem sem texto -----------------------------------
+// No #zig da demonstração (fake_gateway.zig `demoReplyPreviews`) há respostas a um
+// arquivo sozinho, a uma mensagem de voz, a uma figurinha, a uma imagem e a um
+// cartão de bot. A linha da resposta mostra o ícone e o que a original tem (nos
+// temas de terminal, a etiqueta entre colchetes), e o clique nela leva à original.
+
+var reply_id: types.Id = 0;
+var orig_id: types.Id = 0;
+
+fn zigLoaded(app: *App) bool {
+    const cs = app.store.channel(gw.reply_preview_channel) orelse return false;
+    return app.st.activeChannel() == gw.reply_preview_channel and cs.history == .loaded;
+}
+
+/// Temas só de texto: a prévia vem sem ícone.
+fn textOnly(app: *App) bool {
+    return themeIs(app, "terminal") or themeIs(app, "subsolo");
+}
+
+/// Vai até a resposta cuja original (sem texto) é do tipo `kind`.
+fn jumpToReply(app: *App, kind: reply_preview.Kind) void {
+    reply_id = 0;
+    const cs = app.store.channel(gw.reply_preview_channel) orelse return;
+    for (cs.messages.items) |*m| {
+        if (m.msg.reply_to == 0) continue;
+        const f = app.store.find(cs, m.msg.reply_to) orelse continue;
+        const lb = reply_preview.of(&f.msg);
+        if (lb.kind != kind) continue;
+        if (kind == .file and !std.mem.eql(u8, lb.text, gw.reply_preview_file)) continue;
+        reply_id = m.msg.id;
+        orig_id = f.msg.id;
+        app.handle(.{ .jump_to = reply_id });
+        return;
+    }
+}
+fn toFile(app: *App) void {
+    jumpToReply(app, .file);
+}
+fn toVoice(app: *App) void {
+    jumpToReply(app, .voice);
+}
+fn toSticker(app: *App) void {
+    jumpToReply(app, .sticker);
+}
+fn toImage(app: *App) void {
+    jumpToReply(app, .image);
+}
+fn toEmbed(app: *App) void {
+    jumpToReply(app, .embed);
+}
+
+/// A linha da resposta tem a marca do tipo e o ícone desenhado (no terminal,
+/// sem ícone e com a etiqueta em texto).
+fn kindShown(app: *App, kind: reply_preview.Kind) bool {
+    if (reply_id == 0) return false;
+    var kb: [64]u8 = undefined;
+    const k = std.fmt.bufPrint(&kb, "reply-kind:{d}:{s}", .{ reply_id, @tagName(kind) }) catch return false;
+    if (qa.find(k) == null) return false;
+    var ib: [48]u8 = undefined;
+    const icon = std.fmt.bufPrint(&ib, "reply-icon:{d}", .{reply_id}) catch return false;
+    const has_icon = qa.find(icon) != null;
+    // Embed mostra o título, sem ícone.
+    if (kind == .embed or textOnly(app)) return !has_icon and R.hasInk(app, k);
+    return has_icon and R.hasInk(app, icon);
+}
+fn fileShown(app: *App) bool {
+    return kindShown(app, .file);
+}
+fn voiceShown(app: *App) bool {
+    return kindShown(app, .voice);
+}
+fn stickerShown(app: *App) bool {
+    return kindShown(app, .sticker);
+}
+fn imageShown(app: *App) bool {
+    return kindShown(app, .image);
+}
+fn embedShown(app: *App) bool {
+    return kindShown(app, .embed);
+}
+
+fn tReplyLine(_: *App, b: []u8) []const u8 {
+    return std.fmt.bufPrint(b, "reply-line:{d}", .{reply_id}) catch "";
+}
+fn jumpedToOriginal(app: *App) bool {
+    var b: [40]u8 = undefined;
+    const m = std.fmt.bufPrint(&b, "msg:{d}", .{orig_id}) catch return false;
+    return app.st.jump == 0 and messages.jumpedTo() == orig_id and qa.find(m) != null;
+}
+fn backToBottom(app: *App) void {
+    app.st.scrollOf(gw.reply_preview_channel).stick_bottom = true;
+}
+
+pub const ops_reply = [_]Op{
+    .{ .expect = .{ .name = "o #zig abre com as respostas da demonstração", .check = zigLoaded, .timeout_ms = 4000 } },
+    .{ .run = toVoice },
+    expect("resposta a uma mensagem de voz: microfone e \"Mensagem de voz\"", voiceShown),
+    .{ .run = toSticker },
+    expect("resposta a uma figurinha: ícone e o nome dela", stickerShown),
+    .{ .run = toImage },
+    expect("resposta a uma imagem: ícone e \"Clique para ver o anexo\"", imageShown),
+    .{ .run = toEmbed },
+    expect("resposta a um cartão de bot: o título dele", embedShown),
+    .{ .run = toFile },
+    expect("resposta a um arquivo sozinho: ícone e o nome do arquivo", fileShown),
+    // O destaque do pulo apaga antes do print.
+    .{ .wait = 1700 },
+    .{ .shot = "resposta" },
+    .{ .click = .{ .dyn = tReplyLine } },
+    expect("o clique na prévia leva ao arquivo", jumpedToOriginal),
+    .{ .run = backToBottom },
+};
