@@ -12,6 +12,7 @@ test {
     _ = @import("core/gif_quadros.zig");
     _ = @import("core/entrada.zig");
     _ = @import("platform/debug_log.zig");
+    _ = @import("platform/ffmpeg_busca.zig");
     _ = @import("core/types.zig");
     _ = @import("core/ritmo.zig");
     _ = @import("core/mem_use.zig");

@@ -1080,7 +1080,7 @@ pub const Store = struct {
     pub fn apply(s: *Store, ev: Event, now_ms: i64) !void {
         // O que chega o tempo todo e não aparece na caixa de entrada não conta.
         switch (ev) {
-            .typing_start, .presence_update, .voice_state, .voice_member_flags, .voice_speaking, .voice_ping, .voice_audio, .voice_status, .call, .latency, .status, .notice, .member_list, .profile, .relationship, .note, .app_icon, .pins, .pins_changed, .invite, .read, .thread_members, .thread_joined, .thread_open, .threads_page, .conta => {},
+            .typing_start, .presence_update, .voice_state, .voice_member_flags, .voice_speaking, .voice_ping, .voice_audio, .voice_status, .call, .latency, .status, .net_fail, .notice, .member_list, .profile, .relationship, .note, .app_icon, .pins, .pins_changed, .invite, .read, .thread_members, .thread_joined, .thread_open, .threads_page, .conta => {},
             else => s.rev +%= 1,
         }
         switch (ev) {
@@ -1279,6 +1279,7 @@ pub const Store = struct {
             },
             .latency => |l| s.latency_ms = l,
             .status => |st| s.connection = st,
+            .net_fail => {},
             .notice => |n| ev_alloc.free(n),
             .send_failed => |f| if (s.pendingByNonce(f.channel, f.nonce)) |m| {
                 m.failed = true;

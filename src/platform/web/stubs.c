@@ -168,6 +168,12 @@ void SDL_ShowOpenFileDialog(SDL_DialogFileCallback callback, void *userdata, SDL
     if (callback) callback(userdata, NULL, -1);
 }
 
+void SDL_ShowOpenFolderDialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window, const char *default_location, bool allow_many) {
+    (void)window; (void)default_location; (void)allow_many;
+    SDL_Unsupported();
+    if (callback) callback(userdata, NULL, -1);
+}
+
 /* --- Sockets: no Emscripten o connect() e o sendto() viram um WebSocket para o
  * endereço pedido. A demonstração não usa rede (o gateway é de mentira), mas o código
  * da voz, do Rich Presence e do TCP local está no executável: aqui nenhum socket abre,

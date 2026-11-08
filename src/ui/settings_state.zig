@@ -16,6 +16,7 @@ pub const Page = enum {
     notificacoes,
     atalhos,
     idioma,
+    rede,
     avancado,
     desempenho,
     lsp,
@@ -94,6 +95,9 @@ pub const Settings = struct {
     md_preview: bool = true,
     /// Canal com não lidas abre na primeira delas, como no Discord (senão, no fim).
     open_at_unread: bool = true,
+    /// Pasta com as bibliotecas do FFmpeg escolhida à mão (vazia = procurar sozinho;
+    /// platform/ffmpeg.zig). Só entra uma pasta conferida.
+    ffmpeg_dir: Text = .{},
 
     // Largura dos painéis (ui/resize.zig): quanto a pessoa alargou em relação ao
     // que o tema pede, em pixels, e as divisas da tela dividida, em milésimos.
@@ -106,7 +110,7 @@ pub const Settings = struct {
     /// Pergunta ao GitHub se há versão nova ao abrir o app.
     check_updates: bool = true,
 
-    // Privacidade
+    // Privacidade (o proxy fica na página Rede)
     send_typing: bool = true,
     /// Mensagens apagadas ficam na tela (marcadas) e as editadas guardam o
     /// texto original. Só neste computador.
@@ -507,6 +511,7 @@ test "configurações vão e voltam pelo KDL" {
     s.language = 2;
     s.proxy.set("socks5h://127.0.0.1:9050");
     s.emoji_recent.set("😀 ❤️ pepe:12");
+    s.ffmpeg_dir.set("C:\\Program Files\\ffmpeg \"shared\"\\bin");
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(std.testing.allocator);
     try write(&s, "vidro", &out, std.testing.allocator);
@@ -521,6 +526,7 @@ test "configurações vão e voltam pelo KDL" {
     try std.testing.expectEqual(@as(u8, 2), back.language);
     try std.testing.expectEqualStrings("socks5h://127.0.0.1:9050", back.proxy.slice());
     try std.testing.expectEqualStrings("😀 ❤️ pepe:12", back.emoji_recent.slice());
+    try std.testing.expectEqualStrings("C:\\Program Files\\ffmpeg \"shared\"\\bin", back.ffmpeg_dir.slice());
     try std.testing.expectEqualStrings("vidro", nodes[0].str("theme").?);
 }
 
