@@ -153,10 +153,11 @@ pub const App = struct {
     tray_misses: u8 = 0,
     /// A janela está escondida na bandeja (fechou, ou clicou no ícone).
     in_tray: bool = false,
-    /// O ícone que está lá é o de "Ícone sempre na bandeja" (ver `syncTray`).
+    /// O ícone que está lá é o de "Fechar para a bandeja", que fica da abertura até
+    /// sair (ver `syncTray`).
     tray_kept: bool = false,
     /// A opção como estava na volta anterior do laço: ligar tenta na hora.
-    tray_always_was: bool = false,
+    tray_on_was: bool = false,
     /// Idioma dos rótulos do menu do ícone que está lá.
     tray_lang: i18n.Lang = .pt,
     /// Quando tentar pôr o ícone de novo (SDL_GetTicks) e quantas vezes já tentou.
@@ -318,9 +319,9 @@ pub const App = struct {
         updater.offline = opts.qa;
         updater.cleanLeftovers();
         if (opts.qa) tray.fake = false;
-        // O ícone de "sempre na bandeja" espera a janela aparecer: perguntar pelo
-        // painel e abrir o processo do ícone não atrasam o primeiro quadro.
-        app.tray_always_was = app.st.settings.tray_always;
+        // O ícone da bandeja espera a janela aparecer: perguntar pelo painel e abrir
+        // o processo do ícone não atrasam o primeiro quadro.
+        app.tray_on_was = app.st.settings.close_to_tray;
         app.tray_retry_ms = c.SDL_GetTicks() + 1500;
         timeline.mark(.create_fim);
         return app;
@@ -353,9 +354,9 @@ pub const App = struct {
     }
 
     /// Volta da bandeja (ou traz para a frente, se a janela já estava aberta). Com
-    /// "Ícone sempre na bandeja" o ícone fica; desligada, ele só existia para voltar.
+    /// "Fechar para a bandeja" ligado o ícone fica; desligado, não há ícone para tirar.
     fn showWindow(app: *App) void {
-        if (!app.st.settings.tray_always) tray.hide();
+        if (!app.st.settings.close_to_tray) tray.hide();
         app.in_tray = false;
         app.tray_misses = 0;
         _ = c.SDL_ShowWindow(app.win.window);
@@ -391,22 +392,22 @@ pub const App = struct {
         }
     }
 
-    /// "Ícone sempre na bandeja": o ícone aparece com a opção ligada (na abertura,
-    /// depois do primeiro quadro) e some quando ela desliga. Desligada desde o
-    /// começo, aqui só se compara: o ícone existe só com a janela escondida.
+    /// "Fechar para a bandeja": com a opção ligada o ícone aparece na abertura (depois
+    /// do primeiro quadro) e fica até sair; desligar tira o ícone e o processo dele.
+    /// Desligada desde o começo, aqui só se compara: nenhum ícone, e fechar sai.
     fn syncTray(app: *App) void {
         if (app.opts.shot != null or app.restart_wanted) return;
-        const always = app.st.settings.tray_always;
-        if (always != app.tray_always_was) {
+        const on = app.st.settings.close_to_tray;
+        if (on != app.tray_on_was) {
             // Acabou de mudar nas Configurações: tenta já, do zero.
-            app.tray_always_was = always;
+            app.tray_on_was = on;
             app.tray_retry_ms = 0;
             app.tray_tries = 0;
         }
         const active = tray.active();
         // O ícone de uma ida à bandeja vira o da opção.
-        if (always and active and !app.in_tray) app.tray_kept = true;
-        switch (janela.trayIcon(always, app.tray_kept, app.in_tray, active, app.tray_lang != i18n.current())) {
+        if (on and active and !app.in_tray) app.tray_kept = true;
+        switch (janela.trayIcon(on, app.tray_kept, app.in_tray, active, app.tray_lang != i18n.current())) {
             .nada => {},
             .tirar => {
                 tray.hide();
@@ -2642,8 +2643,8 @@ pub const App = struct {
                             app.plugins.drain();
                             // O painel sumiu com a janela escondida (fechou, travou):
                             // a janela volta em vez de ficar sem caminho de volta. Com a
-                            // janela aberta não se pergunta: o ícone de "sempre na bandeja"
-                            // volta sozinho ao painel quando ele voltar.
+                            // janela aberta não se pergunta: o ícone de "Fechar para a
+                            // bandeja" volta sozinho ao painel quando ele voltar.
                             if (app.in_tray) {
                                 app.tray_misses = if (tray.hostAvailable()) 0 else app.tray_misses + 1;
                                 if (app.tray_misses >= janela.tray_misses_max) app.showWindow();

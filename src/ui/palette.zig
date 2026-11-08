@@ -139,7 +139,6 @@ const toggle_names = [_]struct { field: []const u8, pt: []const u8, en: []const 
     .{ .field = "developer_mode", .pt = "Modo desenvolvedor", .en = "Developer Mode" },
     .{ .field = "hot_reload", .pt = "Recarregar temas ao salvar", .en = "Reload themes on save" },
     .{ .field = "close_to_tray", .pt = "Fechar para a bandeja", .en = "Close to tray" },
-    .{ .field = "tray_always", .pt = "Ícone sempre na bandeja", .en = "Always show tray icon" },
 };
 
 fn toggleName(field: []const u8) ?[]const u8 {

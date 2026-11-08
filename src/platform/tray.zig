@@ -1,7 +1,7 @@
-//! O ícone na bandeja do sistema, pelo SDL_CreateTray. Com "Ícone sempre na
+//! O ícone na bandeja do sistema, pelo SDL_CreateTray. Com "Fechar para a
 //! bandeja" (o padrão, como no Discord) ele fica da abertura até sair; com a opção
-//! desligada, só existe com a janela escondida, e com ela aberta nada fica
-//! carregado nem acordando o app.
+//! desligada não há ícone nenhum, nada fica carregado nem acordando o app, e
+//! fechar a janela sai.
 //!
 //! No Linux ele mora em outro processo (`--tray-helper`). O protocolo não tem como
 //! tirar um ícone do registro: ele só sai quando a conexão D-Bus de quem o criou
@@ -77,7 +77,7 @@ fn build(open_label: [*:0]const u8, quit_label: [*:0]const u8, on_open: c.SDL_Tr
 
 /// Põe o ícone. Falso: não tem como; fechar precisa sair de verdade.
 /// `wait`: só volta com o ícone no painel (ou sem ele), que é o que a janela
-/// precisa para sumir. Sem esperar (o "sempre na bandeja" na abertura), o processo
+/// precisa para sumir. Sem esperar (o ícone da abertura), o processo
 /// do ícone sobe por trás e, se não der certo, avisa com `.tray_gone`.
 pub fn show(wake: u32, open_label: [*:0]const u8, quit_label: [*:0]const u8, wait: bool) bool {
     if (tray != null or fake_on) return true;

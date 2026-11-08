@@ -38,14 +38,16 @@ pub fn trayClickCounts(since_last_ms: i64, double_click_ms: i64) bool {
     return since_last_ms < 0 or since_last_ms >= double_click_ms;
 }
 
-/// O que fazer com o ícone de "sempre na bandeja" agora. `kept`: o ícone que está
-/// lá é o desta opção (e não só o de uma ida à bandeja).
+/// O que fazer com o ícone da bandeja agora. `on`: "Fechar para a bandeja", que
+/// deixa o ícone lá da abertura até sair. `kept`: o ícone que está lá já é o da
+/// opção (e não só o de uma ida à bandeja que acabou de acontecer).
 pub const Icone = enum { nada, criar, tirar, refazer };
 
-pub fn trayIcon(always: bool, kept: bool, in_tray: bool, active: bool, lang_changed: bool) Icone {
+pub fn trayIcon(on: bool, kept: bool, in_tray: bool, active: bool, lang_changed: bool) Icone {
     // Escondida, quem cuida do ícone é a volta da bandeja: tirar seria perder o caminho de volta.
     if (in_tray) return .nada;
-    if (!always) return if (kept and active) .tirar else .nada;
+    // Desligada: nenhum ícone nem processo dele com a janela aberta.
+    if (!on) return if (active) .tirar else .nada;
     if (!active) return .criar;
     // Os rótulos do menu são do idioma de quando o ícone nasceu.
     return if (kept and lang_changed) .refazer else .nada;
@@ -134,7 +136,7 @@ test "clique duplo no ícone conta uma vez" {
     try std.testing.expect(!trayClickCounts(499, 500));
 }
 
-test "ícone sempre na bandeja: quando criar, tirar e refazer" {
+test "ícone na bandeja: quando criar, tirar e refazer" {
     // Opção ligada, janela aberta: cria se não há ícone; com ele lá, nada.
     try std.testing.expectEqual(Icone.criar, trayIcon(true, false, false, false, false));
     try std.testing.expectEqual(Icone.nada, trayIcon(true, true, false, true, false));
@@ -142,12 +144,12 @@ test "ícone sempre na bandeja: quando criar, tirar e refazer" {
     try std.testing.expectEqual(Icone.nada, trayIcon(true, false, false, true, true));
     // Trocou o idioma: refaz para o menu acompanhar.
     try std.testing.expectEqual(Icone.refazer, trayIcon(true, true, false, true, true));
-    // Desligou: tira o ícone da opção; sem ícone, não há o que tirar.
+    // Desligou: tira o ícone, seja de quem for; sem ícone, não há o que tirar.
     try std.testing.expectEqual(Icone.tirar, trayIcon(false, true, false, true, false));
+    try std.testing.expectEqual(Icone.tirar, trayIcon(false, false, false, true, true));
     try std.testing.expectEqual(Icone.nada, trayIcon(false, true, false, false, false));
-    // Desligada desde sempre: nada (o de hoje: ícone só com a janela escondida).
+    // Desligada desde sempre: nada, nem ícone nem processo.
     try std.testing.expectEqual(Icone.nada, trayIcon(false, false, false, false, false));
-    try std.testing.expectEqual(Icone.nada, trayIcon(false, false, false, true, false));
     // Na bandeja nunca mexe, com qualquer combinação.
     for ([_]bool{ true, false }) |a| for ([_]bool{ true, false }) |k| for ([_]bool{ true, false }) |act| {
         try std.testing.expectEqual(Icone.nada, trayIcon(a, k, true, act, true));

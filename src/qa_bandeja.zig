@@ -1,5 +1,5 @@
-//! QA das listas flutuantes (ui/dropdown.zig), do fechar para a bandeja, do ícone
-//! sempre na bandeja e do pedido de reinício. Aqui a bandeja é de mentira
+//! QA das listas flutuantes (ui/dropdown.zig), do fechar para a bandeja (o ícone
+//! fica lá da abertura até sair) e do pedido de reinício. Aqui a bandeja é de mentira
 //! (`tray.fake`): o ícone de verdade, o menu e o segundo larperCord quem testa é
 //! tools/qa_bandeja.py, com processos reais e um painel falso no D-Bus.
 //!
@@ -175,7 +175,7 @@ fn trayOk(_: *App) void {
 }
 fn trayFails(_: *App) void {
     tray.fake = false;
-    // Sem painel não há ícone (o de "sempre na bandeja" de uma bateria anterior sai).
+    // Sem painel não há ícone (o de uma bateria anterior sai).
     tray.hide();
 }
 fn wakeShow(app: *App) void {
@@ -190,25 +190,13 @@ fn hiddenFlag(app: *App) bool {
 pub fn isHidden(app: *App) bool {
     return hiddenFlag(app) and tray.active();
 }
-fn isShown(app: *App) bool {
-    return !hiddenFlag(app) and !tray.active();
-}
 /// A rede continua sendo atendida com a janela escondida.
 fn keepsWorking(app: *App) bool {
     return hiddenFlag(app) and app.store.ready;
 }
-fn optionOnByDefault(app: *App) bool {
-    return app.st.settings.close_to_tray;
-}
 fn openAdvanced(app: *App) void {
     app.st.settings.open = true;
     app.st.settings.page = .avancado;
-}
-fn optionOff(app: *App) bool {
-    return !app.st.settings.close_to_tray;
-}
-fn optionShown(_: *App) bool {
-    return qa.find("toggle:Fechar para a bandeja") != null;
 }
 /// Opção desligada: a janela nem chega a esconder. Sem sair daqui, porque esta
 /// bateria continua; o sair de verdade é da bateria `bandeja-sair`.
@@ -219,33 +207,34 @@ fn inVoice(app: *App) bool {
     return app.st.voice != null;
 }
 
-// --- Ícone sempre na bandeja ---------------------------------------------------
+// --- Fechar para a bandeja: o ícone da abertura até sair -----------------------
 
-const always_toggle = "toggle:Ícone sempre na bandeja";
-const always_off = "toggle-off:Ícone sempre na bandeja";
+const option_on = "toggle:Fechar para a bandeja";
+const option_off = "toggle-off:Fechar para a bandeja";
 
-fn alwaysOnByDefault(app: *App) bool {
-    return app.st.settings.tray_always;
+fn optionOnByDefault(app: *App) bool {
+    return app.st.settings.close_to_tray;
 }
 fn noIcon(_: *App) bool {
     return !tray.active();
 }
 /// Sem painel: a opção aparece apagada, com o motivo embaixo.
-fn alwaysUnavailable(app: *App) bool {
-    return qa.find(always_off) != null and qa.find(always_toggle) == null and qa.find("tray-unavailable") != null and app.st.settings.tray_always;
+fn optionUnavailable(app: *App) bool {
+    return qa.find(option_off) != null and qa.find(option_on) == null and qa.find("tray-unavailable") != null and app.st.settings.close_to_tray;
 }
 fn clickDidNothing(app: *App) bool {
-    return app.st.settings.tray_always and !tray.active();
+    return app.st.settings.close_to_tray and !tray.active();
 }
-fn alwaysAvailable(_: *App) bool {
-    return qa.find(always_toggle) != null and qa.find(always_off) == null and qa.find("tray-unavailable") == null;
+fn optionAvailable(_: *App) bool {
+    return qa.find(option_on) != null and qa.find(option_off) == null and qa.find("tray-unavailable") == null;
 }
-fn alwaysOffNoIcon(app: *App) bool {
-    return !app.st.settings.tray_always and !tray.active();
+/// Desligada: nenhum ícone com a janela aberta (no Linux, nenhum processo dele).
+fn offNoIcon(app: *App) bool {
+    return !app.st.settings.close_to_tray and !tray.active() and !hiddenFlag(app);
 }
 /// O ícone de pé com a janela aberta: o que a opção promete.
 fn iconWithWindowOpen(app: *App) bool {
-    return app.st.settings.tray_always and tray.active() and !hiddenFlag(app) and !app.in_tray;
+    return app.st.settings.close_to_tray and tray.active() and !hiddenFlag(app) and !app.in_tray;
 }
 fn clickIcon(app: *App) void {
     platform.Window.wake(app.win.wake_type, .toggle);
@@ -258,31 +247,13 @@ fn clickShowed(app: *App) bool {
 }
 fn closeToTrayOff(app: *App) void {
     app.st.settings.close_to_tray = false;
-    app.tray_click = null;
-}
-fn closeToTrayOn(app: *App) void {
-    app.st.settings.close_to_tray = true;
-}
-/// No driver offscreen o SDL não minimiza de verdade: confere a decisão, e que a
-/// janela não foi para a bandeja.
-fn clickMinimized(app: *App) bool {
-    return app.tray_click == .minimizar and !hiddenFlag(app) and !app.in_tray and tray.active();
-}
-fn restoreWindow(app: *App) void {
-    _ = c.SDL_RestoreWindow(app.win.window);
 }
 fn hiddenKeepsIcon(app: *App) bool {
     return hiddenFlag(app) and app.in_tray and tray.active() and app.tray_kept;
 }
-fn alwaysOff(app: *App) void {
-    app.st.settings.tray_always = false;
-}
-fn alwaysOn(app: *App) void {
-    app.st.settings.tray_always = true;
-}
-/// Põe o ícone já, sem esperar a próxima tentativa.
-fn alwaysNow(app: *App) void {
-    app.st.settings.tray_always = true;
+/// Liga e põe o ícone já, sem esperar a próxima tentativa.
+fn iconNow(app: *App) void {
+    app.st.settings.close_to_tray = true;
     app.tray_retry_ms = 0;
 }
 fn demand(app: *App) void {
@@ -360,68 +331,48 @@ pub const ops = [_]Op{
     expect("Esc fecha a lista e não o cartão", roleListClosedCardOpen),
     run(stopBeingOwner),
 
-    s("ícone sempre na bandeja: a opção"),
-    expect("ligado por padrão", alwaysOnByDefault),
+    s("fechar para a bandeja: a opção"),
+    expect("ligado por padrão", optionOnByDefault),
     run(trayFails),
     run(openAdvanced),
-    expect("sem painel: a opção aparece indisponível, com o motivo", alwaysUnavailable),
+    expect("sem painel: a opção aparece indisponível, com o motivo", optionUnavailable),
     expect("e nenhum ícone", noIcon),
     shot("bandeja-indisponivel"),
-    click(always_off),
+    click(option_off),
     .{ .wait = 200 },
     expect("indisponível, o clique não muda nada", clickDidNothing),
     run(trayOk),
-    expect("com painel, a opção fica disponível", alwaysAvailable),
-    click(always_toggle),
-    expect("o interruptor desliga a opção, sem ícone", alwaysOffNoIcon),
-    click(always_toggle),
+    expect("com painel, a opção fica disponível", optionAvailable),
+    click(option_on),
+    expect("o interruptor desliga a opção e tira o ícone", offNoIcon),
+    click(option_on),
     expect("ligar põe o ícone com a janela aberta", iconWithWindowOpen),
-    shot("bandeja-sempre"),
+    shot("bandeja-ligada"),
     run(closeSettings),
 
-    s("ícone sempre na bandeja: clique no ícone"),
+    s("fechar para a bandeja: clique no ícone"),
     run(clickIcon),
     expect("aberta: o clique esconde na bandeja", clickHid),
     .{ .wait = 300 },
     expect("escondida, continua de pé e conectada", keepsWorking),
     run(clickIcon),
     expect("escondida: o clique traz a janela e o ícone fica", clickShowed),
-    run(closeToTrayOff),
-    run(clickIcon),
-    expect("sem fechar para a bandeja: o clique minimiza", clickMinimized),
-    run(restoreWindow),
-    run(closeToTrayOn),
     .{ .wait = 300 },
 
-    s("ícone sempre na bandeja: fechar, Abrir e um segundo larperCord"),
+    s("fechar para a bandeja: fechar, Abrir e um segundo larperCord"),
     run(pushClose),
     expect("fechar esconde a janela e o mesmo ícone fica", hiddenKeepsIcon),
+    .{ .wait = 300 },
+    expect("escondida, continua de pé e conectada", keepsWorking),
     run(wakeShow),
     expect("Abrir volta a janela e o ícone fica", iconWithWindowOpen),
     run(wakeShow),
     expect("Abrir (ou um segundo larperCord) com a janela aberta: nada muda", iconWithWindowOpen),
-    run(alwaysOff),
-    expect("desligar tira o ícone com a janela aberta", alwaysOffNoIcon),
-
-    // Daqui em diante, a opção desligada: exatamente o de antes dela.
-    s("fechar para a bandeja"),
-    expect("ligado por padrão", optionOnByDefault),
-    run(openAdvanced),
-    expect("a opção está em Avançado", optionShown),
-    click("toggle:Fechar para a bandeja"),
-    expect("o interruptor desliga a opção", optionOff),
-    click("toggle:Fechar para a bandeja"),
-    expect("e liga de novo", optionOnByDefault),
-    run(closeSettings),
-    run(trayOk),
-    run(pushClose),
-    expect("fechar esconde a janela e mostra o ícone", isHidden),
-    .{ .wait = 300 },
-    expect("escondida, continua de pé e conectada", keepsWorking),
-    run(wakeShow),
-    expect("Abrir volta a janela e tira o ícone", isShown),
+    run(closeToTrayOff),
+    expect("desligar tira o ícone com a janela aberta", offNoIcon),
+    run(iconNow),
+    expect("e ligar de novo põe o ícone", iconWithWindowOpen),
     run(trayFails),
-    run(alwaysOn),
 };
 
 // As baterias abaixo terminam com o app saindo: `never` só é alcançado se ele
@@ -450,13 +401,27 @@ pub const ops_quit = [_]Op{
     never,
 };
 
-/// Sair pelo menu da bandeja com a janela aberta (o ícone sempre na bandeja) e a
-/// voz ligada: o que antes pedia fechar a janela primeiro.
+/// Com painel e a opção desligada: nenhum ícone, e fechar sai de verdade, com a
+/// voz ligada (o comportamento de antes da bandeja ligada por padrão).
+pub const ops_off = [_]Op{
+    click("channel:500014"),
+    .{ .expect = .{ .name = "na call", .check = inVoice, .timeout_ms = 4000 } },
+    run(trayOk),
+    run(closeToTrayOff),
+    .{ .wait = 300 },
+    expect("desligada: nenhum ícone com a janela aberta", offNoIcon),
+    run(pushClose),
+    .{ .wait = 4000 },
+    never,
+};
+
+/// Sair pelo menu da bandeja com a janela aberta (o ícone fica lá desde a abertura)
+/// e a voz ligada: o que antes pedia fechar a janela primeiro.
 pub const ops_quit_open = [_]Op{
     click("channel:500014"),
     .{ .expect = .{ .name = "na call", .check = inVoice, .timeout_ms = 4000 } },
     run(trayOk),
-    run(alwaysNow),
+    run(iconNow),
     expect("o ícone está lá com a janela aberta", iconWithWindowOpen),
     run(wakeQuit),
     .{ .wait = 4000 },

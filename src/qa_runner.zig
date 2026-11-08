@@ -2857,6 +2857,7 @@ const ops_bandeja = [_]Op{expect("pronto", ready)} ++ qa_bandeja.ops;
 const ops_bandeja_sair = [_]Op{ expect("pronto", ready), click("guild:500000") } ++ qa_bandeja.ops_no_tray;
 const ops_bandeja_menu = [_]Op{ expect("pronto", ready), click("guild:500000") } ++ qa_bandeja.ops_quit;
 const ops_bandeja_sair_aberta = [_]Op{ expect("pronto", ready), click("guild:500000") } ++ qa_bandeja.ops_quit_open;
+const ops_bandeja_desligada = [_]Op{ expect("pronto", ready), click("guild:500000") } ++ qa_bandeja.ops_off;
 const ops_bandeja_reinicio = [_]Op{expect("pronto", ready)} ++ qa_bandeja.ops_restart;
 const ops_lsp_real = [_]Op{expect("pronto", ready)} ++ lsp_ops_real;
 
@@ -3269,6 +3270,7 @@ fn script() []const Op {
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja-sair")) return &ops_bandeja_sair;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja-menu")) return &ops_bandeja_menu;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja-sair-aberta")) return &ops_bandeja_sair_aberta;
+    if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja-desligada")) return &ops_bandeja_desligada;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "bandeja-reinicio")) return &ops_bandeja_reinicio;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "lsp-real")) return &ops_lsp_real;
     if (c.SDL_getenv("QA_SUITE")) |suite| if (std.mem.eql(u8, std.mem.span(suite), "paineis")) return &ops_paineis;

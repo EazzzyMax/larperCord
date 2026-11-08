@@ -789,17 +789,17 @@ fn page(p: *Page, previews: []const Preview) void {
                 i18n.tr("Salvar um .kdl em themes/ ou %APPDATA%\\larpercord\\themes aplica na hora. Uma pasta nova só vale depois de reiniciar o app.", "Saving a .kdl in themes/ or %APPDATA%\\larpercord\\themes applies it right away. A new folder only counts after restarting the app.")
             else
                 i18n.tr("Salvar um .kdl em themes/ ou ~/.config/larpercord/themes aplica na hora. Uma pasta nova só vale depois de reiniciar o app.", "Saving a .kdl in themes/ or ~/.config/larpercord/themes applies it right away. A new folder only counts after restarting the app."), &s.hot_reload);
-            p.toggle(i18n.tr("Fechar para a bandeja", "Close to tray"), i18n.tr("Fechar a janela deixa o app conectado, com um ícone na bandeja do sistema.", "Closing the window keeps the app connected, with an icon in the system tray."), &s.close_to_tray);
+            // Uma opção só para a bandeja: ligada, o ícone fica lá da abertura até sair e
+            // fechar a janela esconde nele; desligada, nenhum ícone nem processo dele, e
+            // fechar sai. No Linux o painel abre o menu com qualquer clique (libappindicator).
             const has_tray = tray.hostSeen(ctx.now_ms);
-            if (s.close_to_tray and !has_tray) p.note(i18n.tr("Este sistema não tem bandeja agora: fechar a janela encerra o app.", "This system has no tray right now: closing the window quits the app."));
-            // No Linux o painel abre o menu com qualquer clique (libappindicator).
-            p.toggleIf(i18n.tr("Ícone sempre na bandeja", "Always show tray icon"), if (@import("../platform/sys.zig").windows)
-                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto: clicar nele mostra ou esconde a janela, e o menu tem Abrir e Sair.", "Keeps the icon in the system tray while the app runs: clicking it shows or hides the window, and its menu has Open and Quit.")
+            p.toggleIf(i18n.tr("Fechar para a bandeja", "Close to tray"), if (sys.windows)
+                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto: clicar nele mostra ou esconde a janela, o menu tem Abrir e Sair, e fechar a janela deixa o app conectado lá. Com a opção desligada, não há ícone e fechar encerra o app.", "The icon stays in the system tray while the app runs: clicking it shows or hides the window, its menu has Open and Quit, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app.")
             else
-                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto, com Abrir e Sair no menu, até com a janela aberta.", "Keeps the icon in the system tray while the app runs, with Open and Quit in its menu, even with the window open."), &s.tray_always, has_tray);
+                i18n.tr("O ícone fica na bandeja do sistema enquanto o app estiver aberto, com Abrir e Sair no menu, e fechar a janela deixa o app conectado lá. Com a opção desligada, não há ícone e fechar encerra o app.", "The icon stays in the system tray while the app runs, with Open and Quit in its menu, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app."), &s.close_to_tray, has_tray);
             if (!has_tray) {
                 const y0 = p.y;
-                p.note(i18n.tr("Indisponível: nenhum painel do sistema mostra ícones agora (StatusNotifier). Ligada, o ícone aparece quando houver um.", "Unavailable: no system panel shows icons right now (StatusNotifier). While on, the icon appears once there is one."));
+                p.note(i18n.tr("Indisponível: nenhum painel do sistema mostra ícones agora (StatusNotifier), então fechar a janela encerra o app. Com a opção ligada, o ícone aparece quando houver um.", "Unavailable: no system panel shows icons right now (StatusNotifier), so closing the window quits the app. While on, the icon appears once there is one."));
                 qa.mark(.{ .x = p.x, .y = y0, .w = p.w, .h = p.y - y0 }, "tray-unavailable", .{});
             }
             textSection(p);
