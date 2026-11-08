@@ -647,6 +647,8 @@ pub fn history(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect, ch_id: Id, region: [*
     if (cs.around == .loading) loadingPill(ctx, dl, g, r);
     if (cs.detached) presentBar(ctx, dl, g, r, ch_id, present_hit);
 
+    // O layout das mensagens (cozy, irc, bubbles): o QA sabe o que esperar de cada um.
+    qa.mark(r, "msg-layout:{s}", .{@tagName(g.variant)});
     qa.mark(.{ .x = r.right() - 5, .y = r.y + r.h - 60, .w = 4, .h = 40 }, "msg-scrollbar", .{});
     qa.mark(.{ .x = r.right() - 5, .y = r.y + 40, .w = 4, .h = 40 }, "msg-scrollbar-top", .{});
 
@@ -1359,7 +1361,7 @@ fn drawMessage(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *StoredMessage, flags:
                 }
             }
             const t = rich.layout(dl, ctx.store, ctx.th, m.spans, tx, y, g.wrap, o, ctx.mouse);
-            editedMark(ctx, dl, g, m, tx, y, t);
+            const er = editedMark(ctx, dl, g, m, tx, y, t);
             textMarks(m, tx, y, g.wrap, t);
             const th = textH(g, m, t);
             att.draw(ctx, dl, m, tx, y + th, g.wrap, alpha);
@@ -1372,9 +1374,18 @@ fn drawMessage(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *StoredMessage, flags:
             if (ctx.st.settings.developer_mode and under) {
                 const idt = std.fmt.bufPrint(&buf, "id {d}", .{m.msg.id}) catch "";
                 const iw = d.width(fam.get(.regular), 11, idt);
-                d.text(dl, fam.get(.regular), 11, r.right() - iw - 14, row.bottom() - 16, ctx.col(.faint), idt);
+                const below = ah > 0 or m.failed or m.n_reactions > 0;
+                const ix = devIdX(t, tx, er, below, iw, r.right() - iw - 14);
+                d.text(dl, fam.get(.regular), 11, ix, row.bottom() - 16, ctx.col(.faint), idt);
+                qa.mark(.{ .x = ix, .y = row.bottom() - 16, .w = iw, .h = 13 }, "devid:{d}", .{m.msg.id});
             }
-            if (show_bar) toolbar(ctx, dl, m, r.right() - 16, row.y - 16 + (if (group) g.spacing else 0), false);
+            // A barra fica no alto, à direita. Na mensagem que abre o grupo ela cai na linha do
+            // nome; na que continua, em cima da primeira linha do texto. Essa linha alinhada à
+            // direita (árabe, hebraico): a barra vai para o começo da coluna, o lado vazio dela,
+            // como nos temas de terminal, e não esconde a frase curta nem pega o clique nela.
+            if (show_bar) {
+                if (t.first_right and !group) toolbar(ctx, dl, m, tx, row.y - 16, true) else toolbar(ctx, dl, m, r.right() - 16, row.y - 16 + (if (group) g.spacing else 0), false);
+            }
         },
         .irc => {
             if (day) {
@@ -1429,7 +1440,7 @@ fn drawMessage(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *StoredMessage, flags:
             x += col_w;
             d.text(dl, fam.get(.regular), g.size, x, ty, ctx.col(.border).mix(ctx.col(.faint), 0.6), " │ ");
             const t = rich.layout(dl, ctx.store, ctx.th, m.spans, r.x + g.content_x, y, g.wrap, o, ctx.mouse);
-            editedMark(ctx, dl, g, m, r.x + g.content_x, y, t);
+            _ = editedMark(ctx, dl, g, m, r.x + g.content_x, y, t);
             textMarks(m, r.x + g.content_x, y, g.wrap, t);
             const th = textH(g, m, t);
             att.draw(ctx, dl, m, r.x + g.content_x, y + th, g.wrap, alpha);
@@ -1490,7 +1501,7 @@ fn drawMessage(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *StoredMessage, flags:
             var ob = o;
             ob.align_w = bw - 28;
             const t = rich.layout(dl, ctx.store, ctx.th, m.spans, br.x + 14, ty, g.wrap, ob, ctx.mouse);
-            editedMark(ctx, dl, g, m, br.x + 14, ty, t);
+            _ = editedMark(ctx, dl, g, m, br.x + 14, ty, t);
             textMarks(m, br.x + 14, ty, ob.align_w, t);
             att.draw(ctx, dl, m, br.x + 14, ty + textH(g, m, t), g.wrap, alpha);
             const below = textH(g, m, t) + att.blockHeight(m.msg.attachments, g.wrap, m.msg.content.len > 0);
@@ -1536,8 +1547,9 @@ fn textMarks(m: *const StoredMessage, x: f32, y: f32, col_w: f32, t: rich.Measur
     qa.mark(.{ .x = x, .y = y, .w = col_w, .h = t.h }, "msgcol:{d}", .{m.msg.id});
 }
 
-fn editedMark(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *const StoredMessage, x: f32, y: f32, t: rich.Measure) void {
-    if (!m.msg.edited and !m.deleted) return;
+/// O "(editado)" ou "(apagada)" depois do texto. Devolve onde ele ficou na tela.
+fn editedMark(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *const StoredMessage, x: f32, y: f32, t: rich.Measure) ?d.Rect {
+    if (!m.msg.edited and !m.deleted) return null;
     const ew = editedW(g);
     const wraps = t.last_x + ew > g.wrap;
     // Registro de mensagens: "(apagada)" em vermelho, e o texto original
@@ -1559,6 +1571,20 @@ fn editedMark(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *const StoredMessage, x
         const tip = i18n.fmt(&buf, "antes: {s}{s}", "before: {s}{s}", .{ o[0..n], if (o.len > n) "…" else "" });
         d.tip(ctx, lr, tip, true);
     };
+    return lr;
+}
+
+/// Onde fica o "id" do modo de desenvolvedor, no canto de baixo da mensagem: à direita, como
+/// sempre, a não ser que a linha de baixo seja de um parágrafo alinhado à direita (árabe,
+/// hebraico), que termina justamente ali. Aí ele vai para o começo da coluna (`tx`), o lado
+/// vazio da linha, se couber antes dela e do "(editado)" (`edited`). `below`: há reações,
+/// anexos ou outro bloco embaixo do texto, e a linha de baixo é deles.
+fn devIdX(t: rich.Measure, tx: f32, edited: ?d.Rect, below: bool, iw: f32, right_x: f32) f32 {
+    if (below or !t.last_right) return right_x;
+    // Com o rótulo, é ele que fica mais à esquerda: antes da última linha ou, numa linha só
+    // dele, encostado na borda direita.
+    const lo = if (edited) |e| e.x else tx + t.last_lo;
+    return if (tx + iw + 12 <= lo) tx else right_x;
 }
 
 fn daySeparator(ctx: *d.Ctx, dl: *c.ImDrawList, fam: *d.Family, r: d.Rect, mid: f32, ts: i64, tty: bool) void {
