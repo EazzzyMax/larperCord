@@ -205,8 +205,8 @@ fn list(ctx: *d.Ctx, dl_outer: *c.ImDrawList, body: d.Rect, guild: Id) void {
     }
     switch (pl.state) {
         .none, .loading => {
+            // Os pontinhos já pedem o próximo quadro no ritmo deles; a página que chega redesenha.
             w.typingDots(bdl, body.x + body.w / 2 - 7, y + 18, ctx.col(.muted), ctx.now_ms);
-            anim.active = true;
             y += 40;
         },
         .failed => {

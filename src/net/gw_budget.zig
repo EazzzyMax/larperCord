@@ -92,7 +92,20 @@ pub const Budget = struct {
 /// Op 14: a lista de membros de um servidor vista de um canal (e de uma thread).
 pub const Lazy = struct { guild: Id, channel: Id, thread: Id = 0 };
 /// Op 4: entrar, sair ou mudar mudo/surdo (`channel` null = sair).
-pub const Voice = struct { guild: Id, channel: ?Id, mute: bool = false, deaf: bool = false };
+pub const Voice = struct {
+    guild: Id,
+    channel: ?Id,
+    mute: bool = false,
+    deaf: bool = false,
+
+    /// O VOICE_STATE_UPDATE da própria conta mostra que este op 4 chegou ao Discord. Saindo,
+    /// basta o canal vazio.
+    pub fn confirmedBy(v: Voice, channel: ?Id, self_mute: bool, self_deaf: bool) bool {
+        const want = v.channel orelse return channel == null;
+        const got = channel orelse return false;
+        return got == want and v.mute == self_mute and v.deaf == self_deaf;
+    }
+};
 /// O que espera vez. A presença sai com o status do momento (só o último vale).
 pub const Item = union(enum) { presence, lazy: Lazy, voice: Voice };
 
@@ -180,6 +193,40 @@ pub const Outbox = struct {
         } else return null;
         o.budget.note(now_ms);
         return it;
+    }
+
+    /// Devolve à frente da fila um item que `pop` tirou e que não chegou a sair (a escrita
+    /// no WebSocket falhou): sai de novo depois do RESUME, na mesma ordem. O teto não é
+    /// devolvido: a conexão cai e a próxima começa do zero (`newConnection`).
+    pub fn unpop(o: *Outbox, it: Item) void {
+        switch (it) {
+            .presence => o.presence = true,
+            .lazy => |l| {
+                // Um pedido mais novo do mesmo servidor já está na fila: vale ele.
+                for (o.lazy[0..o.lazy_n]) |x| if (x.guild == l.guild) return;
+                // Cheia de pedidos mais novos: este era o mais antigo.
+                if (o.lazy_n == o.lazy.len) return;
+                std.mem.copyBackwards(Lazy, o.lazy[1 .. o.lazy_n + 1], o.lazy[0..o.lazy_n]);
+                o.lazy[0] = l;
+                o.lazy_n += 1;
+            },
+            .voice => |v| {
+                // Logo depois de um `pop` sempre cabe; cheia, os estados mais novos valem.
+                if (o.voice_n == o.voice.len) return;
+                o.voice_head = (o.voice_head + o.voice.len - 1) % o.voice.len;
+                o.voice[o.voice_head] = v;
+                o.voice_n += 1;
+            },
+        }
+    }
+
+    /// Manda o que tem vez agora por `w.write(item)` (false = não saiu): para na primeira
+    /// falha, com o item de volta na frente da fila e o resto esperando atrás dele.
+    pub fn drainTo(o: *Outbox, now_ms: i64, w: anytype) void {
+        while (o.pop(now_ms)) |it| if (!w.write(it)) {
+            o.unpop(it);
+            return;
+        };
     }
 
     /// Quando acordar para `pop` (maxInt = nada esperando).
@@ -319,6 +366,77 @@ test "op 14 de muitos servidores: o mais antigo dá lugar" {
     for (0..8) |i| _ = o.push(.{ .lazy = .{ .guild = @intCast(i + 1), .channel = 1 } });
     try t.expectEqual(Push.replaced_oldest, o.push(.{ .lazy = .{ .guild = 100, .channel = 1 } }));
     try t.expectEqual(@as(Id, 2), o.pop(window_ms).?.lazy.guild);
+}
+
+test "escrita que falha devolve o item: nada se perde e a ordem fica" {
+    const Fake = struct {
+        fail_at: usize,
+        n: usize = 0,
+        got: [16]Item = undefined,
+
+        pub fn write(f: *@This(), it: Item) bool {
+            if (f.n == f.fail_at) {
+                f.fail_at = std.math.maxInt(usize);
+                return false;
+            }
+            f.got[f.n] = it;
+            f.n += 1;
+            return true;
+        }
+    };
+    var o: Outbox = .{};
+    _ = o.push(.{ .voice = .{ .guild = 1, .channel = 10, .mute = true } });
+    _ = o.push(.{ .voice = .{ .guild = 1, .channel = null } });
+    _ = o.push(.presence);
+    _ = o.push(.{ .lazy = .{ .guild = 7, .channel = 70 } });
+    _ = o.push(.{ .lazy = .{ .guild = 8, .channel = 80 } });
+    // A segunda escrita (sair da call) falha: o flush para e nada depois dela sai.
+    var w: Fake = .{ .fail_at = 1 };
+    o.drainTo(0, &w);
+    try t.expectEqual(@as(usize, 1), w.n);
+    try t.expectEqual(@as(?Id, 10), w.got[0].voice.channel);
+    try t.expectEqual(@as(usize, 4), o.pending());
+    // Depois do RESUME o resto sai na ordem de antes, começando pelo que falhou.
+    o.newConnection();
+    o.drainTo(1, &w);
+    try t.expectEqual(@as(usize, 5), w.n);
+    try t.expectEqual(@as(?Id, null), w.got[1].voice.channel);
+    try t.expectEqual(Item.presence, w.got[2]);
+    try t.expectEqual(@as(Id, 7), w.got[3].lazy.guild);
+    try t.expectEqual(@as(Id, 8), w.got[4].lazy.guild);
+    try t.expectEqual(@as(usize, 0), o.pending());
+}
+
+test "item devolvido: um pedido mais novo do mesmo servidor vence; voz volta para a frente" {
+    var o: Outbox = .{};
+    _ = o.push(.{ .lazy = .{ .guild = 1, .channel = 10 } });
+    const old = o.pop(0).?;
+    _ = o.push(.{ .lazy = .{ .guild = 1, .channel = 11 } });
+    o.unpop(old);
+    try t.expectEqual(@as(usize, 1), o.pending());
+    try t.expectEqual(@as(Id, 11), o.pop(0).?.lazy.channel);
+    // Voz com a fila dando a volta no anel: o devolvido sai antes dos que esperam.
+    for (0..o.voice.len - 1) |_| {
+        _ = o.push(.{ .voice = .{ .guild = 2, .channel = 1 } });
+        _ = o.pop(0);
+    }
+    _ = o.push(.{ .voice = .{ .guild = 2, .channel = 20 } });
+    _ = o.push(.{ .voice = .{ .guild = 2, .channel = 21 } });
+    const v = o.pop(window_ms).?;
+    o.unpop(v);
+    try t.expectEqual(@as(?Id, 20), o.pop(window_ms).?.voice.channel);
+    try t.expectEqual(@as(?Id, 21), o.pop(window_ms).?.voice.channel);
+}
+
+test "o VOICE_STATE_UPDATE da conta confirma o op 4" {
+    const join: Voice = .{ .guild = 1, .channel = 5, .mute = true };
+    try t.expect(join.confirmedBy(5, true, false));
+    try t.expect(!join.confirmedBy(5, false, false));
+    try t.expect(!join.confirmedBy(6, true, false));
+    try t.expect(!join.confirmedBy(null, true, false));
+    const leave: Voice = .{ .guild = 1, .channel = null };
+    try t.expect(leave.confirmedBy(null, true, true));
+    try t.expect(!leave.confirmedBy(5, false, false));
 }
 
 test "conexão nova zera os limites e mantém a fila" {

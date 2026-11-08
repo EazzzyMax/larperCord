@@ -36,6 +36,7 @@ const leitura = @import("../core/leitura.zig");
 const read_json = @import("read_state_json.zig");
 const voice_mod = @import("voice.zig");
 const call_json = @import("call_json.zig");
+const status_proto = @import("status_proto.zig");
 const thread_json = @import("thread_json.zig");
 const user_json = @import("user_json.zig");
 const envio_json = @import("envio_json.zig");
@@ -106,6 +107,9 @@ pub const Gateway = struct {
     voice_token_len: usize = 0,
     /// Volume individual por pessoa (0..2), mantido entre calls.
     voice_volumes: std.AutoHashMapUnmanaged(Id, f32) = .empty,
+    /// O último op 4 escrito, até o VOICE_STATE_UPDATE da conta confirmar que chegou.
+    /// Escrito pouco antes de a conexão cair, pode ter se perdido: vai de novo no RESUMED.
+    voice_unconfirmed: ?gw_budget.Voice = null,
     /// A thread de voz parou com 4014 (movido / servidor trocado): até
     /// quando espera o VOICE_SERVER_UPDATE novo antes de desistir.
     voice_wait_until: i64 = 0,
@@ -137,9 +141,14 @@ pub const Gateway = struct {
     global_until: i64 = 0,
     /// `X-Audit-Log-Reason` do próximo pedido (moderação), já em URL.
     audit_reason: ?[:0]const u8 = null,
+    /// Prazo do próximo pedido (interação com bot): uma espera de rate limit que passe
+    /// dele desiste em vez de mandar atrasado (0 = sem prazo).
+    deadline_ms: i64 = 0,
     /// Comandos que chegaram enquanto o gateway estava reconectando ou
     /// esperando rate limit. São enviados quando a conexão volta.
     pending: std.ArrayList(ev.Command) = .empty,
+    /// Estrelas de GIF esperando o fim da volta do laço (`flushFavorites`).
+    fav_batch: std.ArrayList(ev.GifFavorite) = .empty,
     /// Comandos que vão pelo próprio gateway (op 3, 4, 14): só valem depois
     /// do READY/RESUMED (antes, o Discord fecha com 4003 e o pedido se perde).
     held: std.ArrayList(ev.Command) = .empty,
@@ -208,6 +217,8 @@ pub const Gateway = struct {
         g.voice_volumes.deinit(alloc);
         g.acks.deinit(alloc);
         g.conta.deinit();
+        for (g.fav_batch.items) |f| freeCommand(.{ .gif_favorite = f });
+        g.fav_batch.deinit(alloc);
     }
 
     const RoleInfo = struct { color: u32, pos: i64 };
@@ -274,6 +285,7 @@ pub const Gateway = struct {
                     g.pending.clearRetainingCapacity();
                     g.held.clearRetainingCapacity();
                     g.outbox.clear();
+                    g.dropFavorites();
                     // Fica só atendendo o encerramento.
                     var cmds: std.ArrayList(ev.Command) = .empty;
                     defer cmds.deinit(alloc);
@@ -517,6 +529,8 @@ pub const Gateway = struct {
             }
             cmds.clearRetainingCapacity();
             if (g.stopping) return .reconnect;
+            g.flushFavorites();
+            if (g.stopping) return .reconnect;
             g.flushAcks();
             if (g.stopping) return .reconnect;
             g.voiceTick();
@@ -613,7 +627,8 @@ pub const Gateway = struct {
     fn send(g: *Gateway, payload: []const u8) void {
         if (g.ws == null or !g.ws_live) return;
         g.outbox.budget.note(nowMs());
-        g.writeWs(payload);
+        // Falhando, a conexão cai (`writeWs`) e o RESUME/IDENTIFY sai de novo na próxima.
+        _ = g.writeWs(payload);
     }
 
     /// Op 3, 4 e 14: entram na fila do teto e saem assim que houver vez
@@ -632,7 +647,9 @@ pub const Gateway = struct {
     fn flushOutbox(g: *Gateway) void {
         if (!g.ws_live or !g.ws_ready or g.ws_end != null) return;
         const now = nowMs();
-        while (g.outbox.pop(now)) |it| g.writeItem(it);
+        // Uma escrita que falha derruba a conexão: o item volta para a frente da fila e
+        // sai depois do RESUME, com o que estava atrás dele (nada vai para um socket morto).
+        g.outbox.drainTo(now, OutboxWriter{ .g = g });
         const left = g.outbox.pending();
         if (left == 0) {
             g.outbox_noted = false;
@@ -642,30 +659,43 @@ pub const Gateway = struct {
         }
     }
 
-    fn writeItem(g: *Gateway, it: gw_budget.Item) void {
+    const OutboxWriter = struct {
+        g: *Gateway,
+
+        pub fn write(w: OutboxWriter, it: gw_budget.Item) bool {
+            return w.g.writeItem(it);
+        }
+    };
+
+    /// false = não saiu inteiro (a conexão vai cair). Um item que nem dá para montar
+    /// conta como saído: tentar de novo daria no mesmo.
+    fn writeItem(g: *Gateway, it: gw_budget.Item) bool {
         switch (it) {
             // Com o status personalizado, se vale agora (net/conta_net.zig).
-            .presence => conta_net.writePresence(g, statusName(g.status)),
+            .presence => return conta_net.writePresence(g, statusName(g.status)),
             .lazy => |l| {
                 var tb: [32]u8 = undefined;
                 const lists = if (l.thread != 0) std.fmt.bufPrint(&tb, "\"{d}\"", .{l.thread}) catch "" else "";
                 var buf: [360]u8 = undefined;
-                const payload = std.fmt.bufPrint(&buf, "{{\"op\":14,\"d\":{{\"guild_id\":\"{d}\",\"typing\":true,\"threads\":true,\"activities\":true,\"members\":[],\"channels\":{{\"{d}\":[[0,99]]}},\"thread_member_lists\":[{s}]}}}}", .{ l.guild, l.channel, lists }) catch return;
-                g.writeWs(payload);
+                const payload = std.fmt.bufPrint(&buf, "{{\"op\":14,\"d\":{{\"guild_id\":\"{d}\",\"typing\":true,\"threads\":true,\"activities\":true,\"members\":[],\"channels\":{{\"{d}\":[[0,99]]}},\"thread_member_lists\":[{s}]}}}}", .{ l.guild, l.channel, lists }) catch return true;
+                return g.writeWs(payload);
             },
             .voice => |v| {
                 // Numa DM ou grupo (`guild` 0) o guild_id vai null (net/call_json.zig).
                 var out: [256]u8 = undefined;
-                const p = call_json.voiceState(&out, v.guild, v.channel, v.mute, v.deaf) orelse return;
+                const p = call_json.voiceState(&out, v.guild, v.channel, v.mute, v.deaf) orelse return true;
                 std.log.debug("voz: op4 canal={d}", .{v.channel orelse 0});
-                g.writeWs(p);
+                if (!g.writeWs(p)) return false;
+                g.voice_unconfirmed = v;
+                return true;
             },
         }
     }
 
-    pub fn writeWs(g: *Gateway, payload: []const u8) void {
-        const h = g.ws orelse return;
-        if (!g.ws_live) return;
+    /// true = o quadro saiu inteiro. Falhando, marca a conexão para reconectar.
+    pub fn writeWs(g: *Gateway, payload: []const u8) bool {
+        const h = g.ws orelse return false;
+        if (!g.ws_live) return false;
         var off: usize = 0;
         var first = true;
         var waited: u8 = 0;
@@ -687,7 +717,11 @@ pub const Gateway = struct {
             first = false;
         }
         // Metade de um quadro não tem conserto: reconecta (o RESUME recupera).
-        if (off < payload.len and g.ws_end == null) g.ws_end = .reconnect;
+        if (off < payload.len) {
+            if (g.ws_end == null) g.ws_end = .reconnect;
+            return false;
+        }
+        return true;
     }
 
     fn heartbeat(g: *Gateway) void {
@@ -1196,7 +1230,13 @@ pub const Gateway = struct {
             return;
         }
         if (std.mem.eql(u8, t, "RESUMED")) {
-            // O gateway reenviou o que perdemos; o estado local continua válido.
+            // O gateway reenviou o que perdemos; o estado local continua válido. O op 4
+            // escrito pouco antes da queda que não teve resposta nesses eventos se perdeu:
+            // vai de novo, antes do que ainda espera na fila.
+            if (g.voice_unconfirmed) |v| {
+                g.voice_unconfirmed = null;
+                g.outbox.unpop(.{ .voice = v });
+            }
             g.gatewayReady();
             g.emit(.{ .status = .ready });
             // Um pedido de lista feito bem na hora da queda se perdeu.
@@ -1411,6 +1451,10 @@ pub const Gateway = struct {
             const chan = j.id(j.get(d, "channel_id"));
             g.emit(.{ .voice_state = .{ .channel = chan, .user = user, .flags = voiceFlagsOf(d) } });
             if (user == g.me) {
+                if (g.voice_unconfirmed) |v| {
+                    const vf = voiceFlagsOf(d);
+                    if (v.confirmedBy(chan, vf.self_mute, vf.self_deaf)) g.voice_unconfirmed = null;
+                }
                 if (j.str(j.get(d, "session_id"))) |sid| {
                     // Sessão de voz nova (outro dispositivo, reconexão): a
                     // conexão antiga não vale mais.
@@ -2439,6 +2483,9 @@ pub const Gateway = struct {
         switch (cmd) {
             .send => |s| {
                 const failed: ev.Event = .{ .interaction = .{ .failed = .{ .nonce = s.nonce } } };
+                // Esperou demais na fila (reconexão, rate limit, upload em andamento): a
+                // interface já mostrou "falhou" e o botão pode ter sido clicado de novo.
+                if (interaction.expired(s, nowMs())) return g.emit(failed);
                 const body = interaction.payload(alloc, s, g.session_id[0..g.session_len]) catch return g.emit(failed);
                 defer alloc.free(body);
                 var mime: ?*c.curl_mime = null;
@@ -2458,6 +2505,7 @@ pub const Gateway = struct {
                         _ = c.curl_mime_filedata(fp, f.ptr);
                     }
                 }
+                g.deadline_ms = interaction.deadline(s);
                 var resp = g.requestEx("POST", "/interactions", if (mime == null) body else null, mime) orelse return g.emit(failed);
                 defer resp.body.deinit(alloc);
                 if (resp.status >= 300) {
@@ -2575,6 +2623,7 @@ pub const Gateway = struct {
         // Sessão nova: o que esperava o teto de envio era da anterior (o que
         // ainda vale sai de novo logo abaixo e no fim).
         g.outbox.forgetPending();
+        g.voice_unconfirmed = null;
         // O pedido de voz pode ter chegado antes do READY; agora o gateway
         // já aceita o op 4. Numa sessão nova a call antiga não vale mais.
         if (g.voice_channel != 0) {
@@ -2968,9 +3017,11 @@ pub const Gateway = struct {
 
     /// `mime`: corpo multipart (envio de arquivos) no lugar do JSON.
     fn requestEx(g: *Gateway, method: [:0]const u8, path: []const u8, body: ?[]const u8, mime: ?*c.curl_mime) ?Response {
-        // O motivo é só deste pedido: um pedido feito durante uma espera não o herda.
+        // O motivo e o prazo são só deste pedido: um pedido feito durante uma espera não os herda.
         const audit = g.audit_reason;
         g.audit_reason = null;
+        const deadline = g.deadline_ms;
+        g.deadline_ms = 0;
         const h = g.rest orelse return null;
         if (!validToken(g.token)) {
             g.notice("token inválido", "invalid token", .{});
@@ -3004,9 +3055,13 @@ pub const Gateway = struct {
                     g.noticeBlocked(until);
                     return null;
                 }
+                // Com prazo: a espera passaria dele, e o pedido sairia depois de a interface
+                // já ter desistido.
+                if (deadline != 0 and until >= deadline) return null;
                 g.sleepServing(@intCast(until - now));
                 if (g.stopping) return null;
             }
+            if (deadline != 0 and nowMs() >= deadline) return null;
 
             var headers: ?*c.struct_curl_slist = null;
             headers = c.curl_slist_append(headers, auth.ptr);
@@ -3060,6 +3115,8 @@ pub const Gateway = struct {
             _ = c.curl_easy_setopt(h, c.CURLOPT_HEADERFUNCTION, headerCb);
             _ = c.curl_easy_setopt(h, c.CURLOPT_HEADERDATA, &rate);
             _ = c.curl_easy_setopt(h, c.CURLOPT_TIMEOUT, @as(c_long, if (mime != null) 180 else 20));
+            // Com prazo, a conexão também: sem isso uma rede travada mandaria o pedido depois dele.
+            if (deadline != 0) _ = c.curl_easy_setopt(h, c.CURLOPT_CONNECTTIMEOUT_MS, @as(c_long, @intCast(std.math.clamp(deadline - nowMs(), 1, 60_000))));
             _ = c.curl_easy_setopt(h, c.CURLOPT_ACCEPT_ENCODING, "");
             g.abortable(h);
             if (mime) |mp| {
@@ -3112,6 +3169,7 @@ pub const Gateway = struct {
                 // Quem pediu não quer repetição: devolve o 429 para ele explicar.
                 if (g.no_retry) return resp;
                 resp.body.deinit(alloc);
+                if (deadline != 0 and retry_at >= deadline) return null;
                 if (wait_ms > long_block_ms) {
                     g.noticeBlocked(retry_at);
                     return null;
@@ -3328,46 +3386,80 @@ pub const Gateway = struct {
         g.emit(.{ .gifs = .{ .req = req, .favorites = true, .items = items } });
     }
 
-    /// Estrela de um GIF: sempre uma cópia nova das configurações (outro aparelho pode ter
-    /// mudado algo), só os favoritos mudam, e o resto (emojis recentes e outras
-    /// preferências) volta byte a byte. O que não der para ler inteiro não é escrito.
-    /// Dando errado, a lista volta ao que está na conta.
-    fn gifFavorite(g: *Gateway, f: ev.GifFavorite) void {
+    /// Estrelas de GIF que chegaram nesta volta do laço: gravadas juntas no fim dela
+    /// (`flushFavorites`), na ordem dos cliques. Cada gravação é um GET e um PATCH; as
+    /// estrelas clicadas enquanto uma gravação anda vão todas na próxima.
+    fn queueFavorite(g: *Gateway, f: ev.GifFavorite) void {
+        g.fav_batch.append(alloc, f) catch g.dropCommand(.{ .gif_favorite = f });
+    }
+
+    fn flushFavorites(g: *Gateway) void {
+        if (g.fav_batch.items.len == 0) return;
+        defer {
+            for (g.fav_batch.items) |f| freeCommand(.{ .gif_favorite = f });
+            g.fav_batch.clearRetainingCapacity();
+        }
+        g.gifFavorites(g.fav_batch.items);
+    }
+
+    /// Sem conexão de vez: quem espera a lista fica sabendo.
+    fn dropFavorites(g: *Gateway) void {
+        for (g.fav_batch.items) |f| g.dropCommand(.{ .gif_favorite = f });
+        g.fav_batch.clearRetainingCapacity();
+    }
+
+    /// Estrelas de GIF: sempre uma cópia nova das configurações (outro aparelho pode ter
+    /// mudado algo) e só os favoritos vão no PATCH, com a versão lida. Se outro aparelho
+    /// gravou no meio, o Discord recusa em vez de voltar a mudança dele, e as estrelas são
+    /// aplicadas de novo sobre o que ficou lá (uma vez). Dando errado, a lista volta ao que
+    /// está na conta.
+    fn gifFavorites(g: *Gateway, batch: []const ev.GifFavorite) void {
         const gf = @import("../core/gif_favorites.zig");
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         const a = arena.allocator();
         const failed_pt = "não deu para salvar o GIF favorito";
         const failed_en = "couldn't save the favorite GIF";
-        const raw = g.frecency(a) orelse {
-            g.notice(failed_pt, failed_en, .{});
-            return g.emit(.{ .gifs = .{ .req = f.req, .favorites = true, .ok = false } });
-        };
-        const change: gf.Change = if (f.add) .{ .add = .{ .url = f.url, .src = f.src, .width = f.width, .height = f.height, .format = if (f.video) .video else .image } } else .{ .remove = f.url };
-        const out = gf.edit(a, raw, change) catch {
-            g.notice("{s}: as configurações da conta vieram num formato que o app não entende", "{s}: the account settings came in a format the app doesn't understand", .{i18n.tr(failed_pt, failed_en)});
-            return g.emitFavorites(f.req, raw);
-        } orelse return g.emitFavorites(f.req, raw);
-        const enc = std.base64.standard.Encoder;
-        const body = a.alloc(u8, enc.calcSize(out.len) + 16) catch return g.emitFavorites(f.req, raw);
-        // Base64 não tem nada a escapar no JSON.
-        const b64 = enc.encode(body[13..][0..enc.calcSize(out.len)], out);
-        @memcpy(body[0..13], "{\"settings\":\"");
-        body[13 + b64.len] = '"';
-        body[14 + b64.len] = '}';
-        var resp = g.request("PATCH", "/users/@me/settings-proto/2", body[0 .. 15 + b64.len]) orelse {
-            g.notice(failed_pt, failed_en, .{});
-            return g.emitFavorites(f.req, raw);
-        };
-        defer resp.body.deinit(alloc);
-        if (resp.status >= 300) {
-            g.noticeHttp(i18n.tr(failed_pt, failed_en), &resp);
-            return g.emitFavorites(f.req, raw);
+        // A resposta vai com o pedido mais novo: a tela ignora as dos anteriores.
+        const req = batch[batch.len - 1].req;
+        const changes = a.alloc(gf.Change, batch.len) catch return g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } });
+        for (changes, batch) |*ch, f| {
+            ch.* = if (f.add) .{ .add = .{ .url = f.url, .src = f.src, .width = f.width, .height = f.height, .format = if (f.video) .video else .image } } else .{ .remove = f.url };
         }
-        // A resposta traz o arquivo como ficou; sem ele, vale o que foi mandado.
-        const v = std.json.parseFromSliceLeaky(Value, a, resp.body.items, .{}) catch null;
-        const saved = if (v) |x| if (j.str(j.get(x, "settings"))) |s| decodeSettings(a, s) else null else null;
-        g.emitFavorites(f.req, saved orelse out);
+        var tries: u8 = 0;
+        while (true) : (tries += 1) {
+            const raw = g.frecency(a) orelse {
+                g.notice(failed_pt, failed_en, .{});
+                return g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } });
+            };
+            const out = gf.editAll(a, raw, changes) catch {
+                g.notice("{s}: as configurações da conta vieram num formato que o app não entende", "{s}: the account settings came in a format the app doesn't understand", .{i18n.tr(failed_pt, failed_en)});
+                return g.emitFavorites(req, raw);
+            } orelse return g.emitFavorites(req, raw);
+            // Sem a versão (o formato mudou), o corpo vai sem ela.
+            const version = status_proto.dataVersion(raw) catch null;
+            const body = gf.patchBody(a, out, version) catch return g.emitFavorites(req, raw);
+            var resp = g.request("PATCH", "/users/@me/settings-proto/2", body) orelse {
+                g.notice(failed_pt, failed_en, .{});
+                return g.emitFavorites(req, raw);
+            };
+            defer resp.body.deinit(alloc);
+            if (resp.status >= 300) {
+                g.noticeHttp(i18n.tr(failed_pt, failed_en), &resp);
+                return g.emitFavorites(req, raw);
+            }
+            const v = std.json.parseFromSliceLeaky(Value, a, resp.body.items, .{}) catch null;
+            const stale = if (v) |x| if (j.get(x, "out_of_date")) |o| o == .bool and o.bool else false else false;
+            if (stale) {
+                // Outro aparelho gravou entre o GET e o PATCH: lê de novo e refaz as estrelas.
+                if (tries == 0) continue;
+                g.notice("as configurações mudaram em outro aparelho: tente de novo", "the settings changed on another device: try again", .{});
+                return g.emitFavorites(req, g.frecency(a) orelse raw);
+            }
+            // A resposta traz o arquivo como ficou; sem ele, vale o que foi mandado.
+            const saved = if (v) |x| if (j.str(j.get(x, "settings"))) |st| decodeSettings(a, st) else null else null;
+            return g.emitFavorites(req, saved orelse out);
+        }
     }
 
     /// PATCH /guilds/{id} ou /channels/{id} (grupo). A tela muda quando o
@@ -3546,6 +3638,8 @@ pub const Gateway = struct {
     }
 
     fn execute(g: *Gateway, cmd: ev.Command) void {
+        // Grava no fim da volta do laço, junto com as outras estrelas que chegaram.
+        if (cmd == .gif_favorite) return g.queueFavorite(cmd.gif_favorite);
         if (!g.ws_ready and usesGateway(cmd)) {
             // Rich Presence: só a atividade mais nova espera a conexão voltar.
             if (cmd == .set_activity) g.dropHeldActivity();
@@ -3768,12 +3862,15 @@ pub const Gateway = struct {
                 if (resp.status >= 300) g.noticeHttp(i18n.tr("não deu para enviar a figurinha", "couldn't send the sticker"), &resp);
             },
             .gif_favorites => |req| {
+                // Estrelas clicadas antes deste pedido gravam antes: a lista que volta já as tem.
+                g.flushFavorites();
                 var arena = std.heap.ArenaAllocator.init(alloc);
                 defer arena.deinit();
                 const raw = g.frecency(arena.allocator()) orelse return g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } });
                 g.emitFavorites(req, raw);
             },
-            .gif_favorite => |f| g.gifFavorite(f),
+            // Vai para `fav_batch` antes deste switch (`queueFavorite`).
+            .gif_favorite => unreachable,
             .fetch_invite => |code| {
                 const failed: ev.Event = .{ .invite = .{ .code = code, .invite = .{ .state = .failed } } };
                 const path = std.fmt.bufPrint(&path_buf, "/invites/{s}?with_counts=true&with_expiration=true", .{code.slice()}) catch return;

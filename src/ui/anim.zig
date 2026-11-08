@@ -26,6 +26,16 @@ pub fn at(t: i64) void {
     next_wake_ms = @min(next_wake_ms, t);
 }
 
+/// Quanto o app dorme esperando um redesenho pedido para daqui a `wait_ms`. Perto, no
+/// máximo 1 s por vez: o relógio do sistema pode pular, e o prazo não atrasa mais que
+/// isso. Longe (status personalizado que expira em horas, castigo de dias), até 1 min
+/// antes dele, de uma vez: um pulo do relógio maior que isso muda o minuto, e o tique do
+/// minuto acorda o app de qualquer jeito.
+pub fn sleepFor(wait_ms: i64) i64 {
+    if (wait_ms <= 60_000) return @min(wait_ms, 1000);
+    return @min(wait_ms - 60_000, std.math.maxInt(i32));
+}
+
 pub fn id(comptime tag: []const u8, n: usize) u32 {
     return @truncate(std.hash.Wyhash.hash(n, tag));
 }
@@ -61,6 +71,21 @@ pub fn step(value: f32, target: f32, speed: f32) f32 {
     if (@abs(target - v) < 0.01 or v == value) return target;
     active = true;
     return v;
+}
+
+test "prazo longe não acorda o app a cada segundo" {
+    try std.testing.expectEqual(@as(i64, 250), sleepFor(250));
+    try std.testing.expectEqual(@as(i64, 1000), sleepFor(30_000));
+    try std.testing.expectEqual(@as(i64, 1000), sleepFor(60_000));
+    // Status que expira em 3 h: uma espera só até faltar 1 min, depois de segundo em segundo.
+    const three_h: i64 = 3 * 3_600_000;
+    try std.testing.expectEqual(three_h - 60_000, sleepFor(three_h));
+    var left = three_h;
+    var wakes: usize = 0;
+    while (left > 0) : (wakes += 1) left -= sleepFor(left);
+    try std.testing.expect(wakes <= 62);
+    // Castigo de semanas: cabe no inteiro que o SDL recebe.
+    try std.testing.expectEqual(@as(i64, std.math.maxInt(i32)), sleepFor(40 * 86_400_000));
 }
 
 test "passo menor que a precisão do f32 termina" {

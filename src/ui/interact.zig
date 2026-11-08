@@ -34,8 +34,8 @@ const gpa = std.heap.c_allocator;
 
 const Pending = struct { nonce: u64 = 0, msg: Id = 0, key: u64 = 0, at: i64 = 0 };
 var pending: [8]Pending = @splat(.{});
-/// Sem resposta do Discord até aqui: dá a interação por falha.
-const timeout_ms: i64 = 12_000;
+/// Sem resposta do Discord até aqui: dá a interação por falha (a rede não manda depois).
+const timeout_ms = ix.timeout_ms;
 
 /// Nonces que mandamos há pouco: um modal só abre se for resposta a um deles.
 var recent: [8]Pending = @splat(.{});
@@ -81,6 +81,13 @@ fn sentRecently(nonce: u64, now_ms: i64) bool {
     if (nonce == 0) return false;
     for (recent) |r| if (r.nonce == nonce and now_ms - r.at < 60_000) return true;
     return false;
+}
+
+/// A mensagem de um clique recente (0 = não foi numa mensagem, ou já saiu da lista).
+fn recentMsg(nonce: u64) Id {
+    if (nonce == 0) return 0;
+    for (recent) |r| if (r.nonce == nonce) return r.msg;
+    return 0;
 }
 
 fn takePending(nonce: u64) ?Pending {
@@ -153,7 +160,7 @@ fn msgCtx(ctx: *d.Ctx) ?MsgCtx {
 fn sendComponent(ctx: *d.Ctx, mc: MsgCtx, kind: u8, custom_id: []const u8, values: ?[]const []const u8) void {
     const data = ix.componentData(gpa, kind, custom_id, values) catch return;
     const nonce = nextNonce(ctx.now_ms);
-    send(ctx, .{ .kind = .component, .app = mc.app, .guild = mc.guild, .channel = mc.channel, .message = mc.msg, .message_flags = mc.flags, .nonce = nonce, .data = data });
+    send(ctx, .{ .kind = .component, .app = mc.app, .guild = mc.guild, .channel = mc.channel, .message = mc.msg, .message_flags = mc.flags, .nonce = nonce, .data = data, .sent_ms = ctx.now_ms });
     addPending(nonce, mc.msg, keyOf(custom_id), ctx.now_ms);
     clearFailed(ctx.store, mc.msg);
 }
@@ -492,32 +499,48 @@ pub fn selectBox(ctx: *d.Ctx, dl: ?*c.ImDrawList, os: *const ix.OwnedSelect, x: 
 
 // --- Rodapé da mensagem: pensando, falhou, só você vê --------------------------------
 
-fn thinking(m: *const StoredMessage) bool {
-    return m.msg.flags & ix.loading_flag != 0 and m.msg.content.len == 0 and m.msg.embeds.len == 0 and m.msg.attachments.len == 0;
+/// Resposta adiada ainda vazia: pensando (com os pontinhos) até o token da interação
+/// vencer; depois, uma linha parada (ela nunca vai sair disso).
+fn loadState(m: *const StoredMessage, now_ms: i64) ix.Loading {
+    const empty = m.msg.content.len == 0 and m.msg.embeds.len == 0 and m.msg.attachments.len == 0;
+    return ix.loading(m.msg.flags, empty, m.msg.id, now_ms);
 }
 
 /// Altura das linhas de baixo (0 = nenhuma). Barato: chamado em toda medida.
-pub fn footerHeight(m: *const StoredMessage) f32 {
+pub fn footerHeight(m: *const StoredMessage, now_ms: i64) f32 {
     var h: f32 = 0;
-    if (thinking(m)) h += 24;
+    // As duas linhas têm a mesma altura: quando o prazo vence, a mensagem não pula.
+    if (loadState(m, now_ms) != .none) h += 24;
     if (isFailed(m.msg.id)) h += 20;
     if (m.msg.flags & ix.ephemeral_flag != 0) h += 22;
     return h;
 }
 
 pub fn footer(ctx: *d.Ctx, dl: ?*c.ImDrawList, m: *const StoredMessage, x: f32, y_in: f32, alpha: f32) f32 {
-    const h = footerHeight(m);
+    const h = footerHeight(m, ctx.now_ms);
     const l = dl orelse return h;
     if (h == 0) return 0;
     var y = y_in;
     const f = ctx.ui.get(.regular);
-    if (thinking(m)) {
-        const name = if (ctx.store.user(m.msg.author)) |u| u.name else "bot";
-        var tb: [128]u8 = undefined;
-        const t = i18n.fmt(&tb, "{s} está pensando", "{s} is thinking", .{name});
-        d.text(l, ctx.ui.get(.medium), 13.5, x, y + 3, ctx.col(.muted).alpha(alpha), t);
-        w.typingDots(l, x + d.width(ctx.ui.get(.medium), 13.5, t) + 8, y + 13, ctx.col(.muted).alpha(alpha), ctx.now_ms);
-        y += 24;
+    switch (loadState(m, ctx.now_ms)) {
+        .none => {},
+        .thinking => {
+            const name = if (ctx.store.user(m.msg.author)) |u| u.name else "bot";
+            var tb: [128]u8 = undefined;
+            const t = i18n.fmt(&tb, "{s} está pensando", "{s} is thinking", .{name});
+            d.text(l, ctx.ui.get(.medium), 13.5, x, y + 3, ctx.col(.muted).alpha(alpha), t);
+            w.typingDots(l, x + d.width(ctx.ui.get(.medium), 13.5, t) + 8, y + 13, ctx.col(.muted).alpha(alpha), ctx.now_ms);
+            y += 24;
+        },
+        // Sem animação: parada, a tela dorme como qualquer outra mensagem.
+        .expired => {
+            const t = i18n.tr("O aplicativo não respondeu", "The application did not respond");
+            d.circle(l, x + 6, y + 12, 6, ctx.col(.danger).alpha(alpha));
+            d.text(l, ctx.ui.get(.bold), 10, x + 3.5, y + 5, d.Rgba.white.alpha(alpha), "!");
+            d.text(l, f, 13, x + 18, y + 4, ctx.col(.danger).alpha(alpha), t);
+            qa.mark(.{ .x = x, .y = y, .w = 200, .h = 24 }, "ix-expired:{d}", .{m.msg.id});
+            y += 24;
+        },
     }
     if (isFailed(m.msg.id)) {
         const t = i18n.tr("Esta interação falhou", "This interaction failed");
@@ -625,7 +648,12 @@ pub fn appCommands(ctx: *d.Ctx, ch_id: Id, out: []Found) usize {
 pub fn onEvent(st: *State, store: *Store, e: ix.Event) void {
     switch (e) {
         .created => {},
-        .succeeded => |x| _ = takePending(x.nonce),
+        .succeeded => |x| if (takePending(x.nonce) == null) {
+            // O pedido saiu antes do prazo e a resposta veio depois: a ação rodou, então a
+            // mensagem não fica marcada como falha.
+            const msg = recentMsg(x.nonce);
+            if (msg != 0) clearFailed(store, msg);
+        },
         .failed => |x| if (takePending(x.nonce)) |p| {
             if (p.msg != 0) markFailed(store, p.msg) else st.showToast(anim.now_ms, true, "a interação falhou", "the interaction failed", .{});
         },
@@ -996,7 +1024,7 @@ fn submitModal(ctx: *d.Ctx, ms: *ModalState) void {
     for (m.fields, 0..) |_, i| vals[i] = fieldValue(arena.allocator(), ms, i) catch return;
     const data = ix.modalData(gpa, m, vals[0..m.fields.len]) catch return;
     const nonce = nextNonce(ctx.now_ms);
-    send(ctx, .{ .kind = .modal_submit, .app = m.app, .guild = ms.guild, .channel = m.channel, .nonce = nonce, .data = data });
+    send(ctx, .{ .kind = .modal_submit, .app = m.app, .guild = ms.guild, .channel = m.channel, .nonce = nonce, .data = data, .sent_ms = ctx.now_ms });
     addPending(nonce, 0, 0, ctx.now_ms);
     dismissModal(ctx);
 }
@@ -1506,7 +1534,7 @@ fn requestAutocomplete(ctx: *d.Ctx, fs: *FormState) void {
     }
     const data = ix.commandData(gpa, fs.cmd, fs.path[0..fs.path_len], vals[0..n], &.{}) catch return;
     const nonce = nextNonce(ctx.now_ms);
-    send(ctx, .{ .kind = .autocomplete, .app = fs.cmd.app, .guild = fs.guild, .channel = fs.channel, .nonce = nonce, .data = data });
+    send(ctx, .{ .kind = .autocomplete, .app = fs.cmd.app, .guild = fs.guild, .channel = fs.channel, .nonce = nonce, .data = data, .sent_ms = ctx.now_ms });
     fs.ac_nonce = nonce;
     fs.ac_shown = i;
     if (fs.ac_list) |old| {
@@ -1549,7 +1577,7 @@ fn submitForm(ctx: *d.Ctx, fs: *FormState) void {
         files = list;
     }
     const nonce = nextNonce(ctx.now_ms);
-    send(ctx, .{ .kind = .command, .app = fs.cmd.app, .guild = fs.guild, .channel = fs.channel, .nonce = nonce, .data = data, .files = files });
+    send(ctx, .{ .kind = .command, .app = fs.cmd.app, .guild = fs.guild, .channel = fs.channel, .nonce = nonce, .data = data, .files = files, .sent_ms = ctx.now_ms });
     addPending(nonce, 0, 0, ctx.now_ms);
     closeForm();
     ctx.st.focus_input = true;

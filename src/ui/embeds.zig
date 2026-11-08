@@ -157,7 +157,7 @@ pub fn appendText(ctx: *d.Ctx, out: *std.ArrayList(u8), m: *const StoredMessage,
 /// se `dl` não for null.
 pub fn block(ctx: *d.Ctx, dl: ?*c.ImDrawList, m: *const StoredMessage, x: f32, y_in: f32, avail: f32, alpha: f32, sel_in: Sel) f32 {
     const invites = hasInvite(m);
-    const foot = interact.footerHeight(m);
+    const foot = interact.footerHeight(m, ctx.now_ms);
     if (m.msg.embeds.len == 0 and !invites and foot == 0) return 0;
     // Botões e menus dos cartões sabem de que mensagem são.
     interact.beginMessage(m);

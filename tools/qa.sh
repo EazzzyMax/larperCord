@@ -42,6 +42,9 @@ QA_SUITE=entrada run "entrada" $bin --qa --theme classico
 QA_SUITE=interacoes run "interações" $bin --qa --theme classico
 # Fontes reserva (CJK) só quando um texto pede, e o mixer da call: fora da geral.
 QA_SUITE=escritas run "escritas" $bin --qa --theme classico
+# Sem fonte nenhuma no sistema (o fontconfig sem pasta de fontes): abre com a do ImGui.
+printf '<?xml version="1.0"?>\n<fontconfig><cachedir>%s/qa-out/fc-cache</cachedir></fontconfig>\n' "$PWD" > qa-out/sem-fontes.conf
+QA_SUITE=sem-fontes FONTCONFIG_FILE="$PWD/qa-out/sem-fontes.conf" run "sem fontes" $bin --qa --theme classico
 QA_SUITE=voice run "mixer da call" $bin --qa --theme classico
 # As outras baterias do qa_runner.zig rodam dentro da geral ou da "tema" (threads, conta,
 # proxy, chamada, voz, dispositivos, rtl...) ou têm script próprio: lsp-quit em

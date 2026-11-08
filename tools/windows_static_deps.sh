@@ -54,7 +54,9 @@ for tool in cc ar ranlib; do
     chmod +x "$t/z$tool"
 done
 
-# curl: só HTTP(S), WebSocket e o proxy, como no binário portátil de Linux.
+# curl: só HTTP(S), WebSocket e o proxy, como no binário portátil de Linux. Sem ler o
+# openssl.cnf: o OpenSSL do MSYS2 procura em <pasta do .exe>\..\etc\ssl, que outro usuário
+# da máquina pode criar, e o arquivo carrega DLLs (provider/engine) no processo.
 f=$(get https://curl.se/download/curl-8.23.0.tar.xz 8dadd7d2536a314f982ad05a651b713f426bf7d02cc2c76cffb9796f2218e6c5)
 tar -xf "$f" -C "$t"
 cmake -S "$t"/curl-* -B "$t/curl" -G Ninja \
@@ -64,7 +66,7 @@ cmake -S "$t"/curl-* -B "$t/curl" -G Ninja \
     -DCMAKE_INSTALL_PREFIX="$out" -DCMAKE_INSTALL_LIBDIR=lib \
     -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_CURL_EXE=OFF -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF \
     -DBUILD_LIBCURL_DOCS=OFF -DBUILD_MISC_DOCS=OFF -DENABLE_CURL_MANUAL=OFF -DCURL_USE_PKGCONFIG=OFF \
-    -DCURL_USE_OPENSSL=ON -DOPENSSL_ROOT_DIR="$out" -DOPENSSL_USE_STATIC_LIBS=ON \
+    -DCURL_USE_OPENSSL=ON -DOPENSSL_ROOT_DIR="$out" -DOPENSSL_USE_STATIC_LIBS=ON -DCURL_DISABLE_OPENSSL_AUTO_LOAD_CONFIG=ON \
     -DZLIB_INCLUDE_DIR="$win/include" -DZLIB_LIBRARY="$win/lib/libz.a" \
     -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBSSH2=OFF -DUSE_NGHTTP2=OFF -DCURL_BROTLI=OFF -DCURL_ZSTD=OFF \
     -DUSE_LIBIDN2=OFF -DUSE_WIN32_IDN=OFF -DCURL_WINDOWS_SSPI=OFF -DENABLE_UNIX_SOCKETS=OFF \

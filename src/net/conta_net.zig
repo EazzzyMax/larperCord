@@ -51,12 +51,13 @@ pub fn sendPresence(g: anytype) void {
     g.queueOp(.presence);
 }
 
-/// O op 3 inteiro do gateway de verdade (`g.presence`: net/rpc_proto.zig).
-pub fn writePresence(g: anytype, status_name: []const u8) void {
+/// O op 3 inteiro do gateway de verdade (`g.presence`: net/rpc_proto.zig). false = não
+/// saiu inteiro (volta para a fila do teto de envio).
+pub fn writePresence(g: anytype, status_name: []const u8) bool {
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(alloc);
-    writeOp3(&out, status_name, g.conta.custom, g.presence.current) catch return;
-    g.writeWs(out.items);
+    writeOp3(&out, status_name, g.conta.custom, g.presence.current) catch return true;
+    return g.writeWs(out.items);
 }
 
 /// O op 3: o status escolhido mais o status personalizado (tipo 4), se vale

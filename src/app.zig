@@ -717,9 +717,11 @@ pub const App = struct {
         style.*.FontSizeBase = th.font_size;
         app.applyImGuiColors(th);
 
-        // Fontes do tema (carregadas sob demanda e reaproveitadas).
-        _ = app.fonts.family(th.font_ui) catch app.fonts.family("Inter") catch {};
-        _ = app.fonts.family(th.font_mono) catch app.fonts.family("monospace") catch {};
+        // Fontes do tema (carregadas sob demanda e reaproveitadas). Sem fonte nenhuma no
+        // sistema, a embutida entra aqui, fora do quadro, antes de `uiFamily` pedir.
+        app.fonts.forgetMissing();
+        _ = app.fonts.family(th.font_ui) catch app.fonts.family("Inter") catch app.fonts.builtin();
+        _ = app.fonts.family(th.font_mono) catch app.fonts.family("monospace") catch app.fonts.builtin();
         // Fontes pedidas por componentes (`font="Liberation Serif"`).
         if (th.layout) |lay| app.loadNodeFonts(lay);
         // O fontconfig guarda o cache de todas as fontes do sistema (~MBs);
@@ -909,7 +911,7 @@ pub const App = struct {
     }
 
     pub fn uiFamily(app: *App, name: []const u8) *fonts_mod.Family {
-        return app.fonts.family(name) catch app.fonts.family("Inter") catch app.fonts.families.items[0];
+        return app.fonts.family(name) catch app.fonts.family("Inter") catch app.fonts.builtin();
     }
 
     fn setTheme(app: *App, i: usize) void {
@@ -2443,10 +2445,10 @@ pub const App = struct {
             var got = if (busy or wait <= 0)
                 c.SDL_PollEvent(&e)
             else if (due != std.math.maxInt(i64))
-                c.SDL_WaitEventTimeout(&e, @intCast(@min(wait, 1000)))
+                c.SDL_WaitEventTimeout(&e, @intCast(anim.sleepFor(wait)))
             else
                 c.SDL_WaitEvent(&e);
-            // Acordou só porque o teto de 1 s da espera venceu.
+            // Acordou só porque o teto da espera venceu (ver anim.sleepFor).
             const timed_out = !got and !busy and wait > 0;
             var input = false;
             while (got) {
