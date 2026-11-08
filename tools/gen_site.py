@@ -6,9 +6,11 @@ Entradas:
   site/guide/{en,pt}/*.md   os guias
   docs/plugins*.md, themes/README*.md   guias que também vivem fora do site
   themes/*.kdl              paletas, opções e layouts dos temas (a fonte de verdade)
+  site/try.html             a demonstração no navegador, só quando docs/try/ tem o build dela
 
 Só usa a biblioteca padrão. Rode: python3 tools/gen_site.py
 """
+import gzip
 import html
 import json
 import re
@@ -881,6 +883,35 @@ def build_guide(lang, themes):
     return index
 
 
+# A demonstração no navegador (zig build web, ver tools/web/README.md). A página e o
+# link da inicial só entram quando o build dela está em docs/try/: sem ele, nada aparece.
+TRY_SIZE = None
+
+
+def try_size():
+    files = sorted((OUT / "try").glob("larpercord.*"))
+    if not any(f.suffix == ".wasm" for f in files):
+        return None
+    total = sum(len(gzip.compress(f.read_bytes(), 9)) for f in files)
+    return f"{total / 1e6:.1f} MB"
+
+
+def build_try(lang):
+    src = (SITE / "try.html").read_text(encoding="utf-8")
+    src = re.sub(r"\{\{(.*?)\|\|(.*?)\}\}", lambda m: m.group(1 if lang == "en" else 2), src, flags=re.S)
+    path = "try/index.html" if lang == "en" else "pt/try/index.html"
+    alt = "pt/try/index.html" if lang == "en" else "try/index.html"
+    home = rel(path, page_url(lang) if lang == "pt" else "") or "./"
+    src = (src.replace("%TRY_SIZE%", TRY_SIZE).replace("%TRY_THEMES%", json.dumps(THEMES)).replace("%HOME%", home)
+           .replace("%ROOT%", root_of(path)).replace("%LANG%", lang)
+           .replace("%GUIDE%", rel(path, page_url(lang, "x")).removesuffix("x.html")))
+    title = t(lang, "Try larperCord in your browser", "Experimente o larperCord no navegador")
+    desc = t(lang, "The real larperCord app compiled to WebAssembly, running its demo mode with fake data. No network, no account.",
+             "O app larperCord de verdade compilado para WebAssembly, rodando o modo demonstração com dados falsos. Sem rede, sem conta.")
+    write(path, shell(lang, path, alt, title, desc, src, "try"))
+    return [{"t": title, "s": "larperCord", "u": path}]
+
+
 def write(path, text):
     f = OUT / path
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -911,6 +942,8 @@ def build_landing(lang, themes):
   <figcaption><span class="tnum">{i + 1:02d}</span><strong>{name}</strong><span class="tdesc">{html.escape(th['descEn'] if lang == 'en' else th['desc'])}</span></figcaption>
 </figure>''')
     src = src.replace("%THEME_CARDS%", "\n".join(cards)).replace("%MASCOT%", mascot("h"))
+    try_cta = f'<a class="btn" href="try/">{t(lang, "Try it in your browser", "Testar no navegador")}</a>'
+    src = re.sub(r"([ \t]*)%TRY_CTA%\n", lambda m: f"{m.group(1)}{try_cta}\n" if TRY_SIZE else "", src)
     tabs = [f'<button type="button" role="tab" data-apply="larper" class="tab"><i>0</i>larper</button>']
     tabs += [f'<button type="button" role="tab" data-apply="{n}" class="tab"><i>{i + 1}</i>{n}</button>' for i, n in enumerate(THEMES)]
     src = src.replace("%THEME_TABS%", "".join(tabs))
@@ -933,6 +966,8 @@ def build_landing(lang, themes):
 
 
 def main():
+    global TRY_SIZE
+    TRY_SIZE = try_size()
     themes = load_themes()
     data = {"order": THEMES, "themes": {**{k: {x: v[x] for x in v if x not in ("preset", "options", "desc", "descEn", "nodes")} for k, v in themes.items()},
                                         "larper": {k: BRAND[k] for k in ("radius", "display", "fx", "dark", "light")}}}
@@ -942,8 +977,10 @@ def main():
     for lang in LANGS:
         index = build_landing(lang, themes)
         index += build_guide(lang, themes)
+        if TRY_SIZE:
+            index += build_try(lang)
         write(f"assets/site/search-{lang}.js", "window.LC_SEARCH=" + json.dumps(index, ensure_ascii=False, separators=(",", ":")) + ";\n")
-    urls = ["", "pt/"] + [page_url(la, s) for la in LANGS for s, _, _ in FLAT]
+    urls = ["", "pt/"] + [page_url(la, s) for la in LANGS for s, _, _ in FLAT] + (["try/", "pt/try/"] if TRY_SIZE else [])
     write("sitemap.xml", '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
           + "".join(f"  <url><loc>{BASE_URL}{u}</loc></url>\n" for u in urls) + "</urlset>\n")
     write("robots.txt", f"User-agent: *\nAllow: /\nSitemap: {BASE_URL}sitemap.xml\n")
