@@ -18,8 +18,8 @@ const inbox = @import("inbox.zig");
 const mem_use_mod = @import("../core/mem_use.zig");
 const sys = @import("../platform/sys.zig");
 
-// Japonês: como o `label` é também a marca do QA (settings:…), a tradução
-// mora no ponto de uso (`sidebarLabel`), não num campo aqui.
+// O `label` (português) é também a marca do QA (settings:…); os outros idiomas
+// saem de `label_en` pelo i18n/<idioma>.kdl.
 const Section = struct {
     title: []const u8,
     title_en: []const u8,
@@ -59,35 +59,6 @@ const menu_items = blk: {
     for (sections) |sec| n += sec.items.len;
     break :blk n;
 };
-
-/// Rótulo da barra lateral: o japonês vem de uma tabela aqui, porque o
-/// campo `label` (português) é a marca do QA e não pode mudar.
-fn sidebarLabel(pt: []const u8, en: []const u8) []const u8 {
-    if (i18n.current() != .ja) return i18n.tr(pt, en);
-    const Pair = struct { pt: []const u8, ja: []const u8 };
-    const ja = [_]Pair{
-        .{ .pt = "Minha conta", .ja = "アカウント" },
-        .{ .pt = "Privacidade", .ja = "プライバシー" },
-        .{ .pt = "Alertas e filtros", .ja = "通知とフィルター" },
-        .{ .pt = "Aparência", .ja = "外観" },
-        .{ .pt = "Acessibilidade", .ja = "アクセシビリティ" },
-        .{ .pt = "Chat", .ja = "チャット" },
-        .{ .pt = "Voz", .ja = "音声" },
-        .{ .pt = "Notificações", .ja = "通知" },
-        .{ .pt = "Atalhos de teclado", .ja = "キーボードショートカット" },
-        .{ .pt = "Idioma", .ja = "言語" },
-        .{ .pt = "Rede", .ja = "ネットワーク" },
-        .{ .pt = "Avançado", .ja = "詳細設定" },
-        .{ .pt = "Desempenho", .ja = "パフォーマンス" },
-        .{ .pt = "Erros no código", .ja = "コードの診断" },
-        .{ .pt = "Plugins", .ja = "プラグイン" },
-        .{ .pt = "Atualizações", .ja = "アップデート" },
-        .{ .pt = "Novidades", .ja = "新着情報" },
-        .{ .pt = "Sobre", .ja = "larperCordについて" },
-    };
-    for (ja) |e| if (std.mem.eql(u8, e.pt, pt)) return e.ja;
-    return en;
-}
 
 /// Estado de desenho de uma página (posição corrente, largura útil).
 const Page = struct {
@@ -426,15 +397,12 @@ pub fn draw(ctx: *d.Ctx, previews: []const Preview) void {
     const mx = side.right() - 210;
     const fam = ctx.ui;
     for (sections, 0..) |sec, si| {
-        d.text(dl, fam.get(.bold), 11.5, mx + 10, y, ctx.col(.faint), if (i18n.current() == .ja)
-                (if (std.mem.eql(u8, sec.title_en, "USER SETTINGS")) "ユーザー設定" else if (std.mem.eql(u8, sec.title_en, "APP SETTINGS")) "アプリ設定" else sec.title_en)
-            else
-                i18n.tr(sec.title, sec.title_en));
+        d.text(dl, fam.get(.bold), 11.5, mx + 10, y, ctx.col(.faint), i18n.tr(sec.title, sec.title_en));
         y += 24;
         for (sec.items, 0..) |it, ii| {
             const r: d.Rect = .{ .x = mx, .y = y, .w = 192, .h = step - 2 };
             const hb = d.hit(ctx, 100 + si * 20 + ii, r);
-            const label = sidebarLabel(it.label, it.label_en);
+            const label = i18n.tr(it.label, it.label_en);
             qa.mark(r, "settings:{s}", .{label});
             if (hb.clicked) s.page = it.page;
             const sel = s.page == it.page;
@@ -645,7 +613,7 @@ fn page(p: *Page, previews: []const Preview) void {
         .aparencia => {
             p.title(i18n.tr("Aparência", "Appearance"));
             p.heading(i18n.tr("Modo", "Mode"));
-            p.segmented(if (i18n.en()) &.{ "Dark", "Light", "Follow system" } else &.{ "Escuro", "Claro", "Seguir o sistema" }, &s.color_mode);
+            p.segmented(&.{ i18n.tr("Escuro", "Dark"), i18n.tr("Claro", "Light"), i18n.tr("Seguir o sistema", "Follow system") }, &s.color_mode);
             p.heading(i18n.tr("Tema", "Theme"));
             p.note(i18n.tr("Cada tema muda o layout inteiro, não só as cores. Todos têm versão clara e escura.", "Each theme changes the whole layout, not just the colors. All of them come in light and dark."));
             themeGrid(p, previews);
@@ -664,9 +632,9 @@ fn page(p: *Page, previews: []const Preview) void {
             p.divider();
             p.heading(i18n.tr("Escala da fonte", "Font scaling"));
             p.slider(i18n.tr("Tamanho do texto", "Text size"), &s.font_scale, 0.8, 1.3, "{d:.0}%", 100);
-            p.slider(i18n.tr3("Tamanho da interface", "Interface size", "インターフェースの大きさ"), &s.ui_scale, 0.75, 2, "{d:.0}%", 100);
+            p.slider(i18n.tr("Tamanho da interface", "Interface size"), &s.ui_scale, 0.75, 2, "{d:.0}%", 100);
             s.ui_scale = @round(s.ui_scale * 20) / 20;
-            p.note(i18n.tr3("Aumenta tudo, não só o texto. Vale ao soltar o mouse.", "Makes everything bigger, not just the text. Applies when you let go of the mouse.", "テキストだけでなく全体を拡大します。マウスを離すと反映されます。"));
+            p.note(i18n.tr("Aumenta tudo, não só o texto. Vale ao soltar o mouse.", "Makes everything bigger, not just the text. Applies when you let go of the mouse."));
             p.heading(i18n.tr("Exibição das mensagens", "Message display"));
             p.toggle(i18n.tr("Modo compacto", "Compact mode"), i18n.tr("Menos espaço entre grupos e avatares menores.", "Less space between groups and smaller avatars."), &s.compact);
             p.toggle(i18n.tr("Mostrar avatares", "Show avatars"), i18n.tr("Exibe a foto ao lado do nome.", "Shows the profile picture next to the name."), &s.show_avatars);
@@ -676,7 +644,7 @@ fn page(p: *Page, previews: []const Preview) void {
             p.note(i18n.tr("Vale para qualquer tema; \"T\" volta à cor do tema.", "Works with every theme; \"T\" goes back to the theme's color."));
             p.swatches(&@import("../app.zig").App.accents, &s.accent);
             p.heading(i18n.tr("Cantos", "Corners"));
-            p.segmented(if (i18n.en()) &.{ "Theme", "Square", "Soft", "Round" } else &.{ "Do tema", "Retos", "Suaves", "Redondos" }, &s.corners);
+            p.segmented(&.{ i18n.tr("Do tema", "Theme"), i18n.tr("Retos", "Square"), i18n.tr("Suaves", "Soft"), i18n.tr("Redondos", "Round") }, &s.corners);
             p.divider();
             themeColors(p);
             p.heading("Layout");
@@ -754,24 +722,24 @@ fn page(p: *Page, previews: []const Preview) void {
                 if (a.grupo == .vim and !s.vim_keys) continue;
                 if (grupo != a.grupo) {
                     grupo = a.grupo;
-                    p.heading(atalhos.nome(a.grupo, i18n.en()));
+                    const g = atalhos.nome(a.grupo);
+                    p.heading(i18n.tr(g.pt, g.en));
                 }
                 p.keyRow(i18n.tr(a.pt, a.en), if (a.teclas_pt) |k| i18n.tr(k, a.teclas) else a.teclas);
             }
         },
         .idioma => {
-            p.title(i18n.tr3("Idioma", "Language", "言語"));
+            p.title(i18n.tr("Idioma", "Language"));
             // Os nomes dos idiomas ficam sempre na própria língua.
             p.radio(&.{
-                i18n.tr3("Seguir o sistema", "Follow system", "システムに従う"),
+                i18n.tr("Seguir o sistema", "Follow system"),
                 "Português (Brasil)",
                 "English (US)",
                 "日本語 (Japanese)",
             }, &.{}, &s.language);
-            p.note(i18n.tr3(
+            p.note(i18n.tr(
                 "Por padrão o app segue o idioma do sistema. A troca vale na hora.",
                 "By default the app follows your system language. Changes apply right away.",
-                "デフォルトではシステムの言語に従います。変更はすぐに反映されます。",
             ));
             // No Windows o app só procura alguns arquivos de C:\Windows\Fonts (ui/fonts.zig).
             if (ctx.fonts.triedGroup(.cjk) and !ctx.fonts.hasGroup(.cjk)) p.note(if (sys.windows) i18n.tr(

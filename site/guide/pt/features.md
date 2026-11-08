@@ -138,7 +138,7 @@ Voz de verdade com criptografia de ponta a ponta, mixer por pessoa, seletor de d
 ## Rede e idiomas
 
 - **Proxy** para HTTP, HTTPS, SOCKS5 e SOCKS5h (Tor em `127.0.0.1:9050`), com campos separados para endereço, porta, login e senha, só para mídia externa ou para tudo menos as calls de voz, que sempre conectam direto. Fica em Configurações → Rede e na tela de entrada, que oferece o proxy quando não chega ao Discord.
-- **Inglês e português** em toda a interface, nos avisos de rede, nos dados de demonstração e nas opções dos temas, e a interface em **japonês**, com inglês onde ainda falta tradução. Por padrão, segue o seu sistema.
+- **Inglês e português** em toda a interface, nos avisos de rede, nos dados de demonstração e nas opções dos temas, e a interface inteira em **japonês**. As traduções ficam num arquivo por idioma (`i18n/ja.kdl`), então um idioma novo não precisa de código. Por padrão, segue o seu sistema.
 - **Texto em qualquer idioma**: as letras árabes saem ligadas e o texto da direita para a esquerda vem na ordem certa. Uma letra que falta na fonte do tema, em qualquer escrita, vem de uma fonte do sistema que a tenha. Texto da direita para a esquerda digitado ainda vai da esquerda para a direita na caixa de mensagem, e escritas que precisam de composição, como devanágari ou tailandês, mostram as letras uma a uma.
 
 ## Deixe do seu jeito

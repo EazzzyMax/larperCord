@@ -60,6 +60,7 @@
 **Text in any language**
 - Arabic and Hebrew display correctly, from majd-tqe's report (#9). Arabic letters are joined, and right-to-left text comes in the right order in messages, embeds and user, channel and server names. Right-to-left paragraphs are right-aligned in messages and embeds, each paragraph on its own when a message mixes languages. Copying still gives exactly what was written.
 - A letter the theme's font lacks, in any script (Thai, Devanagari, Ethiopic, Georgian, Armenian, Tibetan…), comes from a system font that has it instead of `?`. Each block is looked up once, only when such text appears.
+- The whole interface is in Japanese now, building on nakayama900's translation. Translations live in one file per language (`i18n/ja.kdl`, English text then the translation), so anyone can fix a line or start a new language without touching the code; a copy in the settings folder overrides the built-in one.
 
 **Themes**
 - Zen's footer shows your status and the mute and deafen buttons, and its server rail gets a background when it slides in.
@@ -104,7 +105,6 @@
 **Known limitations**
 - Arabic and Hebrew you type in the message box still go left to right. The message shows correctly once it's sent.
 - Scripts that need shaping, like Devanagari, Bengali, Thai or Khmer, show their real letters one by one, without conjuncts or reordered vowel signs.
-- New text in this version isn't in Japanese yet and shows in English.
 - The single Windows `.exe` is opt-in, for people who build it with `-Dsingle-exe=true`. Releases still ship the `.exe` with its DLLs.
 - App commands in the right-click menu, files in bot forms and recording voice messages aren't supported yet.
 

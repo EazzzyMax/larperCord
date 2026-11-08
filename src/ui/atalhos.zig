@@ -67,8 +67,8 @@ pub const lista = [_]Atalho{
     .{ .grupo = .vim, .pt = "Buscar (paleta)", .en = "Search (palette)", .teclas = "/" },
 };
 
-pub fn nome(g: Grupo, en: bool) []const u8 {
-    for (grupos) |n| if (n.id == g) return if (en) n.en else n.pt;
+pub fn nome(g: Grupo) NomeGrupo {
+    for (grupos) |n| if (n.id == g) return n;
     unreachable;
 }
 
@@ -85,5 +85,5 @@ test "atalhos: cada grupo aparece uma vez, na ordem, e toda linha tem texto" {
         }
     }
     try std.testing.expectEqual(lista.len, i);
-    try std.testing.expectEqualStrings("Voice", nome(.voz, true));
+    try std.testing.expectEqualStrings("Voice", nome(.voz).en);
 }

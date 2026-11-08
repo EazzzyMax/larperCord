@@ -962,11 +962,11 @@ fn quotedText(ctx: *d.Ctx, m: *StoredMessage) []const u8 {
 /// Frase da prévia quando a original não tem texto nem um nome para mostrar.
 fn replyPhrase(k: reply_preview.Kind) []const u8 {
     return switch (k) {
-        .file, .files, .image, .video => i18n.tr3("Clique para ver o anexo", "Click to see attachment", "クリックして添付ファイルを表示"),
-        .voice => i18n.tr3("Mensagem de voz", "Voice message", "ボイスメッセージ"),
+        .file, .files, .image, .video => i18n.tr("Clique para ver o anexo", "Click to see attachment"),
+        .voice => i18n.tr("Mensagem de voz", "Voice message"),
         .sticker => i18n.tr("Figurinha", "Sticker"),
         .poll => i18n.tr("Enquete", "Poll"),
-        .text, .embed, .empty => i18n.tr3("Clique para ver a mensagem", "Click to see message", "クリックしてメッセージを表示"),
+        .text, .embed, .empty => i18n.tr("Clique para ver a mensagem", "Click to see message"),
     };
 }
 
@@ -1669,12 +1669,12 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         d.rectFlags(dl, bar, ctx.col(.rail).mix(ctx.col(.elevated), 0.5), @max(ctx.th.radius + 4, 4), c.ImDrawFlags_RoundTop);
         var buf: [128]u8 = undefined;
         const t = if (st.editing != 0)
-            i18n.tr3("Editando mensagem  ·  Esc cancela  ·  Enter salva", "Editing message  ·  Esc to cancel  ·  Enter to save", "メッセージを編集中  ·  Escでキャンセル  ·  Enterで保存")
+            i18n.tr("Editando mensagem  ·  Esc cancela  ·  Enter salva", "Editing message  ·  Esc to cancel  ·  Enter to save")
         else blk: {
             const f = ctx.store.findAny(st.reply_to);
             const u = if (f) |x| ctx.store.user(x.m.msg.author) else null;
             if (u) |x| break :blk i18n.fmt(&buf, "Respondendo a {s}", "Replying to {s}", .{x.name});
-            break :blk i18n.tr3("Respondendo a mensagem", "Replying to a message", "メッセージに返信中");
+            break :blk i18n.tr("Respondendo a mensagem", "Replying to a message");
         };
         d.text(dl, fam.get(.medium), 13, bar.x + 14, bar.y + 8, ctx.col(.muted), t);
         const xr: d.Rect = .{ .x = bar.right() - 30, .y = bar.y + 5, .w = 22, .h = 22 };
@@ -1702,7 +1702,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
     if (d.pflag(n, "typing", true) and cs.typing.items.len > 0) {
         const u = ctx.store.user(cs.typing.items[0].user);
         var buf: [96]u8 = undefined;
-        const who = if (u) |x| x.name else i18n.tr3("alguém", "someone", "誰か");
+        const who = if (u) |x| x.name else i18n.tr("alguém", "someone");
         const t = i18n.fmt(&buf, "{s} está digitando", "{s} is typing", .{who});
         const ty = top - 19;
         const tx = r.x + (if (prompt) @as(f32, 10) else 6);
@@ -1718,7 +1718,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         d.line(dl, r.x, r.y + 0.5, r.right(), r.y + 0.5, ctx.col(.border), 1);
         const me = ctx.store.user(ctx.store.me);
         var buf: [96]u8 = undefined;
-        const p = std.fmt.bufPrint(&buf, "{s}@{s}{s} {s} ", .{ if (me) |x| x.name else i18n.tr3("eu", "me", "自分"), sigil(&cs.info), cs.info.name, if (st.editing != 0) "✎" else if (st.reply_to != 0) "↩" else "❯" }) catch "❯ ";
+        const p = std.fmt.bufPrint(&buf, "{s}@{s}{s} {s} ", .{ if (me) |x| x.name else i18n.tr("eu", "me"), sigil(&cs.info), cs.info.name, if (st.editing != 0) "✎" else if (st.reply_to != 0) "↩" else "❯" }) catch "❯ ";
         const fs = ctx.th.font_size;
         d.text(dl, fam.get(.bold), fs, r.x + 10, d.centerY(r, fs), ctx.col(.accent), p);
         input_x = r.x + 10 + d.width(fam.get(.bold), fs, p);
@@ -1737,7 +1737,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         qa.mark(pr, "composer-attach", .{});
         d.text(dl, fam.get(.bold), fs, pr.x + 4, d.centerY(pr, fs), if (ph.hovered) ctx.col(.accent) else ctx.col(.muted), "[+]");
         if (ph.clicked) ctx.act(.pick_files);
-        d.tip(ctx, pr, i18n.tr3("Anexar arquivo", "Attach File", "ファイルを添付"), ph.hovered);
+        d.tip(ctx, pr, i18n.tr("Anexar arquivo", "Attach File"), ph.hovered);
         const er: d.Rect = .{ .x = r.right() - 36, .y = r.y + r.h / 2 - 13, .w = 26, .h = 26 };
         const eh = d.hit(ctx, 2, er);
         qa.mark(er, "composer-emoji", .{});
@@ -1754,7 +1754,7 @@ pub fn composer(ctx: *d.Ctx, n: *const kdl.Node, r_in: d.Rect) void {
         d.circle(dl, ar.x + 14, ar.y + 14, 11.5, ctx.col(.muted).mix(ctx.col(.text), ak));
         icons.plus(dl, ar.x + 14, ar.y + 14, 5.5, ctx.col(.elevated).u());
         if (ah.clicked) ctx.act(.pick_files);
-        d.tip(ctx, ar, i18n.tr3("Anexar arquivo", "Attach File", "ファイルを添付"), ah.hovered);
+        d.tip(ctx, ar, i18n.tr("Anexar arquivo", "Attach File"), ah.hovered);
         const ex = r.right() - (if (pill) @as(f32, 84) else 40);
         const gr: d.Rect = .{ .x = ex - 36, .y = r.y + r.h / 2 - 11, .w = 32, .h = 22 };
         const gh = d.hit(ctx, 40, gr);

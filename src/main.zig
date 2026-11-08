@@ -34,7 +34,7 @@ const usage =
     \\  --qa              roda o teste automático da interface (prints em qa-out/)
     \\  --demo            usa os dados de demonstração mesmo com token
     \\  --login           mostra a tela de login (ignora o token salvo)
-    \\  --lang IDIOMA     pt ou en (ignora as configurações)
+    \\  --lang IDIOMA     pt, en ou ja (ignora as configurações)
     \\  --no-live         desliga as mensagens automáticas do modo demonstração
     \\  --stats           mostra a linha do tempo da abertura e o custo de cada quadro
     \\  --voice-test G C  entra no canal de voz C do servidor G por 25 s

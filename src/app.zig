@@ -273,6 +273,9 @@ pub const App = struct {
         voz_audio.force_dummy = opts.qa or opts.shot != null;
         voz_audio.qa_sounds_dir = opts.qa or opts.shot != null;
         app.themes.mode = app.wantedMode();
+        // Uma tradução na pasta de configurações vale por cima da embutida (fora dos
+        // prints da documentação e do QA, que saem sempre iguais).
+        if (!opts.qa and opts.shot == null) i18n.read_extra = &readLangFile;
         // Já aqui: os dados da demonstração saem no idioma da interface.
         i18n.set(if (opts.qa and opts.lang == null) .pt else opts.lang orelse i18n.fromSetting(app.st.settings.language));
         app.fonts.preferLanguage(@tagName(i18n.current()));
@@ -982,6 +985,19 @@ pub const App = struct {
         }
         st.voice_mic_failed = !mic_ok;
         st.voice_out_failed = !out_ok;
+    }
+
+    /// larpercord/i18n/<idioma>.kdl na pasta de configurações (ver i18n/ja.kdl).
+    fn readLangFile(gpa: std.mem.Allocator, code: []const u8) ?[]const u8 {
+        var nb: [32]u8 = undefined;
+        const name = std.fmt.bufPrint(&nb, "i18n/{s}.kdl", .{code}) catch return null;
+        var buf: [512]u8 = undefined;
+        const path = fsutil.configPath(&buf, name) orelse return null;
+        var size: usize = 0;
+        const data = c.SDL_LoadFile(path.ptr, &size) orelse return null;
+        defer c.SDL_free(data);
+        std.log.info("tradução {s} por cima da embutida: {s}", .{ code, path });
+        return gpa.dupe(u8, @as([*]const u8, @ptrCast(data))[0..size]) catch null;
     }
 
     fn loadSettings(app: *App, arena: std.mem.Allocator) ?[]const u8 {

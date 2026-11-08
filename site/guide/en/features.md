@@ -138,7 +138,7 @@ Real voice with end-to-end encryption, a per-person mixer, device picker, push-t
 ## Network and languages
 
 - **Proxy** for HTTP, HTTPS, SOCKS5 and SOCKS5h (Tor at `127.0.0.1:9050`), with separate fields for the address, port, login and password, for external media only or for everything except voice calls, which always connect directly. It's in Settings → Network and on the sign-in screen, which offers it when it can't reach Discord.
-- **English and Portuguese** across the UI, network notices, demo data and theme options, and the interface in **Japanese**, with English where a translation is still missing. It follows your system by default.
+- **English and Portuguese** across the UI, network notices, demo data and theme options, and the whole interface in **Japanese**. Translations are one file per language (`i18n/ja.kdl`), so a new language needs no code. It follows your system by default.
 - **Text in any language**: Arabic letters are joined and right-to-left text comes in the right order. A letter the theme's font lacks, in any script, comes from a system font that has it. Typed right-to-left text still goes left to right in the message box, and scripts that need shaping, like Devanagari or Thai, show their letters one by one.
 
 ## Make it yours

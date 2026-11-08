@@ -505,9 +505,9 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         } else {
             const name = switch (me.status) {
                 .online => "Online",
-                .idle => i18n.tr3("Ausente", "Idle", "退席中"),
-                .dnd => i18n.tr3("Não perturbe", "Do Not Disturb", "取り込み中"),
-                .offline => i18n.tr3("Invisível", "Invisible", "オンライン状態を隠す"),
+                .idle => i18n.tr("Ausente", "Idle"),
+                .dnd => i18n.tr("Não perturbe", "Do Not Disturb"),
+                .offline => i18n.tr("Invisível", "Invisible"),
             };
             // Escolhido por um tempo: até quando (ui/status_menu.zig).
             const until = ctx.st.conta.status_expires_ms;
@@ -521,7 +521,7 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
             if (timed) qa.mark(card, "me-status-until", .{});
             _ = d.textClipped(ctx.dl, fam.get(.regular), 12, card.x + 44, card.y + 19, ctx.col(.muted), line, card.w - 48);
         }
-        if (modes != null) d.tip(ctx, card, i18n.tr3("Clique para mudar ou sair", "Click to change or turn off", "クリックで変更・オフ"), hb.hovered);
+        if (modes != null) d.tip(ctx, card, i18n.tr("Clique para mudar ou sair", "Click to change or turn off"), hb.hovered);
     }
 
     // Mudo e ensurdecer (com a setinha do menu de dispositivos) e configurações.
@@ -538,7 +538,7 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     }
     const hb = d.hit(ctx, 12, gr);
     qa.mark(gr, "user-btn:{d}", .{2});
-    d.tip(ctx, gr, i18n.tr3("Configurações  (Ctrl+,)", "User Settings  (Ctrl+,)", "ユーザー設定  (Ctrl+,)"), hb.hovered);
+    d.tip(ctx, gr, i18n.tr("Configurações  (Ctrl+,)", "User Settings  (Ctrl+,)"), hb.hovered);
     if (hb.clicked) ctx.act(.open_settings);
     const k = anim.to(anim.id("ubtn", 2), if (hb.hovered) 1 else 0, 24);
     const ink = ctx.col(.muted).mix(ctx.col(.text), k);

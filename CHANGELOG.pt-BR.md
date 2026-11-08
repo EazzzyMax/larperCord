@@ -60,6 +60,7 @@
 **Texto em qualquer idioma**
 - Árabe e hebraico aparecem certos, a partir do relato de majd-tqe (#9). As letras árabes saem ligadas, e o texto da direita para a esquerda vem na ordem certa nas mensagens, nos embeds e nos nomes de pessoas, canais e servidores. Parágrafos da direita para a esquerda ficam alinhados à direita nas mensagens e nos embeds, cada um por si quando a mensagem mistura idiomas. Copiar continua devolvendo exatamente o que foi escrito.
 - Uma letra que falta na fonte do tema, em qualquer escrita (tailandês, devanágari, etíope, georgiano, armênio, tibetano…), vem de uma fonte do sistema que a tenha, em vez de `?`. Cada bloco é procurado uma vez, só quando um texto assim aparece.
+- A interface inteira agora está em japonês, partindo da tradução de nakayama900. As traduções ficam num arquivo por idioma (`i18n/ja.kdl`, o texto em inglês e depois a tradução), então qualquer pessoa corrige uma linha ou começa um idioma novo sem mexer no código; uma cópia na pasta de configurações substitui a embutida.
 
 **Temas**
 - O rodapé do Zen mostra o seu status e os botões de mudo e ensurdecer, e a faixa de servidores ganha fundo quando aparece.
@@ -104,7 +105,6 @@
 **Limitações conhecidas**
 - Árabe e hebraico digitados na caixa de mensagem ainda vão da esquerda para a direita. A mensagem aparece certa depois de enviada.
 - Escritas que precisam de composição, como devanágari, bengali, tailandês ou khmer, mostram as letras de verdade uma a uma, sem as ligaduras nem os sinais de vogal reposicionados.
-- Os textos novos desta versão ainda não estão em japonês e aparecem em inglês.
 - O `.exe` único do Windows é opcional, para quem compila com `-Dsingle-exe=true`. As releases continuam com o `.exe` e as DLLs.
 - Comandos de apps no botão direito, arquivos nos formulários de bots e gravar mensagens de voz ainda não têm suporte.
 
