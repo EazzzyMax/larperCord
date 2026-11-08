@@ -47,6 +47,7 @@ fn mk(buf: []u8, comptime fmt: []const u8, args: anytype) []const u8 {
 const zig: Id = 505010;
 const geral1: Id = 507005;
 const forum0: Id = 505031;
+const media0: Id = 505032;
 
 var bench: Id = 0; // a solta do #zig (não é nossa; aqui gerenciamos threads)
 var geral_t: Id = 0; // a do #geral do segundo servidor (sem permissão)
@@ -111,6 +112,17 @@ fn tPost(_: *App, b: []u8) []const u8 {
 }
 
 // --- Com permissão ----------------------------------------------------------------
+
+/// Depois de qa_threads.zig, os posts do fórum e do canal de mídia aparecem abaixo deles na
+/// lista e empurram o #zig para fora da tela: recolhidos, o #zig e as threads dele voltam à vista.
+fn forumsCollapsed(app: *App) bool {
+    var b: [40]u8 = undefined;
+    return app.st.collapsed.contains(forum0) and app.st.collapsed.contains(media0) and has("channel:505010") and
+        bench != 0 and qa.find(mk(&b, "channel:{d}", .{bench})) != null;
+}
+fn forumsExpanded(app: *App) bool {
+    return !app.st.collapsed.contains(forum0) and !app.st.collapsed.contains(media0);
+}
 
 fn benchOpen(app: *App) bool {
     return active(app, bench) and has("header-thread");
@@ -286,8 +298,11 @@ fn joinedPath(app: *App) bool {
 pub const ops = [_]Op{
     s("threads: editar"),
     click("guild:505000"),
-    click("channel:505010"),
     .{ .run = remember },
+    click("thread-toggle:505031"),
+    click("thread-toggle:505032"),
+    expect("recolher os posts do fórum e da mídia traz o #zig de volta à lista", forumsCollapsed),
+    click("channel:505010"),
     clickD(tBench),
     expectT("a thread abre e o título vira botão", benchOpen),
     rclickD(tBench),
@@ -353,6 +368,9 @@ pub const ops = [_]Op{
     expectT("privada em que nos colocaram aparece na lista do canal", privateListed),
     .{ .run = dropPrivate },
     expectT("e some quando sai", privateGone),
+    click("thread-toggle:505031"),
+    click("thread-toggle:505032"),
+    expect("os posts do fórum e da mídia voltam à lista", forumsExpanded),
 
     s("threads: sem permissão, as ações nem aparecem"),
     click("guild:507000"),

@@ -236,6 +236,7 @@ pub fn drawRules(ctx: *d.Ctx, guild: Id) void {
     _ = d.textClipped(dl, fam.get(.bold), 17, r.x + 18, r.y + 16, ctx.col(.text), title, r.w - 36);
     _ = d.textClipped(dl, fam.get(.regular), 12.5, r.x + 18, r.y + 42, ctx.col(.muted), i18n.tr("Leia e responda cada item. Nada vem marcado: o envio é seu.", "Read and answer each item. Nothing is filled in for you."), r.w - 36);
     const body: d.Rect = .{ .x = r.x + 1, .y = r.y + 68, .w = r.w - 2, .h = r.h - 68 - 64 };
+    qa.mark(body, "rules-body", .{});
     d.line(dl, r.x + 18, body.y - 0.5, r.right() - 18, body.y - 0.5, ctx.col(.border), 1);
 
     switch (rules_state) {

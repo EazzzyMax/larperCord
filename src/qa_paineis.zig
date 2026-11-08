@@ -314,6 +314,11 @@ fn rememberBoth(_: *App) void {
     before_x = handleX("resize:channels");
     before_chat = handleX("resize:members");
 }
+/// Com os dois painéis do mesmo lado (papel: membros e canais à direita), alargar o de
+/// fora empurra a alça do de dentro: ela é medida de novo antes do arraste dela.
+fn rememberMembersHandle(_: *App) void {
+    before_chat = handleX("resize:members");
+}
 fn channelsFollowed(_: *App) bool {
     return qa.find("resize:channels") == null or handleX("resize:channels") == before_x - 30;
 }
@@ -340,6 +345,7 @@ pub const ops_theme = [_]Op{
     .{ .run = rememberBoth },
     .{ .drag_by = .{ .from = .{ .dyn = themeChannelsMark }, .dx = -30 } },
     expect("a alça dos canais segue o arraste", channelsFollowed),
+    .{ .run = rememberMembersHandle },
     .{ .drag_by = .{ .from = .{ .dyn = themeMembersMark }, .dx = -30 } },
     expect("a alça dos membros segue o arraste", membersFollowed),
     .{ .hover = .{ .dyn = tChannelsAt } },

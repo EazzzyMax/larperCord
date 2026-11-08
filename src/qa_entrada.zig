@@ -2,6 +2,7 @@
 //! texto de quem ainda não respondeu as regras, o formulário das regras respondido à mão e as
 //! boas-vindas. O servidor de mentira tem um servidor com regras e perguntas (`entrada_guild`).
 const std = @import("std");
+const c = @import("c");
 const App = @import("app.zig").App;
 const R = @import("qa_runner.zig");
 const Op = R.Op;
@@ -61,6 +62,15 @@ fn cannotSend(_: *App) bool {
 }
 fn canSend(_: *App) bool {
     return entrada.qaCanSend();
+}
+/// A última pergunta fica abaixo da parte visível do formulário: rola com o mouse em cima dele.
+fn wheelDown(app: *App) void {
+    c.ImGuiIO_AddMouseWheelEvent(app.io, 0, -10);
+}
+fn choiceVisible(_: *App) bool {
+    const body = qa.find("rules-body") orelse return false;
+    const ch = qa.find("rules-choice:3:1") orelse return false;
+    return ch.y >= body.y and ch.y + ch.h <= body.y + body.h;
 }
 
 /// O último corpo que "foi para o Discord", lido como JSON.
@@ -140,6 +150,9 @@ pub const ops = [_]Op{
     click("rules-agree:0"),
     click("rules-text:1"),
     .{ .text = "Alex" },
+    .{ .hover = .{ .mark = "rules-agree:0" } },
+    run(wheelDown),
+    expect("rolar o formulário mostra as opções da última pergunta", choiceVisible),
     click("rules-choice:3:1"),
     expect("respondido à mão, dá para enviar", canSend),
     click("rules-submit"),

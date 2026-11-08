@@ -213,6 +213,29 @@ fn dmMuted(app: *App) bool {
     const dm = dmOf(app, ana);
     return dm != 0 and load(&fc.sent.settings_patches) == 5 and load(&fc.sent.settings_guild) == 0 and app.st.conta.channelMuted(0, dm, gw.nowMs()) and app.st.muted_channels.contains(dm);
 }
+/// No fim, outro aparelho volta o servidor e as DMs ao padrão (sem silêncio nem exceções): o
+/// resto da bateria geral conta notificações no #geral, no #memes e nas DMs.
+const reset_guild =
+    \\{"guild_id":"500000","muted":false,"mute_config":null,"message_notifications":3,"suppress_everyone":false,"suppress_roles":false,"channel_overrides":[],"version":8}
+;
+const reset_dms =
+    \\{"guild_id":null,"muted":false,"mute_config":null,"message_notifications":3,"suppress_everyone":false,"suppress_roles":false,"channel_overrides":[],"version":9}
+;
+fn remoteReset(app: *App) void {
+    for ([_][]const u8{ reset_guild, reset_dms }) |json| {
+        const e = fc.remoteEvent(json) orelse continue;
+        app.events.push(e);
+    }
+    platform.Window.wake(app.win.wake_type, .gateway);
+}
+fn resetApplied(app: *App) bool {
+    const gs = app.st.conta.settings(guild0) orelse return false;
+    const dms = app.st.conta.settings(0) orelse return false;
+    const dm = dmOf(app, ana);
+    return gs.level == null and gs.overrides.len == 0 and !gs.suppress_everyone and !app.st.conta.guildMuted(guild0, gw.nowMs()) and
+        dms.overrides.len == 0 and dm != 0 and !app.st.muted_channels.contains(dm) and
+        !app.st.muted_channels.contains(geral) and !app.st.muted_channels.contains(memes);
+}
 
 // --- Status personalizado ---------------------------------------------------------
 
@@ -324,6 +347,8 @@ pub const ops = [_]Op{
     run(menuAna),
     click("menu:Silenciar conversa"),
     expect("silenciar a DM vai para \"@me\"", dmMuted),
+    run(remoteReset),
+    expect("voltar ao padrão em outro aparelho tira os silêncios daqui", resetApplied),
 
     s("conta: status personalizado"),
     click("me"),
