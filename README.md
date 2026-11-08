@@ -126,7 +126,8 @@ The official client is a whole browser dressed up as an app. On the same PC:
   progress bar, sound; up to 480p and about 30 fps. Without FFmpeg, the video opens in the browser. It also
   animates old Tenor GIFs that only exist as MP4.
 - **Proxy** (http, https, socks5, socks5h; Tor at `socks5h://127.0.0.1:9050`) for media from
-  outside Discord or for everything (Settings → Privacy → Network).
+  outside Discord or for everything except voice calls, which always connect directly
+  (Settings → Privacy → Network).
 - Grouped messages, day separators, "pending" sends confirmed by the server,
   a typing indicator, smooth scrolling with a virtualized list.
 

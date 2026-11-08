@@ -47,6 +47,8 @@ Configurações → Privacidade → Rede aceita `http`, `https`, `socks5` e `soc
 
 Por padrão, o proxy vale para a mídia de fora do Discord. **Usar o proxy em tudo** também passa a API, as imagens, os vídeos e o gateway por ele (o gateway a partir da próxima conexão).
 
+As calls de voz nunca passam pelo proxy, nem com **Usar o proxy em tudo** ligado. Elas conectam direto nos servidores de voz do Discord, que veem o seu IP. Se o seu IP precisa ficar escondido, não entre em calls.
+
 ## Plugins
 
 Os plugins rodam com a sua conta, então só use arquivos que você leu e entende. O sandbox limita o que eles podem fazer:

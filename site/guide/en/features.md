@@ -124,7 +124,7 @@ Real voice with end-to-end encryption, a per-person mixer, device picker, push-t
 
 ## Network and languages
 
-- **Proxy** for `http`, `https`, `socks5` and `socks5h` (Tor at `socks5h://127.0.0.1:9050`), for external media only or for everything.
+- **Proxy** for `http`, `https`, `socks5` and `socks5h` (Tor at `socks5h://127.0.0.1:9050`), for external media only or for everything except voice calls, which always connect directly.
 - **English and Portuguese** across the UI, network notices, demo data and theme options. It follows your system by default.
 
 ## Make it yours

@@ -127,7 +127,8 @@ O cliente oficial é um navegador inteiro disfarçado de app. No mesmo PC:
   barra de progresso, som; até 480p e ~30 qps. Sem FFmpeg, o vídeo abre no navegador. Também
   anima os GIFs antigos do Tenor que só existem em MP4.
 - **Proxy** (http, https, socks5, socks5h; Tor em `socks5h://127.0.0.1:9050`) para a mídia de
-  fora do Discord ou para tudo (Configurações → Privacidade → Rede).
+  fora do Discord ou para tudo menos as calls de voz, que sempre conectam direto
+  (Configurações → Privacidade → Rede).
 - Mensagens agrupadas, separadores de dia, envio "pendente" confirmado pelo servidor,
   indicador de digitação, rolagem suave com lista virtualizada.
 
