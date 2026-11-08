@@ -61,7 +61,9 @@ pub fn draw(ctx: *d.Ctx, dl: *c.ImDrawList, m: *const StoredMessage, p: *const p
     const ended = p.ended(now_s);
     const voted = p.voted();
     const pending = pending_msg == id and ctx.now_ms < pending_until and voted == pending_voted;
-    if (pending) anim.active = true;
+    // O cartão parado não muda até a resposta (que redesenha) ou até o prazo vencer: um
+    // quadro só nessa hora, não 60 por segundo.
+    if (pending) anim.at(pending_until);
     const results = ended or voted or results_msg == id;
     const mask: u16 = if (sel_msg == id) sel_mask else 0;
     const h = height(ctx, p, wd);

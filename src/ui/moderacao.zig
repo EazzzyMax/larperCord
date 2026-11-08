@@ -406,8 +406,8 @@ fn drawBans(ctx: *d.Ctx, guild: Id) void {
     var by = o.y + 8;
     switch (bans_state) {
         .loading => {
+            // Os pontinhos já pedem o próximo quadro no ritmo deles; a lista que chega redesenha.
             w.typingDots(bdl, body.x + body.w / 2 - 7, by + 50, ctx.col(.muted), ctx.now_ms);
-            anim.active = true;
             by += 100;
         },
         .failed => {
