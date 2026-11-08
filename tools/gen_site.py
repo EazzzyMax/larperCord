@@ -638,9 +638,9 @@ def layout_nodes(src, top, on, pal, raw):
 # ------------------------------------------------------------- Páginas ----
 GUIDE = [
     ("Start", "Comece", [
-        ("vs-discord", "What Discord doesn't have", "O que o Discord não tem"),
         ("getting-started", "Getting started", "Primeiros passos"),
         ("account", "Connect your account", "Conectar sua conta"),
+        ("vs-discord", "What Discord doesn't have", "O que o Discord não tem"),
     ]),
     ("Use", "Use", [
         ("features", "Feature tour", "Tour dos recursos"),

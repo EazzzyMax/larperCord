@@ -124,7 +124,7 @@ Voz de verdade com criptografia de ponta a ponta, mixer por pessoa, seletor de d
 
 ## Rede e idiomas
 
-- **Proxy** para `http`, `https`, `socks5` e `socks5h` (Tor em `socks5h://127.0.0.1:9050`), só para mídia externa ou para tudo.
+- **Proxy** para `http`, `https`, `socks5` e `socks5h` (Tor em `socks5h://127.0.0.1:9050`), só para mídia externa ou para tudo menos as calls de voz, que sempre conectam direto.
 - **Inglês e português** em toda a interface, nos avisos de rede, nos dados de demonstração e nas opções dos temas. Por padrão, segue o seu sistema.
 
 ## Deixe do seu jeito

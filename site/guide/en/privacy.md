@@ -47,6 +47,8 @@ Settings → Privacy → Network accepts `http`, `https`, `socks5` and `socks5h`
 
 By default, the proxy applies to media from outside Discord. **Use the proxy for everything** also routes the API, images, videos and the gateway through it (the gateway from the next connection on).
 
+Voice calls never go through the proxy, not even with **Use the proxy for everything** on. They connect straight to Discord's voice servers, which see your IP. If your IP must stay hidden, don't join calls.
+
 ## Plugins
 
 Plugins run with your account, so only use files you've read and understand. The sandbox limits what they can do:
