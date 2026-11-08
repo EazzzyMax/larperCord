@@ -332,6 +332,18 @@ pub fn expiryFor(choice: u8, now_ms: i64, utc_offset_s: i64) i64 {
     };
 }
 
+/// Por quanto tempo vale o ausente, o não perturbe e o invisível, em minutos,
+/// como no menu do cliente oficial (15 min, 1 h, 8 h, 24 h, 3 dias). "Até
+/// eu mudar" é 0.
+pub const status_minutes = [_]u32{ 15, 60, 8 * 60, 24 * 60, 3 * 24 * 60 };
+
+/// Até quando vale um status escolhido por `minutes` (0 = até mudar). Online
+/// não tem prazo.
+pub fn statusExpiry(status: types.Status, minutes: u32, now_ms: i64) i64 {
+    if (minutes == 0 or status == .online) return 0;
+    return now_ms + @as(i64, minutes) * 60_000;
+}
+
 /// A atividade "Custom Status" (tipo 4) para o op 3, ou nada se não vale.
 /// `out` recebe `[...]` inteiro.
 pub fn writeActivities(out: *std.ArrayList(u8), gpa: std.mem.Allocator, s: CustomStatus, now_ms: i64) !void {
@@ -407,6 +419,11 @@ pub const Event = union(enum) {
     custom_status: CustomStatus,
     /// O status personalizado não foi salvo (o motivo vai num aviso).
     custom_status_failed,
+    /// O status guardado na conta (READY ou mudado em outro aparelho): é o
+    /// que vale. `expires_ms` 0 = até mudar.
+    status: struct { status: types.Status, expires_ms: i64 = 0 },
+    /// O prazo do status escolhido passou: volta a online.
+    status_expired,
     friend_request: struct { user: Id, status: FriendStatus },
     /// Perfil salvo (`ok`) ou não.
     profile_saved: bool,
@@ -449,6 +466,8 @@ pub const State = struct {
     /// Quando o primeiro silêncio com prazo vence (0 = nenhum).
     next_expiry_ms: i64 = 0,
     custom: CustomStatus = .{},
+    /// Até quando vale o status escolhido (ms desde 1970; 0 = até mudar).
+    status_expires_ms: i64 = 0,
     /// Salvando o status personalizado / o perfil.
     status_busy: bool = false,
     profile_busy: bool = false,
@@ -508,6 +527,7 @@ pub const State = struct {
         s.next_expiry_ms = 0;
         s.custom.deinit(ca);
         s.custom = .{};
+        s.status_expires_ms = 0;
         s.status_busy = false;
         s.profile_busy = false;
         s.friends.clearRetainingCapacity();
@@ -647,6 +667,15 @@ test "corpos do perfil: limites, aspas e nome vazio" {
     try std.testing.expectEqualStrings("{\"pronouns\":\"ela/dela\",\"bio\":\"linha 1\\nlinha 2\"}", p);
     try std.testing.expectError(error.TooLong, profileBody(gpa, repeat(&rb, "x", 41), ""));
     try std.testing.expectError(error.TooLong, profileBody(gpa, "", repeat(&rb, "x", 191)));
+}
+
+test "prazo do status da conta" {
+    try std.testing.expectEqual(@as(i64, 0), statusExpiry(.dnd, 0, 1000));
+    try std.testing.expectEqual(@as(i64, 1000 + 15 * 60_000), statusExpiry(.idle, status_minutes[0], 1000));
+    try std.testing.expectEqual(@as(i64, 1000 + 8 * 3_600_000), statusExpiry(.offline, status_minutes[2], 1000));
+    try std.testing.expectEqual(@as(i64, 1000 + 3 * 86_400_000), statusExpiry(.dnd, status_minutes[4], 1000));
+    // Online não tem prazo.
+    try std.testing.expectEqual(@as(i64, 0), statusExpiry(.online, 60, 1000));
 }
 
 test "prazo do status e a atividade do op 3" {

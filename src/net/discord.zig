@@ -32,6 +32,7 @@ const media_url = @import("media_url.zig");
 const proxy = @import("proxy.zig");
 const challenge = @import("challenge.zig");
 const settings_proto = @import("settings_proto.zig");
+const status_proto = @import("status_proto.zig");
 const leitura = @import("../core/leitura.zig");
 const read_json = @import("read_state_json.zig");
 const voice_mod = @import("voice.zig");
@@ -1151,15 +1152,9 @@ pub const Gateway = struct {
         g.queueOp(.{ .lazy = .{ .guild = guild, .channel = channel, .thread = thread } });
     }
 
-    /// Nome do status no gateway (offline = invisível para os outros).
-    fn statusName(s: types.Status) []const u8 {
-        return switch (s) {
-            .online => "online",
-            .idle => "idle",
-            .dnd => "dnd",
-            .offline => "invisible",
-        };
-    }
+    /// Nome do status no gateway (offline = invisível para os outros): o
+    /// mesmo das configurações da conta.
+    const statusName = status_proto.statusName;
 
     /// "since" da relação (ISO) em ms; 0 = não veio.
     fn sinceMs(rv: Value) i64 {
@@ -4009,9 +4004,13 @@ pub const Gateway = struct {
                 // Vazio também: não pergunta de novo.
                 g.emit(.{ .app_icon = .{ .app = app, .icon = icon } });
             },
-            .set_status => |st| {
-                if (st == g.status) return;
-                g.status = st;
+            .set_status => |ss| {
+                if (ss.status == g.status and ss.expires_ms == g.conta.status_expires_ms) return;
+                // O status guardado na conta vence o op 3: grava lá primeiro, como
+                // o cliente oficial (net/conta_net.zig).
+                conta_net.saveStatus(g, ss.status, ss.expires_ms, ss.auto);
+                g.status = ss.status;
+                g.conta.status_expires_ms = ss.expires_ms;
                 // Sai com o status do momento em que tiver vez (só o último vale).
                 conta_net.sendPresence(g);
             },

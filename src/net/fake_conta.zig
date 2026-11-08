@@ -5,7 +5,10 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const conta = @import("../core/conta.zig");
 const conta_json = @import("conta_json.zig");
+const conta_net = @import("conta_net.zig");
+const status_proto = @import("status_proto.zig");
 const ev = @import("../core/event.zig");
+const nowMs = @import("fake_gateway.zig").nowMs;
 const Id = types.Id;
 
 const alloc = std.heap.c_allocator;
@@ -31,7 +34,55 @@ pub const sent = struct {
     pub fn body() []const u8 {
         return last_body[0..last_len.load(.acquire)];
     }
+
+    /// O último PATCH do status da conta (o JSON inteiro, com o proto em base64).
+    pub var account_statuses: A = .init(0);
+    pub var status_body: [256]u8 = undefined;
+    pub var status_len: std.atomic.Value(usize) = .init(0);
+
+    pub fn statusBody() []const u8 {
+        return status_body[0..status_len.load(.acquire)];
+    }
 };
+
+/// As configurações (tipo 1) da demonstração: a versão e o status, com o
+/// "mostrar a atividade" ligado (o PATCH do status não pode desligar).
+const demo_settings = [_]u8{ 0x0a, 0x02, 0x18, 0x01, 0x5a, 0x0e, 0x0a, 0x08, 0x0a, 0x06, 'o', 'n', 'l', 'i', 'n', 'e', 0x1a, 0x02, 0x08, 0x01 };
+var settings: std.ArrayList(u8) = .empty;
+
+/// O status escolhido vai para as configurações como no Discord de verdade
+/// (net/conta_net.zig `saveStatus`): o corpo do PATCH fica para o QA.
+pub fn saveStatus(status: types.Status, expires_ms: i64) void {
+    if (settings.items.len == 0) settings.appendSlice(alloc, &demo_settings) catch return;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const ar = arena.allocator();
+    const now = nowMs();
+    const b64 = status_proto.encodeBase64(ar, settings.items) catch return;
+    const b = status_proto.statusPatchBody(ar, b64, status, expires_ms, now) catch return;
+    const edited = status_proto.editStatus(ar, settings.items, status, expires_ms, now) catch return;
+    settings.clearRetainingCapacity();
+    settings.appendSlice(alloc, edited) catch return;
+    const n = @min(b.len, sent.status_body.len);
+    @memcpy(sent.status_body[0..n], b[0..n]);
+    sent.status_len.store(n, .release);
+    _ = sent.account_statuses.fetchAdd(1, .release);
+}
+
+pub fn deinit() void {
+    settings.deinit(alloc);
+    settings = .empty;
+}
+
+/// "Outro aparelho" mudou o status: o USER_SETTINGS_PROTO_UPDATE (o proto em
+/// base64), lido pelo mesmo leitor do gateway (o QA usa).
+pub fn remoteStatus(b64: []const u8) ?ev.Event {
+    const bytes = status_proto.decodeBase64(alloc, b64) catch return null;
+    defer alloc.free(bytes);
+    const ss = conta_net.storedStatus(bytes) orelse return null;
+    const st = ss.status.?;
+    return .{ .conta = .{ .status = .{ .status = st, .expires_ms = if (st == .online) 0 else ss.expires_ms } } };
+}
 
 fn keep(b: []const u8) void {
     const n = @min(b.len, sent.last_body.len);

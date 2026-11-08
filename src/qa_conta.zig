@@ -11,6 +11,9 @@ const qa = @import("ui/qa.zig");
 const types = @import("core/types.zig");
 const gw = @import("net/fake_gateway.zig");
 const fc = @import("net/fake_conta.zig");
+const status_proto = @import("net/status_proto.zig");
+const jsonx = @import("net/jsonx.zig");
+const app_conta = @import("app_conta.zig");
 const platform = @import("platform/window.zig");
 const Id = types.Id;
 
@@ -252,6 +255,84 @@ fn statusCleared(app: *App) bool {
     return load(&fc.sent.statuses) == 2 and app.st.conta.custom.empty() and qa.find("me-custom-status") == null;
 }
 
+// --- Status da conta --------------------------------------------------------------
+
+var statuses0: u64 = 0;
+fn markStatuses(_: *App) void {
+    statuses0 = load(&fc.sent.account_statuses);
+}
+/// O status que foi no último PATCH das configurações (o proto do corpo).
+fn sentStatus() ?status_proto.Stored {
+    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+    defer arena.deinit();
+    const ar = arena.allocator();
+    const v = std.json.parseFromSliceLeaky(std.json.Value, ar, fc.sent.statusBody(), .{}) catch return null;
+    const bytes = status_proto.decodeBase64(ar, jsonx.str(jsonx.get(v, "settings")) orelse return null) catch return null;
+    // Só o campo 11 vai, e a versão das configurações lidas junto.
+    if (bytes.len == 0 or bytes[0] != 0x5a or jsonx.int(jsonx.get(v, "required_data_version")) == null) return null;
+    return (status_proto.readStatus(bytes) catch return null) orelse null;
+}
+fn meUser(app: *App) ?*const types.User {
+    return app.store.user(app.store.me);
+}
+fn subShown(_: *App) bool {
+    return qa.find("menu:Por 1 hora") != null and qa.find("menu:Até eu mudar") != null;
+}
+fn dndHour(app: *App) bool {
+    const u = meUser(app) orelse return false;
+    const until = app.st.conta.status_expires_ms;
+    const left = until - gw.nowMs();
+    if (load(&fc.sent.account_statuses) != statuses0 + 1 or u.status != .dnd or app.st.settings.my_status != 2) return false;
+    if (left <= 59 * 60_000 or left > 60 * 60_000 or app.st.popup != .none) return false;
+    const ss = sentStatus() orelse return false;
+    // Não perturbe, o prazo, e o "mostrar a atividade" que já estava ligado continua ligado.
+    // O painel mostra até quando, se não estiver mostrando uma atividade.
+    return ss.status == .dnd and ss.expires_ms == until and ss.show_game == true and (u.activity != null or qa.find("me-status-until") != null);
+}
+fn dndUntilShown(_: *App) bool {
+    return qa.find("menu-until:⊘  Não perturbe") != null and qa.find("menu-on:●  Online") == null;
+}
+/// Outro aparelho deixou ausente, até mudar (o USER_SETTINGS_PROTO_UPDATE).
+fn remoteIdle(app: *App) void {
+    var b: [64]u8 = undefined;
+    const proto = [_]u8{ 0x5a, 0x08, 0x0a, 0x06, 0x0a, 0x04, 'i', 'd', 'l', 'e' };
+    const b64 = std.base64.standard.Encoder.encode(&b, &proto);
+    const e = fc.remoteStatus(b64) orelse return;
+    app.events.push(e);
+    platform.Window.wake(app.win.wake_type, .gateway);
+}
+fn remoteIdleApplied(app: *App) bool {
+    const u = meUser(app) orelse return false;
+    // Só chegou: nada é gravado de volta.
+    return u.status == .idle and app.st.settings.my_status == 1 and app.st.conta.status_expires_ms == 0 and
+        qa.find("me-status-until") == null and load(&fc.sent.account_statuses) == statuses0 + 1;
+}
+fn idleMarked(_: *App) bool {
+    return qa.find("menu-on:◐  Ausente") != null and qa.find("menu-on:⊘  Não perturbe") == null;
+}
+fn backOnline(app: *App) bool {
+    const u = meUser(app) orelse return false;
+    if (load(&fc.sent.account_statuses) != statuses0 + 2 or u.status != .online or app.st.conta.status_expires_ms != 0) return false;
+    const ss = sentStatus() orelse return false;
+    return ss.status == .online and ss.expires_ms == 0 and ss.show_game == true;
+}
+/// Invisível por pouco mais de um segundo: o prazo passa durante o QA.
+fn shortInvisible(app: *App) void {
+    app_conta.setStatus(app, .offline, gw.nowMs() + 1200, false);
+}
+fn invisibleUntil(app: *App) bool {
+    const u = meUser(app) orelse return false;
+    const ss = sentStatus() orelse return false;
+    return u.status == .offline and load(&fc.sent.account_statuses) == statuses0 + 3 and ss.status == .offline and ss.expires_ms != 0;
+}
+fn expiredOnline(app: *App) bool {
+    const u = meUser(app) orelse return false;
+    const ss = sentStatus() orelse return false;
+    // O prazo passou: volta a online e grava na conta, sozinho.
+    return u.status == .online and app.st.settings.my_status == 0 and app.st.conta.status_expires_ms == 0 and
+        load(&fc.sent.account_statuses) == statuses0 + 4 and ss.status == .online and ss.expires_ms == 0;
+}
+
 // --- Perfil -----------------------------------------------------------------------
 
 fn profileFields(_: *App) bool {
@@ -363,6 +444,28 @@ pub const ops = [_]Op{
     click("me"),
     click("menu:Limpar status personalizado"),
     expect("limpar tira o status", statusCleared),
+
+    s("conta: status da conta"),
+    run(markStatuses),
+    click("me"),
+    .{ .hover = .{ .mark = "menu:⊘  Não perturbe" } },
+    expect("passar o mouse no não perturbe abre o prazo", subShown),
+    .{ .shot = "conta-status-prazo" },
+    click("menu:Por 1 hora"),
+    expect("o prazo grava o status na conta", dndHour),
+    click("me"),
+    expect("o menu mostra até quando vale", dndUntilShown),
+    .{ .shot = "conta-status-ate" },
+    .{ .key = .{ .key = c.ImGuiKey_Escape } },
+    run(remoteIdle),
+    expect("o status mudado em outro aparelho vale aqui", remoteIdleApplied),
+    click("me"),
+    expect("o menu marca o status de agora", idleMarked),
+    click("menu:●  Online"),
+    expect("online grava na conta, sem prazo e sem desligar a atividade", backOnline),
+    run(shortInvisible),
+    expect("(invisível por um segundo)", invisibleUntil),
+    expect("o prazo passa e volta a online, gravando na conta", expiredOnline),
 
     s("conta: perfil"),
     .{ .click = .{ .mark = "user-btn:2" } },

@@ -14,8 +14,13 @@
 //! configurações ficam idênticos. Qualquer coisa que não dê para ler até o
 //! fim é recusada: melhor não gravar do que estragar as configurações.
 //! O PATCH leva só o campo 11 (o Discord troca só os campos de cima que vierem).
+//!
+//! O status da conta (online, ausente, não perturbe, invisível) mora no mesmo
+//! campo 11: o guardado ali vence o op 3, então mudar o status é gravar aqui
+//! também (`editStatus`), do jeito que o cliente oficial grava.
 const std = @import("std");
 const conta = @import("../core/conta.zig");
+const types = @import("../core/types.zig");
 const jsonx = @import("jsonx.zig");
 
 pub const Error = error{
@@ -188,6 +193,24 @@ fn encodeCustom(gpa: std.mem.Allocator, s: conta.CustomStatus, now_ms: i64) Erro
     return out.toOwnedSlice(gpa);
 }
 
+/// As configurações com o campo 11 trocado por `status` (o conteúdo novo).
+/// Fora dele, os bytes são os mesmos e no mesmo lugar; sem campo 11, ele
+/// entra no fim.
+fn replaceStatus(gpa: std.mem.Allocator, bytes: []const u8, st: ?Field, status: []const u8) Error![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    const w: Writer = .{ .out = &out, .gpa = gpa };
+    if (st) |f| {
+        try out.appendSlice(gpa, bytes[0..f.start]);
+        try w.bytes(status_field, status);
+        try out.appendSlice(gpa, bytes[f.end..]);
+    } else {
+        try out.appendSlice(gpa, bytes);
+        try w.bytes(status_field, status);
+    }
+    return out.toOwnedSlice(gpa);
+}
+
 /// As configurações inteiras com o status personalizado trocado (`new`
 /// vazio = tira). Fora o campo 11, os bytes são os mesmos e no mesmo lugar;
 /// dentro dele, só o campo 2 muda. Sem campo 11, ele entra no fim.
@@ -213,19 +236,204 @@ pub fn edit(gpa: std.mem.Allocator, bytes: []const u8, new: conta.CustomStatus, 
         try status.appendSlice(gpa, old_status);
         if (custom) |x| try sw.bytes(custom_field, x);
     }
+    return replaceStatus(gpa, bytes, st, status.items);
+}
 
+// --- O status da conta -----------------------------------------------------------
+
+/// O nome do status nas configurações e no op 3 (offline = invisível para os outros).
+pub fn statusName(s: types.Status) []const u8 {
+    return switch (s) {
+        .online => "online",
+        .idle => "idle",
+        .dnd => "dnd",
+        .offline => "invisible",
+    };
+}
+
+/// O status de um nome das configurações (null = um que o app não conhece).
+pub fn statusFromName(name: []const u8) ?types.Status {
+    const eql = std.mem.eql;
+    if (eql(u8, name, "online")) return .online;
+    if (eql(u8, name, "idle")) return .idle;
+    if (eql(u8, name, "dnd")) return .dnd;
+    if (eql(u8, name, "invisible") or eql(u8, name, "offline")) return .offline;
+    return null;
+}
+
+/// O status guardado na conta (campo 11 das configurações).
+pub const Stored = struct {
+    /// null: não veio, ou é um nome que o app não conhece.
+    status: ?types.Status = null,
+    /// Até quando vale (ms desde 1970); 0 = até a pessoa mudar.
+    expires_ms: i64 = 0,
+    /// `show_current_game` (mostrar a atividade); null = não veio.
+    show_game: ?bool = null,
+
+    /// O prazo passou: o status volta a online.
+    pub fn expired(s: Stored, now_ms: i64) bool {
+        return s.expires_ms > 0 and s.expires_ms <= now_ms;
+    }
+};
+
+/// As partes do `StatusSettings` que o app entende (fatias do conteúdo).
+const Parts = struct {
+    /// Conteúdo do StringValue.
+    status: ?[]const u8 = null,
+    /// O campo 2 inteiro (chave, tamanho e conteúdo), como veio.
+    custom: ?Field = null,
+    /// Conteúdo do BoolValue.
+    show_game: ?[]const u8 = null,
+    expires: ?u64 = null,
+    created: bool = false,
+};
+
+/// Lê o `StatusSettings` inteiro: tipo de fio errado ou campo conhecido
+/// repetido é recusado, como no resto do arquivo.
+fn parts(data: []const u8) Error!Parts {
+    var out: Parts = .{};
+    var r: Reader = .{ .buf = data };
+    while (!r.done()) {
+        const f = try nextField(&r);
+        const want: u3 = switch (f.key.field) {
+            1, 2, 3, 5 => 2,
+            4 => 1,
+            else => continue,
+        };
+        if (f.key.wire != want) return error.Malformed;
+        const dup = switch (f.key.field) {
+            1 => out.status != null,
+            2 => out.custom != null,
+            3 => out.show_game != null,
+            4 => out.expires != null,
+            else => out.created,
+        };
+        if (dup) return error.Unsupported;
+        switch (f.key.field) {
+            1 => out.status = f.data,
+            2 => out.custom = f,
+            3 => out.show_game = f.data,
+            4 => out.expires = try fixed64(f.data),
+            else => out.created = true,
+        }
+    }
+    return out;
+}
+
+/// O texto de dentro de um StringValue (campo 1; sem ele, vazio).
+fn wrappedString(content: []const u8) Error![]const u8 {
+    const f = try findOnly(content, 1, 2) orelse return "";
+    if (!std.unicode.utf8ValidateSlice(f.data)) return error.Malformed;
+    return f.data;
+}
+
+/// O valor de dentro de um BoolValue (campo 1; sem ele, false).
+fn wrappedBool(content: []const u8) Error!bool {
+    const f = try findOnly(content, 1, 0) orelse return false;
+    var r: Reader = .{ .buf = f.data };
+    return (try r.varint()) != 0;
+}
+
+/// O status guardado nas configurações. null: não tem campo 11. Erro: as
+/// configurações não dão para ler até o fim.
+pub fn readStatus(bytes: []const u8) Error!?Stored {
+    const st = try findOnly(bytes, status_field, 2) orelse return null;
+    const p = try parts(st.data);
+    return .{
+        .status = if (p.status) |s| statusFromName(try wrappedString(s)) else null,
+        .expires_ms = if (p.expires) |e| @intCast(@min(e, std.math.maxInt(i64))) else 0,
+        .show_game = if (p.show_game) |b| try wrappedBool(b) else null,
+    };
+}
+
+/// O `StatusSettings` que vai no PATCH, campo a campo na ordem do protobuf
+/// (1 a 5 e depois o resto), como o cliente oficial manda.
+pub const StatusFields = struct {
+    status: types.Status,
+    /// O status personalizado que já estava (o campo 2 inteiro, como veio).
+    custom: []const u8 = "",
+    /// `show_current_game` como estava guardado; null não vai (não mexe nele).
+    show_game: ?bool = null,
+    /// 0 = até a pessoa mudar (o campo 4 não vai).
+    expires_ms: i64 = 0,
+    /// `status_created_at_ms`: a hora da escolha.
+    created_ms: i64 = 0,
+    /// Campos que o app não conhece, inteiros e na ordem em que vieram.
+    unknown: []const u8 = "",
+};
+
+fn varintInto(buf: []u8, v: u64) usize {
+    var x = v;
+    var n: usize = 0;
+    while (x >= 0x80) : (x >>= 7) {
+        buf[n] = @as(u8, @truncate(x)) | 0x80;
+        n += 1;
+    }
+    buf[n] = @truncate(x);
+    return n + 1;
+}
+
+fn writeStatusContent(w: Writer, f: StatusFields) Error!void {
+    // StringValue { 1: nome } (os nomes cabem num byte de tamanho).
+    const name = statusName(f.status);
+    var sb: [16]u8 = undefined;
+    sb[0] = 0x0a;
+    sb[1] = @intCast(name.len);
+    @memcpy(sb[2..][0..name.len], name);
+    try w.bytes(1, sb[0 .. 2 + name.len]);
+    try w.out.appendSlice(w.gpa, f.custom);
+    // BoolValue: false é a mensagem vazia (o padrão do proto3 não vai).
+    if (f.show_game) |on| try w.bytes(3, if (on) &.{ 0x08, 0x01 } else &.{});
+    if (f.expires_ms > 0) try w.fixed(4, @intCast(f.expires_ms));
+    if (f.created_ms > 0) {
+        // UInt64Value { 1: ms }.
+        var cb: [11]u8 = undefined;
+        cb[0] = 0x08;
+        const n = varintInto(cb[1..], @intCast(f.created_ms));
+        try w.bytes(5, cb[0 .. 1 + n]);
+    }
+    try w.out.appendSlice(w.gpa, f.unknown);
+}
+
+/// Só o campo 11 com o status de `f`: as configurações parciais do PATCH.
+pub fn encodeStatus(gpa: std.mem.Allocator, f: StatusFields) Error![]u8 {
+    var content: std.ArrayList(u8) = .empty;
+    defer content.deinit(gpa);
+    try writeStatusContent(.{ .out = &content, .gpa = gpa }, f);
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
-    const w: Writer = .{ .out = &out, .gpa = gpa };
-    if (st) |f| {
-        try out.appendSlice(gpa, bytes[0..f.start]);
-        try w.bytes(status_field, status.items);
-        try out.appendSlice(gpa, bytes[f.end..]);
-    } else {
-        try out.appendSlice(gpa, bytes);
-        try w.bytes(status_field, status.items);
-    }
+    try (Writer{ .out = &out, .gpa = gpa }).bytes(status_field, content.items);
     return out.toOwnedSlice(gpa);
+}
+
+/// As configurações inteiras com o status da conta trocado: o campo 11 sai
+/// de novo com o status, o prazo (`expires_ms` 0 = até mudar) e a hora da
+/// escolha; o status personalizado, o `show_current_game` e os campos
+/// desconhecidos continuam como estavam. Fora do campo 11, nada muda.
+pub fn editStatus(gpa: std.mem.Allocator, bytes: []const u8, status: types.Status, expires_ms: i64, now_ms: i64) Error![]u8 {
+    try validate(bytes);
+    const st = try findOnly(bytes, status_field, 2);
+    const old: []const u8 = if (st) |f| f.data else "";
+    const p = try parts(old);
+    if (p.custom) |cf| try validate(cf.data);
+    var unknown: std.ArrayList(u8) = .empty;
+    defer unknown.deinit(gpa);
+    var r: Reader = .{ .buf = old };
+    while (!r.done()) {
+        const f = try nextField(&r);
+        if (f.key.field > 5) try unknown.appendSlice(gpa, old[f.start..f.end]);
+    }
+    var content: std.ArrayList(u8) = .empty;
+    defer content.deinit(gpa);
+    try writeStatusContent(.{ .out = &content, .gpa = gpa }, .{
+        .status = status,
+        .custom = if (p.custom) |cf| old[cf.start..cf.end] else "",
+        .show_game = if (p.show_game) |b| try wrappedBool(b) else null,
+        .expires_ms = expires_ms,
+        .created_ms = now_ms,
+        .unknown = unknown.items,
+    });
+    return replaceStatus(gpa, bytes, st, content.items);
 }
 
 /// Só o campo 11, como mensagem própria: o corpo do PATCH.
@@ -254,7 +462,17 @@ pub fn encodeBase64(gpa: std.mem.Allocator, bytes: []const u8) Error![]u8 {
 /// `{"settings":"<só o campo 11 editado>","required_data_version":N}`.
 pub fn patchBody(ar: std.mem.Allocator, b64: []const u8, cs: conta.CustomStatus, now_ms: i64) Error![]u8 {
     const bytes = try decodeBase64(ar, b64);
-    const edited = try edit(ar, bytes, cs, now_ms);
+    return jsonBody(ar, bytes, try edit(ar, bytes, cs, now_ms));
+}
+
+/// O mesmo corpo, com o status da conta trocado (`editStatus`).
+pub fn statusPatchBody(ar: std.mem.Allocator, b64: []const u8, status: types.Status, expires_ms: i64, now_ms: i64) Error![]u8 {
+    const bytes = try decodeBase64(ar, b64);
+    return jsonBody(ar, bytes, try editStatus(ar, bytes, status, expires_ms, now_ms));
+}
+
+/// O JSON do PATCH: só o campo 11 de `edited` e a versão das configurações lidas (`bytes`).
+fn jsonBody(ar: std.mem.Allocator, bytes: []const u8, edited: []const u8) Error![]u8 {
     const only = try statusOnly(ar, edited);
     const enc = try encodeBase64(ar, only);
     var out: std.ArrayList(u8) = .empty;
@@ -409,6 +627,124 @@ test "entrada malformada ou incompleta é recusada" {
     // Texto que não é UTF-8.
     try std.testing.expectError(error.Malformed, edit(gpa, &.{}, .{ .text = "\xff" }, 0));
     try std.testing.expectError(error.InvalidBase64, decodeBase64(gpa, "@@@"));
+}
+
+/// Os corpos que o cliente oficial mandou (base64 do proto), com as horas de lá.
+const official_idle = "WhMKBgoEaWRsZRoAKgcIrbXbw5s0";
+const official_invisible_until = "WiEKCwoJaW52aXNpYmxlGgAhHCvqx6EBAAAqBwicrtzDmzQ=";
+const official_invisible = "WhgKCwoJaW52aXNpYmxlGgAqBwicrtzDmzQ=";
+
+test "o status sai com os mesmos bytes do cliente oficial" {
+    var a = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer a.deinit();
+    const ar = a.allocator();
+    const cases = [_]struct { f: StatusFields, want: []const u8 }{
+        .{ .f = .{ .status = .idle, .show_game = false, .created_ms = 1794096159405 }, .want = official_idle },
+        .{ .f = .{ .status = .offline, .show_game = false, .expires_ms = 1794355374876, .created_ms = 1794096174876 }, .want = official_invisible_until },
+        .{ .f = .{ .status = .offline, .show_game = false, .created_ms = 1794096174876 }, .want = official_invisible },
+    };
+    for (cases) |cs| {
+        try std.testing.expectEqualSlices(u8, try decodeBase64(ar, cs.want), try encodeStatus(ar, cs.f));
+        // Editando as configurações guardadas (o show_current_game vazio de lá), o PATCH é o mesmo.
+        const stored = [_]u8{ 0x0a, 0x02, 0x18, 0x07, 0x5a, 0x0c, 0x0a, 0x08, 0x0a, 0x06, 'o', 'n', 'l', 'i', 'n', 'e', 0x1a, 0x00, 0x72, 0x00 };
+        const edited = try editStatus(ar, &stored, cs.f.status, cs.f.expires_ms, cs.f.created_ms);
+        try std.testing.expectEqualSlices(u8, try decodeBase64(ar, cs.want), try statusOnly(ar, edited));
+        // Fora do campo 11, nada muda.
+        try std.testing.expectEqualSlices(u8, stored[0..4], edited[0..4]);
+        try std.testing.expectEqualSlices(u8, &.{ 0x72, 0x00 }, edited[edited.len - 2 ..]);
+    }
+    // Mostrar a atividade ligado: vai ligado (o cliente oficial manda vazio, que desligaria).
+    const on = try encodeStatus(ar, .{ .status = .dnd, .show_game = true, .created_ms = 5 });
+    try std.testing.expectEqual(@as(?bool, true), (try readStatus(on)).?.show_game);
+    // Sem nada guardado, o campo 3 nem vai: o Discord não mexe nele.
+    const bare = try statusOnly(ar, try editStatus(ar, "", .online, 0, 5));
+    try std.testing.expectEqualSlices(u8, &.{ 0x5a, 0x0e, 0x0a, 0x08, 0x0a, 0x06, 'o', 'n', 'l', 'i', 'n', 'e', 0x2a, 0x02, 0x08, 0x05 }, bare);
+}
+
+test "trocar o status mantém o status personalizado e o resto do campo 11" {
+    const gpa = std.testing.allocator;
+    // sample(): status "dnd", custom, campos 99 e 98 desconhecidos, show_current_game ligado.
+    const b = try sample(gpa, true);
+    defer gpa.free(b);
+    const was = (try readStatus(b)).?;
+    try std.testing.expectEqual(@as(?types.Status, .dnd), was.status);
+    try std.testing.expectEqual(@as(?bool, true), was.show_game);
+    const e = try editStatus(gpa, b, .idle, 1_900_000_000_000, 1_800_000_000_000);
+    defer gpa.free(e);
+    const now = (try readStatus(e)).?;
+    try std.testing.expectEqual(@as(?types.Status, .idle), now.status);
+    try std.testing.expectEqual(@as(i64, 1_900_000_000_000), now.expires_ms);
+    try std.testing.expectEqual(@as(?bool, true), now.show_game);
+    // O status personalizado é o mesmo, byte a byte.
+    const cs = (try read(e)).?;
+    try std.testing.expectEqualStrings("almoçando", cs.text);
+    const oc = (try findOnly((try findOnly(b, 11, 2)).?.data, 2, 2)).?;
+    const nc = (try findOnly((try findOnly(e, 11, 2)).?.data, 2, 2)).?;
+    try std.testing.expectEqualSlices(u8, oc.data, nc.data);
+    // Os desconhecidos continuam, na ordem, depois dos conhecidos.
+    const st = (try findOnly(e, 11, 2)).?.data;
+    try std.testing.expect(std.mem.endsWith(u8, st, &.{ 0x98, 0x06, 0xac, 0x02, 0x95, 0x06, 1, 2, 3, 4 }));
+    // Antes e depois do campo 11, tudo igual.
+    const of = (try findOnly(b, 11, 2)).?;
+    const nf = (try findOnly(e, 11, 2)).?;
+    try std.testing.expectEqualSlices(u8, b[0..of.start], e[0..nf.start]);
+    try std.testing.expectEqualSlices(u8, b[of.end..], e[nf.end..]);
+    // Voltar para "até mudar" tira o prazo.
+    const f = try editStatus(gpa, e, .online, 0, 1_800_000_000_001);
+    defer gpa.free(f);
+    try std.testing.expectEqual(@as(i64, 0), (try readStatus(f)).?.expires_ms);
+}
+
+test "ler o status guardado: nomes, prazo e o que vence" {
+    var a = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer a.deinit();
+    const ar = a.allocator();
+    const s = (try readStatus(try decodeBase64(ar, official_invisible_until))).?;
+    try std.testing.expectEqual(@as(?types.Status, .offline), s.status);
+    try std.testing.expectEqual(@as(i64, 1794355374876), s.expires_ms);
+    try std.testing.expectEqual(@as(?bool, false), s.show_game);
+    try std.testing.expect(!s.expired(1794355374875) and s.expired(1794355374876));
+    // Até mudar nunca vence.
+    try std.testing.expect(!(try readStatus(try decodeBase64(ar, official_idle))).?.expired(std.math.maxInt(i64)));
+    // Nome que o app não conhece, campo 11 sem status, configurações sem campo 11.
+    try std.testing.expectEqual(@as(?types.Status, null), (try readStatus(&.{ 0x5a, 0x06, 0x0a, 0x04, 0x0a, 0x02, 'z', 'z' })).?.status);
+    try std.testing.expectEqual(@as(?types.Status, null), (try readStatus(&.{ 0x5a, 0x02, 0x1a, 0x00 })).?.status);
+    try std.testing.expect((try readStatus(&.{ 0x0a, 0x02, 0x18, 0x01 })) == null);
+    for ([_]types.Status{ .online, .idle, .dnd, .offline }) |st| try std.testing.expectEqual(@as(?types.Status, st), statusFromName(statusName(st)));
+    // Tipo de fio errado, campo repetido ou cortado: recusa (nada é gravado em cima).
+    try std.testing.expectError(error.Malformed, readStatus(&.{ 0x5a, 0x02, 0x20, 0x01 }));
+    try std.testing.expectError(error.Unsupported, editStatus(ar, &.{ 0x5a, 0x04, 0x1a, 0x00, 0x1a, 0x00 }, .idle, 0, 1));
+    try std.testing.expectError(error.Truncated, editStatus(ar, &.{ 0x5a, 0x03, 0x0a, 0x05, 0x0a }, .idle, 0, 1));
+    try std.testing.expectError(error.Malformed, readStatus(&.{ 0x5a, 0x05, 0x0a, 0x03, 0x0a, 0x01, 0xff }));
+}
+
+test "corpo do PATCH do status da conta: só o campo 11 e a versão" {
+    var a = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer a.deinit();
+    const ar = a.allocator();
+    const src = [_]u8{ 0x0a, 0x02, 0x18, 0x09, 0x72, 0x00 };
+    const body = try statusPatchBody(ar, try encodeBase64(ar, &src), .dnd, 7_000, 6_000);
+    const v = try std.json.parseFromSliceLeaky(std.json.Value, ar, body, .{});
+    try std.testing.expectEqual(@as(?i64, 9), jsonx.int(jsonx.get(v, "required_data_version")));
+    const sent = try decodeBase64(ar, jsonx.str(jsonx.get(v, "settings")).?);
+    try std.testing.expectEqual(@as(u8, 0x5a), sent[0]);
+    const s = (try readStatus(sent)).?;
+    try std.testing.expectEqual(@as(?types.Status, .dnd), s.status);
+    try std.testing.expectEqual(@as(i64, 7_000), s.expires_ms);
+}
+
+test "status da conta sem vazamento quando falta memória" {
+    const gpa = std.testing.allocator;
+    const b = try sample(gpa, true);
+    defer gpa.free(b);
+    try std.testing.checkAllAllocationFailures(gpa, struct {
+        fn f(a: std.mem.Allocator, bytes: []const u8) !void {
+            const e = try editStatus(a, bytes, .idle, 10, 1);
+            a.free(e);
+            const o = try encodeStatus(a, .{ .status = .dnd, .show_game = true, .created_ms = 1 });
+            a.free(o);
+        }
+    }.f, .{b});
 }
 
 test "base64 vai e volta" {

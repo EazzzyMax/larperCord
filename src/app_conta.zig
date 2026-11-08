@@ -73,6 +73,17 @@ pub fn handle(app: *App, a: conta.Action) void {
     }
 }
 
+/// Escolheu um status (ou o prazo dele passou: `auto`): a tela muda na hora
+/// e a rede grava na conta e manda o op 3. `expires_ms` 0 = até mudar.
+pub fn setStatus(app: *App, status: types.Status, expires_ms: i64, auto: bool) void {
+    const st = &app.st;
+    st.settings.my_status = @backingInt(status);
+    st.conta.status_expires_ms = expires_ms;
+    if (app.store.users.getPtr(app.store.me)) |me| me.status = status;
+    app.cmd(.{ .set_status = .{ .status = status, .expires_ms = expires_ms, .auto = auto } });
+    app.saveSettings();
+}
+
 /// Os primeiros `max` caracteres (sem cortar um no meio).
 fn utf8Chars(s: []const u8, max: usize) []const u8 {
     var n: usize = 0;
@@ -156,6 +167,18 @@ pub fn onEvent(app: *App, e: conta.Event) void {
             st.conta.status_busy = false;
         },
         .custom_status_failed => st.conta.status_busy = false,
+        .status => |ss| {
+            // O da conta vale, também no próximo IDENTIFY.
+            st.conta.status_expires_ms = ss.expires_ms;
+            if (app.store.users.getPtr(app.store.me)) |me| me.status = ss.status;
+            if (st.settings.my_status != @backingInt(ss.status)) {
+                st.settings.my_status = @backingInt(ss.status);
+                app.saveSettings();
+            }
+        },
+        // Só se o prazo de agora passou mesmo: uma escolha nova no meio do
+        // caminho ("até eu mudar") já tirou o prazo.
+        .status_expired => if (st.conta.status_expires_ms != 0 and st.conta.status_expires_ms <= nowMs()) setStatus(app, .online, 0, true),
         .friend_request => |fr| {
             const fs: conta.FriendState = switch (fr.status) {
                 .sent => .sent,

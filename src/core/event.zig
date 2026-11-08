@@ -351,8 +351,11 @@ pub const Command = union(enum) {
     fetch_profile: struct { user: Id, guild: Id },
     /// Dá (add) ou tira um cargo de alguém.
     member_role: struct { guild: Id, user: Id, role: Id, add: bool },
-    /// Nosso status (offline = invisível), pelo gateway (op 3).
-    set_status: types.Status,
+    /// Nosso status (offline = invisível): grava nas configurações da conta
+    /// (o guardado lá vence o op 3) e manda o op 3. `expires_ms` 0 = até
+    /// mudar; `auto`: o prazo passou e ele volta sozinho a online (sem aviso
+    /// se outro aparelho gravou antes).
+    set_status: struct { status: types.Status, expires_ms: i64 = 0, auto: bool = false },
     /// Guarda a nota sobre alguém (PUT /users/@me/notes/{id}).
     set_note: struct { user: Id, text: []const u8 },
     /// Ícone de uma aplicação (GET /applications/{id}/rpc).
@@ -543,8 +546,10 @@ pub const Action = union(enum) {
     discard_message: struct { channel: Id, nonce: u64 },
     /// O cartão de perfil abriu: busca o perfil completo (uma vez por pessoa).
     want_profile: Id,
-    /// Online, ausente, não perturbe ou invisível (offline).
+    /// Online, ausente, não perturbe ou invisível (offline), até mudar.
     set_status: types.Status,
+    /// O mesmo, por um tempo (`minutes`; 0 = até mudar), escolhido no submenu.
+    set_status_for: struct { status: types.Status, minutes: u32 },
     member_role: struct { guild: Id, user: Id, role: Id, add: bool },
     /// Muda uma configuração (índice em settings_state.fields(); booleano
     /// 0/1 ou byte) e salva. Usado pela paleta de comandos.

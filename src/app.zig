@@ -1184,12 +1184,8 @@ pub const App = struct {
                 if (g == 0 and st.last_channel.get(0) == null) return app.handle(.open_friends);
                 app.openChannel(ch, false);
             },
-            .set_status => |status| {
-                st.settings.my_status = @backingInt(status);
-                if (app.store.users.getPtr(app.store.me)) |me| me.status = status;
-                app.cmd(.{ .set_status = status });
-                app.saveSettings();
-            },
+            .set_status => |status| @import("app_conta.zig").setStatus(app, status, 0, false),
+            .set_status_for => |sf| @import("app_conta.zig").setStatus(app, sf.status, @import("core/conta.zig").statusExpiry(sf.status, sf.minutes, now()), false),
             .want_profile => |user| {
                 // Por servidor também: "no servidor desde" muda com ele.
                 const key = user ^ (st.guild *% 0x9E3779B97F4A7C15);

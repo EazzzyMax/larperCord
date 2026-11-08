@@ -235,6 +235,9 @@ pub const Gateway = struct {
     /// nosso status, que vai junto no op 3.
     presence: rpc_proto.Presence = .{},
     my_status: types.Status = .online,
+    /// Até quando vale o status escolhido (0 = até mudar): passou, a demonstração
+    /// avisa como o gateway de verdade (net/conta_net.zig).
+    status_until: i64 = 0,
     /// O status personalizado de agora (net/fake_conta.zig guarda), que também
     /// vai no op 3, como no gateway de verdade.
     conta: conta_net.NetState = .{},
@@ -303,6 +306,7 @@ pub const Gateway = struct {
         if (g.thread) |t| c.SDL_WaitThread(t, null);
         g.presence.deinit(alloc);
         g.conta.deinit();
+        @import("fake_conta.zig").deinit();
     }
 
     /// Rich Presence: o mesmo op 3 que o gateway de verdade mandaria (o QA
@@ -728,9 +732,12 @@ pub const Gateway = struct {
                 .set_note => |n| alloc.free(n.text),
                 .move_member => |mm| g.emit(.{ .voice_state = .{ .channel = mm.channel, .user = mm.user } }),
                 .fetch_app => |app| g.emit(.{ .app_icon = .{ .app = app, .icon = "" } }),
-                .set_status => |st| {
-                    g.my_status = st;
-                    g.emit(.{ .presence_update = .{ .user = me_id, .status = st } });
+                .set_status => |ss| {
+                    // O PATCH das configurações que iria para o Discord (o QA lê o proto).
+                    @import("fake_conta.zig").saveStatus(ss.status, ss.expires_ms);
+                    g.my_status = ss.status;
+                    g.status_until = ss.expires_ms;
+                    g.emit(.{ .presence_update = .{ .user = me_id, .status = ss.status } });
                 },
                 .set_activity => |sa| g.setActivity(sa.app, sa.activity),
                 .create_dm => |u| {
@@ -1360,6 +1367,7 @@ pub const Gateway = struct {
         var d = @min(@min(g.next_live_ms, g.next_latency_ms), g.next_flood_ms);
         if (g.call_answer) |a| d = @min(d, a.at_ms);
         if (g.pending_typing) |t| d = @min(d, t.at_ms);
+        if (g.status_until != 0) d = @min(d, g.status_until);
         for (g.nonce_replies.items) |r| d = @min(d, r.at_ms);
         for (g.history_replies.items) |r| d = @min(d, r.at_ms);
         return @min(d, g.acks.nextDue());
@@ -1578,6 +1586,10 @@ pub const Gateway = struct {
                 g.emit(.{ .presence_update = .{ .user = who, .status = @enumFromInt(r.uintLessThan(u8, 3)) } });
             }
             g.next_flood_ms = now + 10;
+        }
+        if (g.status_until != 0 and now >= g.status_until) {
+            g.status_until = 0;
+            g.emit(.{ .conta = .status_expired });
         }
         if (now >= g.next_latency_ms) {
             g.emit(.{ .latency = 38 + g.rng.random().uintLessThan(u32, 24) });
