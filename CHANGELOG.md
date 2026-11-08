@@ -80,7 +80,7 @@
 
 **Linux and Windows**
 - On a Wayland desktop the app runs natively, with X11 as the fallback, from Kainoa Kanter (ThatOneCalculator) in #1.
-- With Close to tray on, as it is by default, the tray icon stays from launch until you quit, like in the official app: Open and Quit in its menu work with the window open, and on Windows a left click shows or hides the window. Turned off, there's no icon and closing quits. On Linux the icon is a small separate process (about 14 MB) that comes back on its own if it dies. From DivannKokos's request (#11).
+- With Close to tray on, as it is by default, the tray icon stays from launch until you quit, like in the official app: Open and Quit in its menu work with the window open, and a left click on the icon shows or hides the window, on Windows and on Linux. Turned off, there's no icon and closing quits. On Linux the icon is a small separate process that speaks the tray protocol over D-Bus itself, without GTK: about 6 MB and no wake-ups while idle, down from about 14 MB and 20 wake-ups a second with libappindicator. It comes back on its own if it dies. From DivannKokos's request (#11).
 - An update replaces the file you actually run, whatever its name, and reopens it. Before, the Linux download kept the old version and Restart could open nothing.
 - The app opens on a system with no fonts at all, such as a Windows or wine install without `C:\Windows\Fonts`, with the font built into Dear ImGui.
 - On Windows, the app's hints name the Windows folders and Credential Manager, and OpenSSL no longer reads an `openssl.cnf` from a folder another user could create.

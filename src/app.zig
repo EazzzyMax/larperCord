@@ -62,6 +62,7 @@ const mem_tune = @import("platform/mem_tune.zig");
 const tray = @import("platform/tray.zig");
 const instance = @import("platform/instance.zig");
 const janela = @import("core/janela.zig");
+const bandeja = @import("core/bandeja.zig");
 const ritmo = @import("core/ritmo.zig");
 const quadro = @import("ui/quadro.zig");
 const send_limits = @import("ui/composer_limits.zig");
@@ -359,8 +360,22 @@ pub const App = struct {
         if (!app.st.settings.close_to_tray) tray.hide();
         app.in_tray = false;
         app.tray_misses = 0;
+        // Wayland: com a ficha que o painel mandou junto do clique, o compositor deixa
+        // a janela voltar com o foco. O SDL só a usa ao mostrar uma janela escondida
+        // (XDG_ACTIVATION_TOKEN, lido do ambiente dele e apagado em seguida).
+        var tok_buf: [bandeja.token_max + 1]u8 = undefined;
+        const token = tray.takeActivationToken(&tok_buf);
+        const flags = c.SDL_GetWindowFlags(app.win.window);
+        const hidden = flags & c.SDL_WINDOW_HIDDEN != 0;
+        const minimized = flags & c.SDL_WINDOW_MINIMIZED != 0;
+        const env = c.SDL_GetEnvironment();
+        const use_token = token != null and hidden and env != null;
+        if (use_token) _ = c.SDL_SetEnvironmentVariable(env, "XDG_ACTIVATION_TOKEN", token.?.ptr, true);
         _ = c.SDL_ShowWindow(app.win.window);
-        _ = c.SDL_RestoreWindow(app.win.window);
+        if (use_token) _ = c.SDL_UnsetEnvironmentVariable(env, "XDG_ACTIVATION_TOKEN");
+        // No X11 e no Wayland, restaurar uma janela que não está minimizada tira a
+        // maximização: só a minimizada é restaurada (no Windows segue como antes).
+        if (sys.windows or minimized) _ = c.SDL_RestoreWindow(app.win.window);
         _ = c.SDL_RaiseWindow(app.win.window);
     }
 
@@ -373,14 +388,20 @@ pub const App = struct {
     /// Clique no ícone da bandeja: alterna a janela (ver janela.trayClick).
     fn toggleWindow(app: *App) void {
         const flags = c.SDL_GetWindowFlags(app.win.window);
-        const vista: janela.Vista = if (app.in_tray or flags & c.SDL_WINDOW_HIDDEN != 0)
-            .na_bandeja
-        else if (flags & (c.SDL_WINDOW_MINIMIZED | c.SDL_WINDOW_OCCLUDED) != 0)
-            .minimizada
-        else
-            .aberta;
+        const vista = janela.trayVista(
+            app.in_tray or flags & c.SDL_WINDOW_HIDDEN != 0,
+            flags & (c.SDL_WINDOW_MINIMIZED | c.SDL_WINDOW_OCCLUDED) != 0,
+            flags & c.SDL_WINDOW_INPUT_FOCUS != 0,
+            !sys.windows,
+        );
         const logged_in = app.store.ready and !app.login.visible();
         app.tray_click = janela.trayClick(vista, app.st.settings.close_to_tray, logged_in);
+        // A ficha do painel vale só para este clique: escondendo, ela não fica guardada
+        // para um "Abrir" qualquer depois.
+        if (app.tray_click.? != .mostrar) {
+            var tok_buf: [bandeja.token_max + 1]u8 = undefined;
+            _ = tray.takeActivationToken(&tok_buf);
+        }
         switch (app.tray_click.?) {
             .mostrar => app.showWindow(),
             .para_bandeja => if (!app.hideToTray()) {

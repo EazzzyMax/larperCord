@@ -80,7 +80,7 @@
 
 **Linux e Windows**
 - Num desktop Wayland o app roda nativo, com o X11 de reserva, de Kainoa Kanter (ThatOneCalculator) no #1.
-- Com Fechar para a bandeja ligado, como vem por padrão, o ícone fica na bandeja da abertura até sair, como no app oficial: Abrir e Sair no menu dele funcionam com a janela aberta, e no Windows o clique esquerdo mostra ou esconde a janela. Desligado, não há ícone e fechar encerra o app. No Linux o ícone é um processo pequeno à parte (cerca de 14 MB), que volta sozinho se cair. A pedido de DivannKokos (#11).
+- Com Fechar para a bandeja ligado, como vem por padrão, o ícone fica na bandeja da abertura até sair, como no app oficial: Abrir e Sair no menu dele funcionam com a janela aberta, e o clique esquerdo no ícone mostra ou esconde a janela, no Windows e no Linux. Desligado, não há ícone e fechar encerra o app. No Linux o ícone é um processo pequeno à parte que fala o protocolo da bandeja pelo D-Bus, sem GTK: cerca de 6 MB e nenhum despertar parado, contra uns 14 MB e 20 despertares por segundo com o libappindicator. Volta sozinho se cair. A pedido de DivannKokos (#11).
 - Uma atualização troca o arquivo que você roda de fato, com o nome que ele tiver, e reabre esse arquivo. Antes, o download para Linux continuava na versão velha e o Reiniciar podia não abrir nada.
 - O app abre num sistema sem nenhuma fonte, como um Windows ou wine sem `C:\Windows\Fonts`, com a fonte que vem dentro do Dear ImGui.
 - No Windows, as dicas do app citam as pastas do Windows e o Gerenciador de Credenciais, e o OpenSSL não lê mais um `openssl.cnf` de uma pasta que outro usuário poderia criar.

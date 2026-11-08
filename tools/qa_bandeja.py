@@ -3,8 +3,9 @@
 
 Roda dentro de um Xvfb e de um D-Bus particular (ver tools/qa_bandeja.sh). Fecha
 a janela pelo mesmo WM_DELETE_WINDOW de um gerenciador de janelas e faz o papel
-do painel: registra o StatusNotifierWatcher, recebe o ícone do libappindicator e
-clica nos itens do menu pelo dbusmenu. Só --demo: nunca conecta em lugar nenhum.
+do painel: registra o StatusNotifierWatcher, recebe o StatusNotifierItem do
+processo do ícone, clica no ícone (Activate, como o clique esquerdo de uma barra) e
+nos itens do menu pelo dbusmenu. Só --demo: nunca conecta em lugar nenhum.
 """
 import os
 import shutil
@@ -174,6 +175,18 @@ class Panel:
 
         return self.call(go)
 
+    def activate(self, item, token=None, method="Activate"):
+        """O clique esquerdo de uma barra: a ficha do xdg-activation (se houver) e o Activate."""
+
+        def go():
+            o = self.bus.get_object(item[0], item[1])
+            sni = dbus.Interface(o, "org.kde.StatusNotifierItem")
+            if token:
+                sni.ProvideXdgActivationToken(token)
+            getattr(sni, method)(0, 0)
+
+        self.call(go)
+
     def menu(self, item):
         """Os itens do menu do ícone: {rótulo: id}."""
         path = self.prop(item, "Menu")
@@ -236,6 +249,18 @@ def close_window():
     w.send_event(ev)
     dpy.sync()
     return True
+
+
+def focus(w):
+    """Dá o foco do teclado para a janela (sem gerenciador de janelas, direto no X)."""
+    w.set_input_focus(X.RevertToPointerRoot, X.CurrentTime)
+    dpy.sync()
+
+
+def unfocus():
+    """O foco vai para outro lugar: a janela fica aberta, mas atrás."""
+    root.set_input_focus(X.RevertToPointerRoot, X.CurrentTime)
+    dpy.sync()
 
 
 def painted():
@@ -371,6 +396,16 @@ def ticks_of(pid):
     return int(f[11]) + int(f[12])
 
 
+def wakeups_of(pid):
+    """Vezes que o processo (todas as threads) foi acordado: trocas de contexto."""
+    n = 0
+    for t in Path(f"/proc/{pid}/task").iterdir():
+        for line in (t / "status").read_text().splitlines():
+            if line.startswith(("voluntary_ctxt_switches:", "nonvoluntary_ctxt_switches:")):
+                n += int(line.split()[1])
+    return n
+
+
 def rss_of(pid):
     for line in Path(f"/proc/{pid}/status").read_text().splitlines():
         if line.startswith("VmRSS:"):
@@ -434,14 +469,22 @@ def full_flow():
         return
     item = items[-1]
     icon = panel.prop(item, "IconName")
-    theme = panel.prop(item, "IconThemePath")
-    check("o ícone é o nosso PNG", bool(icon), f"{theme}/{icon}")
+    sizes = [(int(w), int(h), len(px)) for w, h, px in panel.prop(item, "IconPixmap")]
+    check("o ícone vai desenhado no IconPixmap (22, 32 e 64 em ARGB), sem nome de tema", icon == "" and [w for w, _, _ in sizes] == [22, 32, 64] and all(n == w * h * 4 for w, h, n in sizes), str(sizes))
+    # O desenho de verdade, e não um quadrado liso: várias cores opacas, e não só branco.
+    px32 = next((bytes(bytearray(int(b) for b in px)) for w, h, px in panel.prop(item, "IconPixmap") if int(w) == 32), b"")
+    opaque = {px32[i + 1 : i + 4] for i in range(0, len(px32), 4) if px32[i] == 255}
+    check("o ícone tem as cores do PNG (não um quadrado branco)", len(opaque) > 8 and any(c != b"\xff\xff\xff" for c in opaque), f"{len(opaque)} cores opacas")
+    who = {k: str(panel.prop(item, k)) for k in ("Id", "Title", "Category", "Status")}
+    check("Id, título, categoria e estado", who == {"Id": "larpercord", "Title": "larperCord", "Category": "Communications", "Status": "Active"}, str(who))
+    check("o clique esquerdo é do app: ItemIsMenu falso e o menu em /MenuBar", not bool(panel.prop(item, "ItemIsMenu")) and str(panel.prop(item, "Menu")) == "/MenuBar")
     labels = panel.menu(item)
     check("o menu tem Abrir e Sair", len(labels) == 2, ", ".join(labels))
     open_id = next(v for k, v in labels.items() if "larperCord" in k)
     kids = helpers(a)
     check("um processo só para o ícone", len(kids) == 1, str(kids))
     check("o GTK fica fora do app", "libgtk-3" not in Path(f"/proc/{a.p.pid}/maps").read_text())
+    check("e fora do processo do ícone também", bool(kids) and "libgtk-3" not in Path(f"/proc/{kids[0]}/maps").read_text())
 
     # O custo do ícone o tempo todo: o processo dele e o app parados, 20 s (o
     # "digitando" da demonstração anima nos primeiros 10 s).
@@ -449,12 +492,15 @@ def full_flow():
     pss_open = a.pss_kb()
     hz = os.sysconf("SC_CLK_TCK")
     h0, a0 = (ticks_of(kids[0]) if kids else 0), a.cpu_ticks()
+    w0 = wakeups_of(kids[0]) if kids else 0
     time.sleep(20)
     cpu_open = (a.cpu_ticks() - a0) / hz / 20 * 100
     if kids:
         cpu_h = (ticks_of(kids[0]) - h0) / hz / 20 * 100
-        print(f"       custo do ícone: processo do ícone RSS {rss_of(kids[0])} KB, PSS {pss_of(kids[0])} KB, CPU {cpu_h:.2f}% em 20 s parado; app no mesmo tempo {cpu_open:.2f}% de CPU, PSS {pss_open} KB")
+        wake_h = (wakeups_of(kids[0]) - w0) / 20
+        print(f"       custo do ícone: processo do ícone RSS {rss_of(kids[0])} KB, PSS {pss_of(kids[0])} KB, CPU {cpu_h:.2f}% e {wake_h:.2f} despertares/s em 20 s parado; app no mesmo tempo {cpu_open:.2f}% de CPU, PSS {pss_open} KB")
         check("parado, o processo do ícone quase não usa CPU", cpu_h < 1.0, f"{cpu_h:.2f}%")
+        check("e não acorda sozinho (fica no poll até o painel ou o app falarem)", wake_h <= 0.5, f"{wake_h:.2f}/s")
 
     section("fechar, Abrir e um segundo larperCord")
     close_window()
@@ -489,6 +535,36 @@ def full_flow():
     check("sempre uma janela só", len(windows()) == 1, f"{len(windows())}")
     time.sleep(0.5)
 
+    section("clique no ícone (Activate): a janela vem e vai, como o esquerdo no Windows")
+    focus(mapped()[0])
+    time.sleep(0.5)
+    panel.activate(item)
+    check("aberta e com o foco: o clique esconde na bandeja", wait_until(lambda: not mapped(), 3) is True and a.alive())
+    check("e o mesmo ícone fica, no mesmo processo", panel.items() == [item] and helpers(a) == kids, f"{panel.items()} {helpers(a)}")
+    time.sleep(0.6)
+    # Uma barra no Wayland manda a ficha do xdg-activation antes do clique (no X ela não faz nada).
+    panel.activate(item, token="qa-ficha-1")
+    check("escondida: o clique traz a janela de volta (com a ficha do painel antes)", bool(wait_until(mapped, 5)))
+    time.sleep(1.0)
+    check("voltou desenhada", painted())
+    unfocus()
+    time.sleep(0.6)
+    panel.activate(item)
+    time.sleep(1.0)
+    check("aberta mas sem o foco (atrás de outra): o clique traz para a frente, não esconde", bool(mapped()) and a.alive())
+    focus(mapped()[0])
+    time.sleep(0.5)
+    panel.activate(item)
+    time.sleep(0.1)
+    panel.activate(item)
+    gone = wait_until(lambda: not mapped(), 3) is True
+    time.sleep(1.0)
+    check("clique duplo conta uma vez: escondeu e continua escondida", gone and not mapped())
+    panel.activate(item, method="SecondaryActivate")
+    check("o botão do meio (SecondaryActivate) também traz de volta", bool(wait_until(mapped, 5)))
+    time.sleep(0.5)
+    check("sempre uma janela só, o mesmo ícone e o mesmo processo", len(windows()) == 1 and panel.items() == [item] and helpers(a) == kids)
+
     section("idas e voltas")
     ok = True
     icons = []
@@ -517,7 +593,8 @@ def full_flow():
     section("o processo do ícone morre")
     if kids:
         os.kill(kids[0], signal.SIGKILL)
-    check("com a janela aberta: ela continua e o app segue", wait_until(lambda: not panel.items(), 3) is True and bool(mapped()) and a.alive())
+    # O ícone novo pode entrar antes de o painel ser visto vazio: vale o antigo sair.
+    check("com a janela aberta: ela continua e o app segue", wait_until(lambda: item not in panel.items(), 3) is True and bool(mapped()) and a.alive())
     back = wait_until(panel.items, 8)
     kids = helpers(a)
     check("e o ícone volta sozinho, num processo novo", bool(back) and len(kids) == 1, f"{back} {kids}")
