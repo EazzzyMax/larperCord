@@ -197,20 +197,12 @@ pub fn phone(dl: *c.ImDrawList, cx: f32, cy: f32, col: u32, down: bool) void {
 
 // --- Chamada chegando --------------------------------------------------------
 
-var shown_for: Id = 0;
-var want_front = false;
-
 /// O aviso de chamada chegando, por cima de tudo (configurações, paleta,
 /// visualizador): foto ou ícone do grupo, nome, Atender e Recusar.
 pub fn overlay(ctx: *d.Ctx) void {
     const ch_id = ring_channel;
-    if (ch_id == 0 or ctx.now_ms - ring_since_ms > ring_max_ms) {
-        shown_for = 0;
-        return;
-    }
+    if (ch_id == 0 or ctx.now_ms - ring_since_ms > ring_max_ms) return;
     const cs = ctx.store.channel(ch_id);
-    const appearing = shown_for != ch_id;
-    shown_for = ch_id;
     const win = ctx.win;
     const cw: f32 = @min(300, win.w - 32);
     const chh: f32 = 228;
@@ -219,13 +211,13 @@ pub fn overlay(ctx: *d.Ctx) void {
     // mesmo com outra janela aberta, e o resto da tela continua usável.
     c.ImGui_SetNextWindowPos(d.v(card.x - 24, card.y - 24), 0);
     c.ImGui_SetNextWindowSize(d.v(card.w + 48, card.h + 48), 0);
-    if (appearing or want_front) c.ImGui_SetNextWindowFocus();
-    want_front = false;
+    // Na frente a cada quadro, sem pegar o foco: quem está digitando na caixa continua
+    // digitando (o aviso não tem teclas; o clique em Atender ou Recusar vale assim mesmo).
     _ = c.ImGui_Begin("##chamada", null, c.ImGuiWindowFlags_NoDecoration | c.ImGuiWindowFlags_NoBackground |
-        c.ImGuiWindowFlags_NoSavedSettings | c.ImGuiWindowFlags_NoMove | c.ImGuiWindowFlags_NoScrollWithMouse | c.ImGuiWindowFlags_NoNav);
+        c.ImGuiWindowFlags_NoSavedSettings | c.ImGuiWindowFlags_NoMove | c.ImGuiWindowFlags_NoScrollWithMouse | c.ImGuiWindowFlags_NoNav |
+        c.ImGuiWindowFlags_NoFocusOnAppearing);
     defer c.ImGui_End();
-    // Outra janela ficou na frente bem onde está o mouse: volta para a frente.
-    if (ctx.hovering(card) and !c.ImGui_IsWindowHovered(c.ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)) want_front = true;
+    d.windowToFront();
     const dl = c.ImGui_GetWindowDrawList();
     const k = anim.to(anim.id("chamada", 0), 1, 18);
     const radius = @max(ctx.th.radius + 6, 4);

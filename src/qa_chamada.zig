@@ -182,6 +182,14 @@ fn ringingHidden(app: *App) bool {
     const hidden = c.SDL_GetWindowFlags(app.win.window) & c.SDL_WINDOW_HIDDEN != 0;
     return hidden and chamada.ring_channel == dm2 and voz_audio.ringing() and chamada.notified == notified0 + 1;
 }
+/// O que foi digitado antes e depois de a chamada chegar está todo na caixa.
+fn typedThrough(app: *App) bool {
+    return std.mem.eql(u8, std.mem.sliceTo(&app.st.input, 0), "oizinho");
+}
+fn clearComposer(app: *App) void {
+    @memset(&app.st.input, 0);
+    app.st.input_sync = true;
+}
 
 pub const ops = [_]Op{
     s("chamada"),
@@ -200,8 +208,13 @@ pub const ops = [_]Op{
     click("call-leave"),
     expect("desligar pelo cabeçalho sai da call (op 4 todo null)", leftCall),
 
+    click("composer"),
+    .{ .text = "oi" },
     run(ringGroup),
     expect("chamada no grupo aparece por cima", overlayGroup),
+    .{ .text = "zinho" },
+    expect("o aviso não tira o foco da caixa: o que se digita continua indo para ela", typedThrough),
+    run(clearComposer),
     expectLong("o toque de chamada toca", ringtonePlays),
     expect("e avisa o sistema", notifiedOnce),
     shot("chamada-recebida"),
