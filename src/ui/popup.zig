@@ -126,11 +126,12 @@ pub fn beginWindow(id: [*:0]const u8, r: d.Rect) *c.ImDrawList {
     return dl;
 }
 
-/// Mantém o retângulo dentro da janela.
+/// Mantém o retângulo dentro da janela. Maior que ela, fica preso no canto de cima
+/// (ou da esquerda) e o resto passa da borda.
 pub fn fit(ctx: *const d.Ctx, x: f32, y: f32, wd: f32, h: f32) d.Rect {
     return .{
-        .x = std.math.clamp(x, ctx.win.x + 8, ctx.win.right() - wd - 8),
-        .y = std.math.clamp(y, ctx.win.y + 8, ctx.win.bottom() - h - 8),
+        .x = @max(ctx.win.x + 8, @min(x, ctx.win.right() - wd - 8)),
+        .y = @max(ctx.win.y + 8, @min(y, ctx.win.bottom() - h - 8)),
         .w = wd,
         .h = h,
     };
@@ -465,11 +466,16 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
     // Menu do usuário: as contas embaixo (o menu cresce para cima).
     const acc_h: f32 = if (kind == .status) accounts_menu.height(ctx) else 0;
     const mh = quick_h + @as(f32, @floatFromInt(n)) * row_h + seps + colors_h + 12 + acc_h;
-    const r = fit(ctx, x + 2, y + 2 - acc_h, mw, mh);
+    // Janela baixa (ou a interface grande): o menu para na altura da janela e os
+    // itens rolam por dentro (as reações rápidas ficam paradas em cima).
+    const max_h = @max(ctx.win.h - 16, quick_h + 3 * row_h + 12);
+    const scrolls = mh > max_h;
+    const r = fit(ctx, x + 2, y + 2 - acc_h, mw, @min(mh, max_h));
     const k = anim.to(anim.id("menu", @intFromEnum(kind)), 1, 30);
     const dl = beginWindow("##menu", r);
     defer c.ImGui_End();
     ctx.dl = dl;
+    qa.mark(r, "popup-menu", .{});
     const radius = @max(ctx.th.radius, 4);
     d.shadow(dl, r, radius, 14, ctx.col(.shadow).alpha(k));
     d.rect(dl, r, ctx.col(.overlay), radius);
@@ -493,31 +499,53 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
         }
         yy += quick_h;
     }
+    // Os itens, as cores e as contas: numa região que rola quando o menu não cabe.
+    var idl = dl;
+    if (scrolls) {
+        idl = d.beginRegion(ctx, "##menu-items", .{ .x = r.x, .y = yy, .w = r.w, .h = r.bottom() - 6 - yy }, 0);
+        track(idl);
+        ctx.dl = idl;
+        yy = c.ImGui_GetCursorScreenPos().y;
+    }
+    var picked: ?u8 = null;
     for (items[0..n], 0..) |it, i| {
         if (it.sep) {
-            d.line(dl, r.x + 10, yy + 4, r.right() - 10, yy + 4, ctx.col(.border), 1);
+            d.line(idl, r.x + 10, yy + 4, r.right() - 10, yy + 4, ctx.col(.border), 1);
             yy += 9;
         }
         const ir: d.Rect = .{ .x = r.x + 6, .y = yy, .w = r.w - 12, .h = row_h - 2 };
         const hb = d.hit(ctx, i, ir);
         qa.mark(ir, "menu:{s}", .{it.label});
         const base = if (it.danger) ctx.col(.danger) else ctx.col(.accent);
-        if (hb.hovered) d.rect(dl, ir, base, @max(ctx.th.radius - 2, 2));
+        if (hb.hovered) d.rect(idl, ir, base, @max(ctx.th.radius - 2, 2));
         const tc = if (hb.hovered) (if (it.danger) d.Rgba.white else ctx.col(.accent_text)) else if (it.danger) ctx.col(.danger) else ctx.col(.text).mix(ctx.col(.muted), 0.15);
-        _ = d.textClipped(dl, fam.get(.medium), 14, ir.x + 10, d.centerY(ir, 14), tc, i18n.tr(it.label, it.en), ir.w - (if (it.on) @as(f32, 40) else 18));
+        _ = d.textClipped(idl, fam.get(.medium), 14, ir.x + 10, d.centerY(ir, 14), tc, i18n.tr(it.label, it.en), ir.w - (if (it.on) @as(f32, 40) else 18));
         if (it.on) {
             // A opção que vale agora: um visto à direita.
             const cx = ir.right() - 18;
             const cy = ir.y + ir.h / 2;
-            d.line(dl, cx - 5, cy, cx - 1.5, cy + 4, tc, 2);
-            d.line(dl, cx - 1.5, cy + 4, cx + 5.5, cy - 4.5, tc, 2);
+            d.line(idl, cx - 5, cy, cx - 1.5, cy + 4, tc, 2);
+            d.line(idl, cx - 1.5, cy + 4, cx + 5.5, cy - 4.5, tc, 2);
             qa.mark(ir, "menu-on:{s}", .{it.label});
         }
-        if (hb.clicked) return choose(ctx, kind, id, it.id, r);
+        // A escolha roda depois de fechar a região (ela pode abrir outro popup).
+        if (hb.clicked) {
+            picked = it.id;
+            break;
+        }
         yy += row_h;
     }
-    if (colors_h > 0) guildColors(ctx, dl, id, r, yy);
-    if (kind == .status and accounts_menu.draw(ctx, dl, r, yy)) close(ctx);
+    var chosen_account = false;
+    if (picked == null) {
+        if (colors_h > 0) guildColors(ctx, idl, id, r, yy);
+        if (kind == .status and accounts_menu.draw(ctx, idl, r, yy)) chosen_account = true;
+    }
+    if (scrolls) {
+        d.endRegion(ctx, yy + colors_h + acc_h, r.x);
+        ctx.dl = dl;
+    }
+    if (picked) |item| return choose(ctx, kind, id, item, r);
+    if (chosen_account) close(ctx);
 }
 
 /// Fileira "Cor do servidor": a primeira bolinha volta para a cor de sempre,

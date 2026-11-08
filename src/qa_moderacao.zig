@@ -92,6 +92,51 @@ fn desmutou(app: *App) bool {
     const want = std.fmt.bufPrint(&b, "PATCH /guilds/{d}/members/1005\n{{\"mute\":false}}\n", .{moderado}) catch return false;
     return reqIs(want) and !app.store.voiceFlags(1005).mute;
 }
+/// O menu de quem está na call, com a moderação (o mais comprido que há), aberto
+/// direto: numa janela baixa a lista de membros nem mostra essa pessoa.
+fn openLongMenu(app: *App) void {
+    app.st.popup = .{ .menu = .{ .kind = .user, .id = 1005, .x = 600, .y = 120 } };
+}
+fn wheelDown(app: *App) void {
+    c.ImGuiIO_AddMouseWheelEvent(app.io, 0, -60);
+}
+/// O item mais de baixo do menu aberto.
+fn lastItem(buf: *[56]u8) ?[]const u8 {
+    var keys: [48][56]u8 = undefined;
+    var lens: [48]u8 = undefined;
+    const n = qa.keysWith(&.{"menu:"}, &keys, &lens);
+    var best: ?usize = null;
+    var best_y: f32 = -1e9;
+    for (0..n) |i| {
+        const r = qa.find(keys[i][0..lens[i]]) orelse continue;
+        if (r.y > best_y) {
+            best_y = r.y;
+            best = i;
+        }
+    }
+    const b = best orelse return null;
+    buf.* = keys[b];
+    return buf[0..lens[b]];
+}
+fn menuFits(app: *App) bool {
+    if (app.st.popup != .menu) return false;
+    const r = qa.find("popup-menu") orelse return false;
+    if (r.y < 0 or r.bottom() > app.io.*.DisplaySize.y) return false;
+    var b: [56]u8 = undefined;
+    const last = lastItem(&b) orelse return false;
+    const full = qa.find(last) orelse return false;
+    // Não coube tudo: o último item ainda está (ao menos em parte) escondido embaixo.
+    const vis = qa.visiblePart(last) orelse return true;
+    return vis.h < full.h;
+}
+fn menuScrolled(app: *App) bool {
+    if (app.st.popup != .menu) return false;
+    var b: [56]u8 = undefined;
+    const last = lastItem(&b) orelse return false;
+    const full = qa.find(last) orelse return false;
+    const vis = qa.visiblePart(last) orelse return false;
+    return vis.h >= full.h - 0.5;
+}
 fn bansNoMenu(app: *App) bool {
     return app.st.popup == .menu and qa.find("menu:Banimentos") != null;
 }
@@ -203,6 +248,17 @@ pub const ops = [_]Op{
     rclick("voice-member:502014:1003"),
     expect("na call, com o mesmo cargo: nada de silenciar", semModItems),
     esc,
+    .{ .resize = .{ 1280, 380 } },
+    .{ .wait = 300 },
+    run(openLongMenu),
+    expect("janela baixa: o menu comprido para na altura da janela", menuFits),
+    .{ .shot = "moderacao-menu-janela-baixa" },
+    .{ .hover = .{ .mark = "popup-menu" } },
+    run(wheelDown),
+    expect("e os itens rolam até o último", menuScrolled),
+    esc,
+    .{ .resize = .{ 1280, 800 } },
+    .{ .wait = 300 },
     rclick("guild-header"),
     expect("quem pode banir vê os banimentos no menu do servidor", bansNoMenu),
     esc,
