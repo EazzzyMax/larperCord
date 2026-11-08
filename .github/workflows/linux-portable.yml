@@ -1,7 +1,9 @@
 name: linux-portable
-# O binário de Linux das releases: compilado num Ubuntu antigo, porque é a glibc
-# de onde ele nasce que decide em quais distros ele abre, e aberto em várias antes
-# de valer. O atestado prova que o arquivo saiu deste código.
+# Os arquivos das releases. O de Linux é compilado num Ubuntu antigo, porque é a
+# glibc de onde ele nasce que decide em quais distros ele abre, e aberto em várias
+# antes de valer. O de Windows (o .exe, as DLLs e o zip) sai daqui também, para
+# nada da release ser compilado na máquina de quem publica. O atestado prova que
+# cada arquivo saiu deste código.
 on:
   workflow_dispatch:
   push:
@@ -47,6 +49,34 @@ jobs:
           path: zig-out/bin/larpercord
           if-no-files-found: error
 
+  # O de Windows das releases: as bibliotecas com versão e hash fixos (tools/windows_deps.sh)
+  # e o mesmo build do job windows do ci.yml, sem o QA dentro. O .exe não abre sem as DLLs:
+  # quem baixa pelo site recebe o zip com tudo junto.
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      - run: tools/windows_deps.sh
+      - name: Compilar
+        run: zig build -Dtarget=x86_64-windows-gnu -p out/win
+      - name: O .exe, as DLLs e o zip
+        run: |
+          mkdir -p rel/larperCord
+          cp out/win/bin/larpercord.exe rel/larpercord-windows-x86_64.exe
+          cp out/win/bin/*.dll rel/
+          cp out/win/bin/larpercord.exe out/win/bin/*.dll rel/larperCord/
+          (cd rel && zip -qr larpercord-windows-x86_64.zip larperCord && rm -r larperCord)
+          for f in larpercord-windows-x86_64.exe larpercord-windows-x86_64.zip SDL3.dll libcurl-x64.dll libcrypto-3-x64.dll; do test -s "rel/$f"; done
+          ls -l rel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: larpercord-windows-x86_64
+          path: rel/
+          if-no-files-found: error
+
   # Abre de verdade: sem GPU, só com as bibliotecas que um desktop dessas distros já tem.
   test:
     needs: build
@@ -85,7 +115,7 @@ jobs:
           ./larpercord --tls-check https://github.com/
 
   attest:
-    needs: test
+    needs: [test, windows]
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     permissions:
@@ -96,6 +126,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: larpercord-linux-x86_64
+      - uses: actions/download-artifact@v4
+        with:
+          name: larpercord-windows-x86_64
+          path: windows
       - uses: actions/attest-build-provenance@v2
         with:
-          subject-path: larpercord
+          subject-path: |
+            larpercord
+            windows/*
