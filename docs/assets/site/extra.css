@@ -1,0 +1,58 @@
+/* larperCord: seletor de sistema da instalação e gerador de plugin. Só as páginas
+   que usam carregam este arquivo; as cores são os mesmos tokens de site.css. */
+
+/* Instalação: o sistema de quem visita primeiro, os outros a um clique. */
+.os-pick [hidden]{display:none !important}
+.os-hint{margin:0 0 14px;font:400 12.5px/1.6 var(--mono);color:var(--muted)}
+.dl-grid.dl-three{grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));margin-top:0}
+.node .os-pick{margin-top:32px}
+.dl-copy{position:relative;width:100%}
+.dl-copy .dl-cmd{padding-right:64px}
+.dl-copy .copy{top:50%;transform:translateY(-50%)}
+.os-more{margin-top:18px}
+.prose .os-opt{border:1px solid var(--border);border-radius:calc(var(--radius) + 2px);padding:4px clamp(14px,3vw,24px) 6px;margin:18px 0}
+.prose .os-opt.mine{border-color:var(--accent)}
+.prose .os-opt h3{margin-top:1.1em}
+.prose .os-opt .code{margin:1.2em 0}
+.prose .os-hint{margin:1.6em 0 0}
+
+/* Tabelas de atalhos: as teclas não quebram no meio. */
+.prose td kbd{white-space:nowrap}
+
+/* Gerador de plugin */
+.starter{margin:2.2em 0}
+.st-form fieldset{border:1px solid var(--border);border-radius:calc(var(--radius) + 2px);margin:0 0 16px;padding:12px clamp(12px,3vw,20px) 14px;min-width:0}
+.st-form legend{font:500 12px var(--mono);color:var(--muted);padding:0 6px;text-transform:uppercase;letter-spacing:.06em}
+.st-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px 16px}
+.st-wide{grid-column:1/-1}
+.st-form label{display:block;font-size:13px;color:var(--muted);line-height:1.5}
+.st-form input:not([type]),.st-form input[type=text],.st-form textarea,.st-form select{display:block;width:100%;margin-top:4px;padding:8px 10px;font:400 13px/1.4 var(--mono);color:var(--text);
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-sizing:border-box}
+.st-form textarea{resize:vertical;font-family:var(--sans)}
+.st-form input:focus-visible,.st-form textarea:focus-visible,.st-form select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.st-file{display:flex;align-items:center;gap:4px}
+.st-file input{flex:1;min-width:0}
+.st-file i{font:400 13px var(--mono);font-style:normal;color:var(--faint);margin-top:4px}
+.st-opt{padding:7px 0;border-top:1px solid var(--border)}
+.st-opt:first-of-type{border-top:0}
+.st-form .st-check{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;color:var(--text);font-size:14px;cursor:pointer}
+.st-check input{accent-color:var(--accent);width:16px;height:16px;margin:0;flex:none;align-self:center}
+.st-check span{flex:1 1 220px}
+.st-asks{font:400 11px var(--mono);color:var(--faint)}
+.st-more{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:8px 14px;padding:8px 0 4px 26px}
+.st-out{border:1px solid var(--accent);border-radius:calc(var(--radius) + 2px);padding:14px clamp(12px,3vw,20px)}
+.st-caps{margin:0 0 10px;font-size:13.5px;line-height:2}
+.st-chip{display:inline-block;padding:0 8px;border:1px solid var(--border);border-radius:11px;font-size:12.5px;line-height:1.7;white-space:nowrap;background:var(--hover)}
+.st-chip.strong{background:var(--selected);border-color:var(--accent)}
+.st-chip code{font-size:.85em;color:var(--faint);border:0;background:none;padding:0}
+.st-warn{margin:0 0 10px;font-size:13px;color:var(--idle)}
+.st-msgs{list-style:none;margin:0 0 10px;padding:0;font-size:13px}
+.st-msgs li{margin:4px 0;padding-left:16px;position:relative}
+.st-msgs li::before{content:"";position:absolute;left:0;top:.6em;width:7px;height:7px;border-radius:50%}
+.st-msgs li.err{color:var(--danger)}.st-msgs li.err::before{background:var(--danger)}
+.st-msgs li.note{color:var(--muted)}.st-msgs li.note::before{border:1px solid var(--muted)}
+.st-actions{display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 0}
+.st-actions .btn[disabled]{opacity:.45;cursor:not-allowed;transform:none}
+.st-out .code{margin:14px 0 0}
+.st-out .code pre{max-height:560px}
+.starter [hidden]{display:none !important}

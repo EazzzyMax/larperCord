@@ -313,7 +313,7 @@
     </ul>
   </div>
   <div class="window reveal" style="margin-top:28px"><div class="winbar" aria-hidden="true"><i></i><i></i><i></i><span>larperCord</span></div><img src="assets/shots/en/f-vitrine.webp" width="1280" height="800" loading="lazy" decoding="async" alt="larperCord in demo mode: a scam link marked in red, a CVE with its severity, a GitHub card, and a panel summing up the unread messages"></div>
-  <p class="foot reveal">Demo data, but the CVE and GitHub notes are real answers from those services. Nothing goes out until you approve the host on the plugin's card.</p>
+  <p class="foot reveal">Demo data, but the CVE and GitHub notes are real answers from those services. Nothing goes out until you approve the host on the plugin's card. <a href="guide/plugin-directory.html">What each one asks for →</a> · <a href="guide/plugin-starter.html">Start your own →</a></p>
   <ul class="ticks two reveal" style="margin-top:20px">
     <li><strong>Scam guard.</strong> Free Nitro links, <code>dlscord-nitro.ru</code>, addresses in another alphabet, a link that shows one site and opens another: marked in red. It runs on your computer, with no network.</li>
     <li><strong>CVE radar.</strong> Someone writes <code>CVE-2021-44228</code>, and the severity, the CVSS score and a summary appear under the message, from the official record.</li>
@@ -386,33 +386,38 @@
   <span class="tag reveal"><b>download</b> <i>variant=latest {</i></span>
   <h2 class="h reveal">Get it. <em>Run it.</em></h2>
   <p class="lead reveal">No account needed to look around: the demo mode connects to nothing. After that it updates itself, and every update is signed.</p>
-  <div class="dl-grid reveal">
+  <div class="os-pick reveal" data-os-pick>
+  <div class="dl-grid dl-three">
+    <div class="dl-card" data-os="arch">
+      <h3>Arch Linux <small>AUR, x86_64</small></h3>
+      <a class="btn" href="https://aur.archlinux.org/packages/larpercord-bin">larpercord-bin on the AUR →</a>
+      <p>Also Manjaro, EndeavourOS and other Arch-based distros. Same file as the Linux download, installed into <code>/usr/bin</code> with the launcher icon:</p>
+      <div class="dl-copy"><code class="dl-cmd">yay -S larpercord-bin</code><button class="copy" type="button" data-copy>copy</button></div>
+      <div class="dl-copy"><code class="dl-cmd">paru -S larpercord-bin</code><button class="copy" type="button" data-copy>copy</button></div>
+      <p>Updates come through your AUR helper.</p>
+    </div>
     <div class="dl-card" data-os="linux">
-      <h3>Linux <small>x86_64</small></h3>
+      <h3>Other Linux <small>x86_64</small></h3>
+      <p>One command installs it into <code>~/.local</code>, no sudo, and lists any library that's missing:</p>
+      <div class="dl-copy"><code class="dl-cmd">curl -fsSL https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.sh | sh</code><button class="copy" type="button" data-copy>copy</button></div>
+      <p>Or take the portable file. It runs on distros from about 2022 onward (glibc 2.34), and before each release it's opened on Ubuntu, Debian, Fedora, openSUSE and Arch. Make it executable with <code>chmod +x</code> and run it.</p>
       <a class="btn" href="https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-linux-x86_64" data-asset="larpercord-linux-x86_64">Download for Linux ↓</a>
-      <p>A single file that runs on distros from about 2022 onward (glibc 2.34). Before each release it's opened on Ubuntu, Debian, Fedora, openSUSE and Arch. Make it executable with <code>chmod +x</code> and run it.</p>
-      <p>Or install it, listing any library that's missing:</p>
-      <code class="dl-cmd">curl -fsSL https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.sh | sh</code>
     </div>
     <div class="dl-card" data-os="windows">
       <h3>Windows <small>10 / 11, x64</small></h3>
       <a class="btn" href="https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-windows-x86_64.zip" data-asset="larpercord-windows-x86_64.zip">Download for Windows ↓</a>
       <p>Unzip it and open <code>larpercord.exe</code>. The program isn't code-signed yet, so Windows may warn you the first time.</p>
-      <p>Or install it for your user, in PowerShell:</p>
-      <code class="dl-cmd">irm https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.ps1 | iex</code>
+      <p>Or install it for your user, in PowerShell, no administrator:</p>
+      <div class="dl-copy"><code class="dl-cmd">irm https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.ps1 | iex</code><button class="copy" type="button" data-copy>copy</button></div>
     </div>
   </div>
-  <p class="foot reveal"><span id="dl-version"></span><a href="https://github.com/RshaCuDeVidro/larperCord/releases">All versions and checksums</a> · <a href="https://github.com/RshaCuDeVidro/larperCord/blob/main/CHANGELOG.md">What changed</a></p>
+  </div>
+  <p class="foot reveal"><span id="dl-version"></span><a href="https://github.com/RshaCuDeVidro/larperCord/releases">All versions and checksums</a> · <a href="https://github.com/RshaCuDeVidro/larperCord/blob/main/CHANGELOG.md">What changed</a> · <a href="guide/getting-started.html#install">Install guide</a></p>
   <span class="close">}</span>
+  <link rel="stylesheet" href="assets/site/extra.css">
+  <script src="assets/site/os.js" defer></script>
   <script>
   (function () {
-    var ua = navigator.userAgent, os = /Windows/i.test(ua) ? 'windows' : /Linux|X11/i.test(ua) && !/Android/i.test(ua) ? 'linux' : '';
-    if (os) {
-      var card = document.querySelector('.dl-card[data-os="' + os + '"]');
-      card.classList.add('mine');
-      card.querySelector('.btn').classList.add('primary');
-      if (card.previousElementSibling) card.parentNode.insertBefore(card, card.previousElementSibling);
-    }
     // Só enfeite: os botões funcionam sem isso, até com a API fora do ar.
     fetch('https://api.github.com/repos/RshaCuDeVidro/larperCord/releases/latest').then(function (r) { return r.ok ? r.json() : null; }).then(function (rel) {
       if (!rel) return;
@@ -494,6 +499,8 @@
     <a href="guide/themes.html">Writing themes</a>
     <a href="guide/theme-gallery.html">Built-in themes</a>
     <a href="guide/plugins.html">Lua plugins</a>
+    <a href="guide/plugin-directory.html">Plugin directory</a>
+    <a href="guide/plugin-starter.html">Plugin starter</a>
   </div>
   <div><h2>Project</h2>
     <a href="guide/architecture.html">Architecture</a>

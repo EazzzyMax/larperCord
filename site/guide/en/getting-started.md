@@ -17,27 +17,45 @@ larperCord is a native Discord client for Linux and Windows, written in Zig. You
 
 ## Install
 
-**Download:** [Linux](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-linux-x86_64) · [Windows](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-windows-x86_64.zip) · [all versions](https://github.com/RshaCuDeVidro/larperCord/releases). On Linux, `chmod +x` the file and run it. On Windows, unzip it and open `larpercord.exe`; it isn't code-signed yet, so Windows may warn you the first time.
+Pick your system. The site shows yours first; the others are one click away.
 
-The Linux build runs on distros from about 2022 onward (glibc 2.34 or newer). SDL3, libcurl and OpenSSL come inside it. FreeType, fontconfig, libwebp, Opus and zlib come from the system, and a desktop distro usually has them already. Before each release it's opened in Ubuntu 22.04 and 24.04, Debian 12 and 13, Fedora, openSUSE and Arch containers, in demo mode with no GPU.
+:::: os-pick
+::: os arch | Arch Linux and Arch-based distros
+The package is [`larpercord-bin`](https://aur.archlinux.org/packages/larpercord-bin) on the AUR. Install it with your AUR helper:
 
-GitHub Actions builds that file from this repository's code. With the GitHub CLI you can check it: `gh attestation verify larpercord-linux-x86_64 --repo RshaCuDeVidro/larperCord`.
+```bash
+yay -S larpercord-bin
+# or
+paru -S larpercord-bin
+```
 
-Or use a script:
-
-On Linux (into `~/.local`, no sudo):
+It's the same file as the Linux download, installed into `/usr/bin` with the launcher icon. Updates come through your AUR helper: when there's a new version, Settings → Updates says so and leaves the install to the package.
+:::
+::: os linux | Other Linux distros
+One command installs it into `~/.local`, no sudo. It checks the download against `SHA256SUMS` and lists any system library that's missing:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.sh | sh
 ```
 
-On Windows, in PowerShell (for your user, no administrator):
+Or take the portable file: [larpercord-linux-x86_64](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-linux-x86_64). `chmod +x` it and run it.
+
+It runs on distros from about 2022 onward (glibc 2.34 or newer). SDL3, libcurl and OpenSSL come inside it. FreeType, fontconfig, libwebp, Opus and zlib come from the system, and a desktop distro usually has them already. Before each release it's opened in Ubuntu 22.04 and 24.04, Debian 12 and 13, Fedora, openSUSE and Arch containers, in demo mode with no GPU.
+
+GitHub Actions builds that file from this repository's code. With the GitHub CLI you can check it: `gh attestation verify larpercord-linux-x86_64 --repo RshaCuDeVidro/larperCord`.
+:::
+::: os windows | Windows 10 and 11
+In PowerShell, for your user, no administrator. It checks the download against `SHA256SUMS`:
 
 ```powershell
 irm https://raw.githubusercontent.com/RshaCuDeVidro/larperCord/main/install.ps1 | iex
 ```
 
-Both check the download against `SHA256SUMS`. On Linux the script lists any system library that's missing. After that the app updates itself from Settings → Updates.
+Or download the [zip](https://github.com/RshaCuDeVidro/larperCord/releases/latest/download/larpercord-windows-x86_64.zip), unzip it and open `larpercord.exe`. It isn't code-signed yet, so Windows may warn you the first time.
+:::
+::::
+
+After that the app updates itself from Settings → Updates (except the AUR package, which updates through pacman). Older versions and checksums: [all releases](https://github.com/RshaCuDeVidro/larperCord/releases).
 
 The table above matters if you build from source, below.
 

@@ -1,45 +1,25 @@
 # Atalhos e linha de comando
 
+As mesmas teclas no Linux e no Windows. Não existe versão para macOS, então é sempre `Ctrl`, nunca `Cmd`. Estas tabelas saem de `src/ui/atalhos.zig`, a lista que o próprio app mostra em **Configurações → Atalhos de teclado**, então esta página e o app não ficam diferentes.
+
 ## Teclado
 
-| Ação | Teclas |
-|---|---|
-| Paleta de comandos | `Ctrl+K` |
-| Paleta, ações primeiro | `Ctrl+Shift+P` |
-| Buscar mensagens | `Ctrl+F` |
-| Configurações | `Ctrl+,` |
-| Próximo tema | `F2` |
-| Tema anterior | `Shift+F2` |
-| Próxima aba | `Ctrl+Tab` |
-| Aba anterior | `Ctrl+Shift+Tab` |
-| Ir para a aba N | `Alt+1…9` |
-| Fechar aba | `Ctrl+W` |
-| Caixa de entrada | `Ctrl+I` |
-| Mensagens salvas | `Ctrl+Shift+S` |
-| Abrir canal em nova aba | `Ctrl+Clique` |
-| Fechar aba com o mouse | Clique do meio |
-| Editar a sua última mensagem | `↑` na caixa vazia |
-| Cancelar uma resposta ou edição | `Esc` |
-| Copiar o texto selecionado | `Ctrl+C` |
-| Nova linha na caixa de texto | `Shift+Enter` |
-| Autocompletar na caixa de texto | `@`, `#`, `:ab` ou `/`, depois as setas e `Tab` ou `Enter` |
-| Aperte para falar | A tecla ou o botão do mouse que você escolher em Configurações → Voz |
+{{keys}}
 
-O botão direito funciona em mensagens, usuários, canais e servidores.
+### Mouse e outras teclas
+
+- **Aperte para falar:** a tecla ou o botão do mouse que você escolher em Configurações → Voz. Só funciona com a janela em foco.
+- O **botão direito** funciona em mensagens, usuários, canais e servidores.
+- **Esc** fecha o que estiver por cima: um menu, o visualizador de imagem, a paleta, as configurações.
+- **Zoom:** `Ctrl` com a tecla `=`/`+` ou o `+`, `-` e `0` do teclado numérico. Vai de 75% a 200% e fica salvo.
+- **Plugins** podem somar atalhos próprios com `larper.keybind`; o cartão de cada plugin em Configurações → Plugins lista os dele. Os atalhos do próprio app não usam a tecla do Windows (Super), então ela fica livre para eles.
+- Se um atalho não faz nada, o seu ambiente de trabalho ou gerenciador de janelas pode estar pegando ele antes.
 
 ## Navegação estilo vim
 
-Vem desligada. Ligue em Configurações → Atalhos de teclado. As teclas funcionam enquanto a caixa de texto não está em foco.
+Vem desligada. Ligue em Configurações → Atalhos de teclado. As teclas funcionam enquanto a caixa de texto não está em foco, e o `Esc` sai da caixa mantendo o que você digitou.
 
-| Ação | Teclas |
-|---|---|
-| Rolar para baixo / para cima | `j` / `k` |
-| Topo / fim da conversa | `gg` / `G` |
-| Meia página para baixo / para cima | `Ctrl+d` / `Ctrl+u` |
-| Próximo / anterior canal | `J` / `K` |
-| Voltar para a caixa de texto | `i` ou `Enter` |
-| Sair da caixa de texto, mantendo o texto | `Esc` |
-| Busca (paleta) | `/` |
+{{keys:vim}}
 
 ## Linha de comando
 

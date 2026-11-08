@@ -1,45 +1,25 @@
 # Shortcuts and CLI
 
+The same keys on Linux and Windows. There is no macOS build, so it's always `Ctrl`, never `Cmd`. These tables come from `src/ui/atalhos.zig`, the list the app itself shows in **Settings → Keybinds**, so this page and the app can't drift apart.
+
 ## Keyboard
 
-| Action | Keys |
-|---|---|
-| Command palette | `Ctrl+K` |
-| Palette, actions first | `Ctrl+Shift+P` |
-| Search messages | `Ctrl+F` |
-| Settings | `Ctrl+,` |
-| Next theme | `F2` |
-| Previous theme | `Shift+F2` |
-| Next tab | `Ctrl+Tab` |
-| Previous tab | `Ctrl+Shift+Tab` |
-| Go to tab N | `Alt+1…9` |
-| Close tab | `Ctrl+W` |
-| Inbox | `Ctrl+I` |
-| Saved messages | `Ctrl+Shift+S` |
-| Open channel in a new tab | `Ctrl+Click` |
-| Close tab with the mouse | Middle click |
-| Edit your last message | `↑` in an empty box |
-| Cancel a reply or edit | `Esc` |
-| Copy the selected text | `Ctrl+C` |
-| New line in the composer | `Shift+Enter` |
-| Autocomplete in the composer | `@`, `#`, `:ab` or `/`, then the arrows and `Tab` or `Enter` |
-| Push to talk | The key or mouse button you pick in Settings → Voice |
+{{keys}}
 
-Right-click works on messages, users, channels and servers.
+### Mouse and other keys
+
+- **Push to talk:** the key or mouse button you pick in Settings → Voice. It only works while the window is focused.
+- **Right-click** works on messages, users, channels and servers.
+- **Esc** closes whatever is on top: a menu, the image viewer, the palette, settings.
+- **Zoom:** `Ctrl` with the `=`/`+` key or the keypad `+`, `-` and `0`. It goes from 75% to 200% and is saved.
+- **Plugins** can add their own shortcuts with `larper.keybind`; each plugin's card in Settings → Plugins lists them. The app's own shortcuts don't use the Windows (Super) key, so it's free for them.
+- If a shortcut does nothing, your desktop or window manager may be catching it first.
 
 ## Vim navigation
 
-It's off by default. Turn it on in Settings → Keybinds. The keys work while the text box doesn't have focus.
+It's off by default. Turn it on in Settings → Keybinds. The keys work while the text box doesn't have focus, and `Esc` leaves the box keeping what you typed.
 
-| Action | Keys |
-|---|---|
-| Scroll down / up | `j` / `k` |
-| Top / bottom of the conversation | `gg` / `G` |
-| Half page down / up | `Ctrl+d` / `Ctrl+u` |
-| Next / previous channel | `J` / `K` |
-| Back to the text box | `i` or `Enter` |
-| Leave the text box, keeping the text | `Esc` |
-| Search (palette) | `/` |
+{{keys:vim}}
 
 ## Command line
 

@@ -63,6 +63,10 @@ can't make the app stutter. The interface and that thread only talk through two 
 
 ## An example
 
+To start from a template instead, the [plugin starter](https://rshacudevidro.github.io/larperCord/guide/plugin-starter.html)
+on the site builds a file with the parts you pick, and the [plugin directory](https://rshacudevidro.github.io/larperCord/guide/plugin-directory.html)
+lists what each bundled plugin asks for.
+
 ```lua
 -- @name Shrug
 -- @name:pt Dar de ombros
@@ -105,7 +109,7 @@ anything, so the settings page shows them even for a plugin that's off.
 | `menu` | `larper.menu` |
 | `decorate` | `larper.decorate`, `larper.undecorate`, `larper.rules`, `larper.on("dismiss")` |
 | `composer` | `larper.insert` |
-| `http` | `larper.http` (needs `@hosts`) |
+| `http` | `larper.http` (needs `@hosts`), `larper.on("hosts")` |
 | `lsp` | `larper.lsp` |
 | `settings` | `larper.settings` |
 | `completions` | `larper.completions` |
@@ -215,8 +219,9 @@ plugin knows is sent as normal text.
 
 A keyboard shortcut. Modifiers: `ctrl`, `shift`, `alt`, `super`; keys: `a`–`z`, `0`–`9`,
 `f1`–`f24`, `enter`, `space`, `tab`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`,
-`pagedown`, `up`, `down`, `left`, `right`, `,` `.` `/` `;` `-` `=`. Letters and numbers need
-`ctrl`, `alt` or `super` (otherwise they'd fire while you type); F keys can go alone.
+`pagedown`, `up`, `down`, `left`, `right`, `,` `.` `/` `;` `-` `=`. Every key except F1–F24 needs
+`ctrl`, `alt` or `super` (otherwise it would fire while you type), and `ctrl` with `a`, `c`, `v`, `x`,
+`y` or `z` alone is left to typing.
 The shortcut works outside settings and the command palette, including with the text box focused.
 The app's own shortcuts (`Ctrl+K`, `Ctrl+W`…) keep working alongside it: pick another combination.
 
