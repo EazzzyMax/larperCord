@@ -905,11 +905,12 @@ fn buttons(col: *Col, uid: Id) void {
                 ctx.act(.{ .open_dm = uid });
                 popup.close(ctx);
             },
-            .accept => ctx.act(.{ .accept_friend = uid }),
-            .add => ctx.act(.{ .conta = .{ .friend_request = uid } }),
-            .unblock => ctx.act(.{ .remove_relationship = uid }),
+            // Tudo daqui vai com o lugar do perfil (o `X-Context-Properties`).
+            .accept => ctx.act(.{ .accept_friend = .{ .user = uid, .from = .profile } }),
+            .add => ctx.act(.{ .conta = .{ .friend_request = .{ .user = uid, .from = .profile } } }),
+            .unblock => ctx.act(.{ .remove_relationship = .{ .user = uid, .from = .profile } }),
             // Pede confirmação no lugar do botão.
-            .block => ctx.popup(.{ .menu = .{ .kind = .block_confirm, .id = uid, .x = br.x, .y = br.bottom() + 4 } }),
+            .block => @import("conta_menu.zig").askBlock(ctx, uid, br.x, br.bottom() + 4, .profile),
             .none => {},
         };
         x += bw + 8;

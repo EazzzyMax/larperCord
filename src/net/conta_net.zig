@@ -20,6 +20,8 @@ const alloc = std.heap.c_allocator;
 pub const NetState = struct {
     /// Textos alocados com o c_allocator.
     custom: conta.CustomStatus = .{},
+    /// Até quando vale o status escolhido (ms desde 1970; 0 = até mudar).
+    status_expires_ms: i64 = 0,
 
     pub fn setCustom(s: *NetState, cs: conta.CustomStatus) void {
         const copy = cs.dupe(alloc) catch return;
@@ -76,11 +78,19 @@ pub fn writeActivities(g: anytype, out: *std.ArrayList(u8)) !void {
     try conta.writeActivitiesWith(out, alloc, g.conta.custom, nowMs(), g.presence.current);
 }
 
-/// O status personalizado venceu: some da presença (chamado no heartbeat,
-/// que já acorda sozinho; nenhum relógio a mais).
+/// O status personalizado venceu: some da presença; o prazo do status
+/// passou: a interface volta a online pelo caminho de sempre (grava na conta
+/// e manda o op 3). Chamado no heartbeat, que já acorda sozinho; nenhum
+/// relógio a mais.
 pub fn tick(g: anytype) void {
+    const now = nowMs();
+    const se = g.conta.status_expires_ms;
+    if (se != 0 and se <= now) {
+        g.conta.status_expires_ms = 0;
+        emit(g, .status_expired);
+    }
     const cs = g.conta.custom;
-    if (cs.empty() or cs.expires_ms == 0 or cs.expires_ms > nowMs()) return;
+    if (cs.empty() or cs.expires_ms == 0 or cs.expires_ms > now) return;
     g.conta.deinit();
     if (g.ws_ready) sendPresence(g);
     emitCustom(g);
@@ -101,7 +111,34 @@ pub fn onReady(g: anytype, d: Value) void {
             // A sessão nova abriu sem atividades: o status personalizado volta.
             if (g.conta.custom.active(nowMs())) sendPresence(g);
         } else |_| {}
+        if (status_proto.decodeBase64(alloc, b64)) |bytes| {
+            defer alloc.free(bytes);
+            if (storedStatus(bytes)) |ss| onStoredStatus(g, ss);
+        } else |_| {}
+        // Guardado com o prazo já vencido: volta a online agora.
+        tick(g);
     }
+}
+
+/// O status guardado na conta, se as configurações trazem um que o app conhece.
+pub fn storedStatus(bytes: []const u8) ?status_proto.Stored {
+    const ss = (status_proto.readStatus(bytes) catch return null) orelse return null;
+    return if (ss.status != null) ss else null;
+}
+
+/// O status guardado na conta (READY ou outro aparelho) é o que vale: não o
+/// do IDENTIFY nem o último escolhido aqui. A interface fica sabendo e a
+/// presença desta sessão vai junto.
+fn onStoredStatus(g: anytype, ss: status_proto.Stored) void {
+    const st = ss.status orelse return;
+    // Online não tem prazo (um que tenha não faz voltar a online de novo).
+    const until = if (st == .online) 0 else ss.expires_ms;
+    if (st == g.status and until == g.conta.status_expires_ms) return;
+    const changed = st != g.status;
+    g.status = st;
+    g.conta.status_expires_ms = until;
+    emit(g, .{ .status = .{ .status = st, .expires_ms = until } });
+    if (changed) sendPresence(g);
 }
 
 /// O status personalizado do protobuf, duplicado com o c_allocator.
@@ -125,11 +162,12 @@ pub fn onGuildSettingsUpdate(g: anytype, d: Value) void {
     emit(g, .{ .guild_settings_one = gs });
 }
 
-/// USER_SETTINGS_PROTO_UPDATE (tipo 1): o status personalizado mudou em
-/// outro aparelho? Parcial sem o campo 11 = não mexeu nele.
+/// USER_SETTINGS_PROTO_UPDATE (tipo 1): o status ou o status personalizado
+/// mudou em outro aparelho? Parcial sem o campo 11 = não mexeu neles.
 pub fn onProtoUpdate(g: anytype, b64: []const u8, partial: bool) void {
     const bytes = status_proto.decodeBase64(alloc, b64) catch return;
     defer alloc.free(bytes);
+    if (storedStatus(bytes)) |ss| onStoredStatus(g, ss);
     const has_status = blk: {
         const only = status_proto.statusOnly(alloc, bytes) catch return;
         defer alloc.free(only);
@@ -145,6 +183,14 @@ pub fn onProtoUpdate(g: anytype, b64: []const u8, partial: bool) void {
     if (g.ws_ready) sendPresence(g);
 }
 
+/// O próximo pedido leva o `X-Context-Properties` de `o`: de onde foi o
+/// clique, como o cliente oficial manda em todo PUT/DELETE de
+/// /users/@me/relationships. O pedido de amizade pelo nome de usuário (POST)
+/// usa `.add_friend`.
+pub fn context(g: anytype, o: conta.Origin) void {
+    g.context_props = o.header();
+}
+
 fn userPath(buf: []u8, comptime fmt: []const u8, id: Id) ?[]const u8 {
     return std.fmt.bufPrint(buf, fmt, .{id}) catch null;
 }
@@ -153,8 +199,10 @@ fn userPath(buf: []u8, comptime fmt: []const u8, id: Id) ?[]const u8 {
 pub fn execute(g: anytype, cmd: conta.Cmd) void {
     var pb: [160]u8 = undefined;
     switch (cmd) {
-        .block => |uid| {
+        .block => |b| {
+            const uid = b.user;
             const path = userPath(&pb, "/users/@me/relationships/{d}", uid) orelse return;
+            context(g, b.from);
             var resp = g.request("PUT", path, conta.block_body) orelse return;
             defer resp.body.deinit(alloc);
             if (resp.status >= 300) return g.noticeHttp(i18n.tr("não deu para bloquear", "couldn't block"), &resp);
@@ -168,11 +216,13 @@ pub fn execute(g: anytype, cmd: conta.Cmd) void {
             if (resp.status >= 300) return g.noticeHttp(if (ig.on) i18n.tr("não deu para ignorar", "couldn't ignore") else i18n.tr("não deu para deixar de ignorar", "couldn't unignore"), &resp);
             emit(g, .{ .ignored = .{ .user = ig.user, .on = ig.on } });
         },
-        .friend_request => |uid| {
+        .friend_request => |fr| {
+            const uid = fr.user;
             const path = userPath(&pb, "/users/@me/relationships/{d}", uid) orelse return;
             // Um pedido só: nem o rate limit faz repetir sozinho.
             g.no_retry = true;
             defer g.no_retry = false;
+            context(g, fr.from);
             var resp = g.request("PUT", path, conta.friend_body) orelse return emit(g, .{ .friend_request = .{ .user = uid, .status = .failed } });
             defer resp.body.deinit(alloc);
             const status: conta.FriendStatus = if (resp.status < 300) .sent else if (resp.status == 429) .rate_limited else if (hasCaptcha(resp.body.items)) .captcha else .failed;
@@ -225,37 +275,69 @@ pub fn hasCaptcha(body: []const u8) bool {
     return j.get(v, "captcha_key") != null;
 }
 
+/// As configurações atuais (tipo 1), em base64 e copiadas para `ar`. null:
+/// não deu (o motivo vai num aviso, se não for `quiet`).
+fn readSettings(g: anytype, ar: std.mem.Allocator, quiet: bool) ?[]const u8 {
+    var resp = g.request("GET", "/users/@me/settings-proto/1", null) orelse return null;
+    defer resp.body.deinit(alloc);
+    if (resp.status != 200) {
+        if (!quiet) g.noticeHttp(i18n.tr("não deu para ler as configurações", "couldn't read the settings"), &resp);
+        return null;
+    }
+    const v = std.json.parseFromSliceLeaky(Value, ar, resp.body.items, .{}) catch return null;
+    const b64 = j.str(j.get(v, "settings")) orelse return null;
+    // O texto pode apontar para a resposta, que vai embora aqui.
+    return ar.dupe(u8, b64) catch null;
+}
+
+/// Grava o corpo de `status_proto` (só o campo 11 e a versão). false: não
+/// gravou (o motivo vai num aviso, se não for `quiet`; `what` diz o quê).
+fn writeSettings(g: anytype, ar: std.mem.Allocator, body: []const u8, what: []const u8, quiet: bool) bool {
+    var presp = g.request("PATCH", "/users/@me/settings-proto/1", body) orelse return false;
+    defer presp.body.deinit(alloc);
+    if (presp.status >= 300) {
+        if (!quiet) g.noticeHttp(what, &presp);
+        return false;
+    }
+    const pv = std.json.parseFromSliceLeaky(Value, ar, presp.body.items, .{}) catch Value{ .null = {} };
+    if (j.get(pv, "out_of_date")) |o| if (o == .bool and o.bool) {
+        if (!quiet) g.notice("as configurações mudaram em outro aparelho: tente de novo", "the settings changed on another device: try again", .{});
+        return false;
+    };
+    return true;
+}
+
 /// Lê as configurações atuais, troca só o status personalizado e grava.
 fn customStatus(g: anytype, cs: conta.CustomStatus) void {
     const failed = conta.Event.custom_status_failed;
-    var resp = g.request("GET", "/users/@me/settings-proto/1", null) orelse return emit(g, failed);
-    defer resp.body.deinit(alloc);
-    if (resp.status != 200) {
-        g.noticeHttp(i18n.tr("não deu para ler as configurações", "couldn't read the settings"), &resp);
-        return emit(g, failed);
-    }
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const ar = arena.allocator();
-    const v = std.json.parseFromSliceLeaky(Value, ar, resp.body.items, .{}) catch return emit(g, failed);
-    const b64 = j.str(j.get(v, "settings")) orelse return emit(g, failed);
+    const b64 = readSettings(g, ar, false) orelse return emit(g, failed);
     const body = status_proto.patchBody(ar, b64, cs, nowMs()) catch {
         // Não deu para ler tudo: não grava nada.
         g.notice("as configurações vieram num formato que o app não entende: nada foi mudado", "the settings came in a format the app doesn't understand: nothing was changed", .{});
         return emit(g, failed);
     };
-    var presp = g.request("PATCH", "/users/@me/settings-proto/1", body) orelse return emit(g, failed);
-    defer presp.body.deinit(alloc);
-    if (presp.status >= 300) {
-        g.noticeHttp(i18n.tr("não deu para salvar o status", "couldn't save the status"), &presp);
-        return emit(g, failed);
-    }
-    const pv = std.json.parseFromSliceLeaky(Value, ar, presp.body.items, .{}) catch Value{ .null = {} };
-    if (j.get(pv, "out_of_date")) |o| if (o == .bool and o.bool) {
-        g.notice("as configurações mudaram em outro aparelho: tente de novo", "the settings changed on another device: try again", .{});
-        return emit(g, failed);
-    };
+    if (!writeSettings(g, ar, body, i18n.tr("não deu para salvar o status", "couldn't save the status"), false)) return emit(g, failed);
     g.conta.setCustom(cs);
     emitCustom(g);
     if (g.ws_ready) sendPresence(g);
+}
+
+/// Grava o status da conta nas configurações, como o cliente oficial: o
+/// guardado lá vence o op 3 (só o op 3, sair do invisível não pegava).
+/// `quiet`: a volta sozinha a online quando o prazo passa (outro aparelho
+/// pode ter gravado antes; sem aviso).
+pub fn saveStatus(g: anytype, status: types.Status, expires_ms: i64, quiet: bool) void {
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const ar = arena.allocator();
+    const b64 = readSettings(g, ar, quiet) orelse return;
+    const body = status_proto.statusPatchBody(ar, b64, status, expires_ms, nowMs()) catch {
+        // Não deu para ler tudo: não grava nada (o op 3 ainda vale nesta sessão).
+        if (!quiet) g.notice("as configurações vieram num formato que o app não entende: o status vale só nesta sessão", "the settings came in a format the app doesn't understand: the status only applies to this session", .{});
+        return;
+    };
+    _ = writeSettings(g, ar, body, i18n.tr("não deu para salvar o status na conta", "couldn't save the status to the account"), quiet);
 }

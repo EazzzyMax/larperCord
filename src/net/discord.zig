@@ -32,11 +32,11 @@ const media_url = @import("media_url.zig");
 const proxy = @import("proxy.zig");
 const challenge = @import("challenge.zig");
 const settings_proto = @import("settings_proto.zig");
+const status_proto = @import("status_proto.zig");
 const leitura = @import("../core/leitura.zig");
 const read_json = @import("read_state_json.zig");
 const voice_mod = @import("voice.zig");
 const call_json = @import("call_json.zig");
-const status_proto = @import("status_proto.zig");
 const thread_json = @import("thread_json.zig");
 const user_json = @import("user_json.zig");
 const envio_json = @import("envio_json.zig");
@@ -144,6 +144,9 @@ pub const Gateway = struct {
     /// Prazo do próximo pedido (interação com bot): uma espera de rate limit que passe
     /// dele desiste em vez de mandar atrasado (0 = sem prazo).
     deadline_ms: i64 = 0,
+    /// `X-Context-Properties` do próximo pedido: de onde foi o clique numa
+    /// relação (core/conta.zig `Origin.header`; net/conta_net.zig `context`).
+    context_props: ?[:0]const u8 = null,
     /// Comandos que chegaram enquanto o gateway estava reconectando ou
     /// esperando rate limit. São enviados quando a conexão volta.
     pending: std.ArrayList(ev.Command) = .empty,
@@ -1185,15 +1188,9 @@ pub const Gateway = struct {
         g.queueOp(.{ .lazy = .{ .guild = guild, .channel = channel, .thread = thread } });
     }
 
-    /// Nome do status no gateway (offline = invisível para os outros).
-    fn statusName(s: types.Status) []const u8 {
-        return switch (s) {
-            .online => "online",
-            .idle => "idle",
-            .dnd => "dnd",
-            .offline => "invisible",
-        };
-    }
+    /// Nome do status no gateway (offline = invisível para os outros): o
+    /// mesmo das configurações da conta.
+    const statusName = status_proto.statusName;
 
     /// "since" da relação (ISO) em ms; 0 = não veio.
     fn sinceMs(rv: Value) i64 {
@@ -3017,11 +3014,14 @@ pub const Gateway = struct {
 
     /// `mime`: corpo multipart (envio de arquivos) no lugar do JSON.
     fn requestEx(g: *Gateway, method: [:0]const u8, path: []const u8, body: ?[]const u8, mime: ?*c.curl_mime) ?Response {
-        // O motivo e o prazo são só deste pedido: um pedido feito durante uma espera não os herda.
+        // O motivo, o prazo e o lugar são só deste pedido: um pedido feito durante uma
+        // espera não os herda.
         const audit = g.audit_reason;
         g.audit_reason = null;
         const deadline = g.deadline_ms;
         g.deadline_ms = 0;
+        const context = g.context_props;
+        g.context_props = null;
         const h = g.rest orelse return null;
         if (!validToken(g.token)) {
             g.notice("token inválido", "invalid token", .{});
@@ -3091,6 +3091,7 @@ pub const Gateway = struct {
                 } else |_| {}
             }
             if (audit) |line| headers = c.curl_slist_append(headers, line.ptr);
+            if (context) |line| headers = c.curl_slist_append(headers, line.ptr);
             if (attempt > 0) {
                 if (std.fmt.bufPrintSentinel(&failed_buf, "X-Failed-Requests: {d}", .{attempt}, 0)) |line| {
                     headers = c.curl_slist_append(headers, line.ptr);
@@ -4051,6 +4052,8 @@ pub const Gateway = struct {
             },
             .relationship => |r| {
                 const path = std.fmt.bufPrint(&path_buf, "/users/@me/relationships/{d}", .{r.user}) catch return;
+                // De onde foi o clique, como o cliente oficial manda.
+                conta_net.context(g, r.from);
                 var resp = g.request(if (r.accept) "PUT" else "DELETE", path, if (r.accept) "{}" else null) orelse return;
                 defer resp.body.deinit(alloc);
                 if (resp.status >= 300) g.noticeHttp(i18n.tr("não deu para mudar a amizade", "couldn't update the friendship"), &resp);
@@ -4106,9 +4109,13 @@ pub const Gateway = struct {
                 // Vazio também: não pergunta de novo.
                 g.emit(.{ .app_icon = .{ .app = app, .icon = icon } });
             },
-            .set_status => |st| {
-                if (st == g.status) return;
-                g.status = st;
+            .set_status => |ss| {
+                if (ss.status == g.status and ss.expires_ms == g.conta.status_expires_ms) return;
+                // O status guardado na conta vence o op 3: grava lá primeiro, como
+                // o cliente oficial (net/conta_net.zig).
+                conta_net.saveStatus(g, ss.status, ss.expires_ms, ss.auto);
+                g.status = ss.status;
+                g.conta.status_expires_ms = ss.expires_ms;
                 // Sai com o status do momento em que tiver vez (só o último vale).
                 conta_net.sendPresence(g);
             },

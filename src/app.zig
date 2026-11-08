@@ -1192,12 +1192,8 @@ pub const App = struct {
                 if (g == 0 and st.last_channel.get(0) == null) return app.handle(.open_friends);
                 app.openChannel(ch, false);
             },
-            .set_status => |status| {
-                st.settings.my_status = @backingInt(status);
-                if (app.store.users.getPtr(app.store.me)) |me| me.status = status;
-                app.cmd(.{ .set_status = status });
-                app.saveSettings();
-            },
+            .set_status => |status| @import("app_conta.zig").setStatus(app, status, 0, false),
+            .set_status_for => |sf| @import("app_conta.zig").setStatus(app, sf.status, @import("core/conta.zig").statusExpiry(sf.status, sf.minutes, now()), false),
             .want_profile => |user| {
                 // Por servidor também: "no servidor desde" muda com ele.
                 const key = user ^ (st.guild *% 0x9E3779B97F4A7C15);
@@ -1430,9 +1426,9 @@ pub const App = struct {
                 st.friends = true;
             },
             .set_setting => |ss| if (settings_state.setByte(&st.settings, ss.index, ss.value)) app.saveSettings(),
-            .accept_friend => |u| app.cmd(.{ .relationship = .{ .user = u, .accept = true } }),
+            .accept_friend => |rel| app.cmd(.{ .relationship = .{ .user = rel.user, .accept = true, .from = rel.from } }),
             .conta => |ca| @import("app_conta.zig").handle(app, ca),
-            .remove_relationship => |u| app.cmd(.{ .relationship = .{ .user = u, .accept = false } }),
+            .remove_relationship => |rel| app.cmd(.{ .relationship = .{ .user = rel.user, .accept = false, .from = rel.from } }),
             .select_channel => |ch| {
                 if (app.opts.qa and c.SDL_getenv("QA_DEBUG") != null) std.debug.print("[ação] select_channel ctrl={}\n", .{app.io.*.KeyCtrl});
                 if (app.store.channel(ch)) |cs| if (!app.store.canAccess(&cs.info)) {

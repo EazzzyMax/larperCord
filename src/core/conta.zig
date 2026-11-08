@@ -242,6 +242,51 @@ pub const block_body = "{\"type\":2}";
 /// Pedido de amizade (ou aceitar o que veio): o `type` fica no padrão.
 pub const friend_body = "{}";
 
+/// De onde saiu um pedido de amizade, aceitar, recusar, cancelar, desfazer
+/// ou bloquear. O cliente oficial manda o lugar no `X-Context-Properties`
+/// (base64 de `{"location":"…"}`) em todo PUT/DELETE de
+/// /users/@me/relationships; o app manda o mesmo.
+pub const Origin = enum {
+    /// O perfil (o grande e o cartão).
+    profile,
+    /// O menu de contexto de uma pessoa (membros, mensagem, DMs, amigos).
+    context_menu,
+    /// Os botões da página Amigos (os pedidos pendentes também).
+    friends,
+    /// A aba "Adicionar amigo" (o pedido pelo nome de usuário).
+    add_friend,
+
+    /// O `location` que o cliente oficial manda de cada lugar.
+    pub fn location(o: Origin) []const u8 {
+        return switch (o) {
+            .profile => "user profile modal v2",
+            .context_menu => "ContextMenu",
+            .friends => "Friends",
+            .add_friend => "Add Friend",
+        };
+    }
+
+    /// A linha inteira do cabeçalho (montada na compilação).
+    pub fn header(o: Origin) [:0]const u8 {
+        return switch (o) {
+            inline else => |t| comptime contextLine(t.location()),
+        };
+    }
+};
+
+fn contextLine(comptime location: []const u8) [:0]const u8 {
+    const json = "{\"location\":\"" ++ location ++ "\"}";
+    const prefix = "X-Context-Properties: ";
+    const enc = std.base64.standard.Encoder;
+    const n = enc.calcSize(json.len);
+    var line: [prefix.len + n:0]u8 = undefined;
+    @memcpy(line[0..prefix.len], prefix);
+    _ = enc.encode(line[prefix.len..][0..n], json);
+    line[prefix.len + n] = 0;
+    const final = line;
+    return &final;
+}
+
 pub const max_global_name = 32;
 pub const max_pronouns = 40;
 pub const max_bio = 190;
@@ -332,6 +377,18 @@ pub fn expiryFor(choice: u8, now_ms: i64, utc_offset_s: i64) i64 {
     };
 }
 
+/// Por quanto tempo vale o ausente, o não perturbe e o invisível, em minutos,
+/// como no menu do cliente oficial (15 min, 1 h, 8 h, 24 h, 3 dias). "Até
+/// eu mudar" é 0.
+pub const status_minutes = [_]u32{ 15, 60, 8 * 60, 24 * 60, 3 * 24 * 60 };
+
+/// Até quando vale um status escolhido por `minutes` (0 = até mudar). Online
+/// não tem prazo.
+pub fn statusExpiry(status: types.Status, minutes: u32, now_ms: i64) i64 {
+    if (minutes == 0 or status == .online) return 0;
+    return now_ms + @as(i64, minutes) * 60_000;
+}
+
 /// A atividade "Custom Status" (tipo 4) para o op 3, ou nada se não vale.
 /// `out` recebe `[...]` inteiro.
 pub fn writeActivities(out: *std.ArrayList(u8), gpa: std.mem.Allocator, s: CustomStatus, now_ms: i64) !void {
@@ -366,10 +423,11 @@ pub fn writeActivitiesWith(out: *std.ArrayList(u8), gpa: std.mem.Allocator, s: C
 
 /// Pedido para a rede (textos alocados com o c_allocator; quem executa libera).
 pub const Cmd = union(enum) {
-    block: Id,
+    /// `from`: de onde foi o clique (o `X-Context-Properties`).
+    block: struct { user: Id, from: Origin },
     /// Ignorar pela conta (true) ou deixar de ignorar.
     ignore: struct { user: Id, on: bool },
-    friend_request: Id,
+    friend_request: struct { user: Id, from: Origin },
     /// `guild` 0 = DMs ("@me"). `body` é o JSON de `settingsBody`.
     /// `demo`: só na demonstração, o que o Discord devolveria (`applied`).
     guild_settings: struct { guild: Id, body: []const u8, demo: ?GuildSettings = null },
@@ -407,6 +465,11 @@ pub const Event = union(enum) {
     custom_status: CustomStatus,
     /// O status personalizado não foi salvo (o motivo vai num aviso).
     custom_status_failed,
+    /// O status guardado na conta (READY ou mudado em outro aparelho): é o
+    /// que vale. `expires_ms` 0 = até mudar.
+    status: struct { status: types.Status, expires_ms: i64 = 0 },
+    /// O prazo do status escolhido passou: volta a online.
+    status_expired,
     friend_request: struct { user: Id, status: FriendStatus },
     /// Perfil salvo (`ok`) ou não.
     profile_saved: bool,
@@ -424,10 +487,11 @@ pub const Event = union(enum) {
 
 /// Pedidos da interface para o app (textos alocados com o gpa da interface).
 pub const Action = union(enum) {
-    block: Id,
+    /// `from`: de onde foi o clique (o `X-Context-Properties`).
+    block: struct { user: Id, from: Origin },
     /// Desbloquear é o "remover relação" que já existe.
     ignore: struct { user: Id, on: bool },
-    friend_request: Id,
+    friend_request: struct { user: Id, from: Origin },
     /// `target`: servidor, canal ou DM; o app descobre de onde é.
     notif: struct { target: Id, change: Change },
     /// `choice` como em `expiryFor`.
@@ -449,6 +513,8 @@ pub const State = struct {
     /// Quando o primeiro silêncio com prazo vence (0 = nenhum).
     next_expiry_ms: i64 = 0,
     custom: CustomStatus = .{},
+    /// Até quando vale o status escolhido (ms desde 1970; 0 = até mudar).
+    status_expires_ms: i64 = 0,
     /// Salvando o status personalizado / o perfil.
     status_busy: bool = false,
     profile_busy: bool = false,
@@ -508,6 +574,7 @@ pub const State = struct {
         s.next_expiry_ms = 0;
         s.custom.deinit(ca);
         s.custom = .{};
+        s.status_expires_ms = 0;
         s.status_busy = false;
         s.profile_busy = false;
         s.friends.clearRetainingCapacity();
@@ -647,6 +714,39 @@ test "corpos do perfil: limites, aspas e nome vazio" {
     try std.testing.expectEqualStrings("{\"pronouns\":\"ela/dela\",\"bio\":\"linha 1\\nlinha 2\"}", p);
     try std.testing.expectError(error.TooLong, profileBody(gpa, repeat(&rb, "x", 41), ""));
     try std.testing.expectError(error.TooLong, profileBody(gpa, "", repeat(&rb, "x", 191)));
+}
+
+test "X-Context-Properties de cada lugar, como o cliente oficial manda" {
+    const cases = [_]struct { o: Origin, want: []const u8 }{
+        // {"location":"user profile modal v2"}: pedido de amizade pelo perfil.
+        .{ .o = .profile, .want = "X-Context-Properties: eyJsb2NhdGlvbiI6InVzZXIgcHJvZmlsZSBtb2RhbCB2MiJ9" },
+        .{ .o = .context_menu, .want = "X-Context-Properties: eyJsb2NhdGlvbiI6IkNvbnRleHRNZW51In0=" },
+        // {"location":"Friends"}: cancelar ou desfazer na página Amigos.
+        .{ .o = .friends, .want = "X-Context-Properties: eyJsb2NhdGlvbiI6IkZyaWVuZHMifQ==" },
+        .{ .o = .add_friend, .want = "X-Context-Properties: eyJsb2NhdGlvbiI6IkFkZCBGcmllbmQifQ==" },
+    };
+    for (cases) |cs| {
+        const h = cs.o.header();
+        try std.testing.expectEqualStrings(cs.want, h);
+        // Termina em zero: vai direto para o curl.
+        try std.testing.expectEqual(@as(u8, 0), h.ptr[h.len]);
+        // O base64 volta ao JSON sem espaços (JSON.stringify).
+        var buf: [96]u8 = undefined;
+        const b64 = h["X-Context-Properties: ".len..];
+        const n = try std.base64.standard.Decoder.calcSizeForSlice(b64);
+        try std.base64.standard.Decoder.decode(buf[0..n], b64);
+        var jb: [96]u8 = undefined;
+        try std.testing.expectEqualStrings(try std.fmt.bufPrint(&jb, "{{\"location\":\"{s}\"}}", .{cs.o.location()}), buf[0..n]);
+    }
+}
+
+test "prazo do status da conta" {
+    try std.testing.expectEqual(@as(i64, 0), statusExpiry(.dnd, 0, 1000));
+    try std.testing.expectEqual(@as(i64, 1000 + 15 * 60_000), statusExpiry(.idle, status_minutes[0], 1000));
+    try std.testing.expectEqual(@as(i64, 1000 + 8 * 3_600_000), statusExpiry(.offline, status_minutes[2], 1000));
+    try std.testing.expectEqual(@as(i64, 1000 + 3 * 86_400_000), statusExpiry(.dnd, status_minutes[4], 1000));
+    // Online não tem prazo.
+    try std.testing.expectEqual(@as(i64, 0), statusExpiry(.online, 60, 1000));
 }
 
 test "prazo do status e a atividade do op 3" {

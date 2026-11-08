@@ -502,12 +502,25 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
             // A nossa atividade (Rich Presence) no lugar do status, como a dos outros na lista.
             qa.mark(card, "me-activity", .{});
             _ = d.textClipped(ctx.dl, fam.get(.regular), 12, card.x + 44, card.y + 19, ctx.col(.muted), act, card.w - 48);
-        } else _ = d.textClipped(ctx.dl, fam.get(.regular), 12, card.x + 44, card.y + 19, ctx.col(.muted), switch (me.status) {
-            .online => "Online",
-            .idle => i18n.tr3("Ausente", "Idle", "退席中"),
-            .dnd => i18n.tr3("Não perturbe", "Do Not Disturb", "取り込み中"),
-            .offline => i18n.tr3("Invisível", "Invisible", "オンライン状態を隠す"),
-        }, card.w - 48);
+        } else {
+            const name = switch (me.status) {
+                .online => "Online",
+                .idle => i18n.tr3("Ausente", "Idle", "退席中"),
+                .dnd => i18n.tr3("Não perturbe", "Do Not Disturb", "取り込み中"),
+                .offline => i18n.tr3("Invisível", "Invisible", "オンライン状態を隠す"),
+            };
+            // Escolhido por um tempo: até quando (ui/status_menu.zig).
+            const until = ctx.st.conta.status_expires_ms;
+            var sb: [96]u8 = undefined;
+            var ub: [48]u8 = undefined;
+            const timed = me.status != .online and until > ctx.now_ms;
+            const line = if (timed)
+                std.fmt.bufPrint(&sb, "{s} · {s}", .{ name, @import("status_menu.zig").untilText(&ub, until, ctx.now_ms) }) catch name
+            else
+                name;
+            if (timed) qa.mark(card, "me-status-until", .{});
+            _ = d.textClipped(ctx.dl, fam.get(.regular), 12, card.x + 44, card.y + 19, ctx.col(.muted), line, card.w - 48);
+        }
         if (modes != null) d.tip(ctx, card, i18n.tr3("Clique para mudar ou sair", "Click to change or turn off", "クリックで変更・オフ"), hb.hovered);
     }
 

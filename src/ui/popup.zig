@@ -20,6 +20,7 @@ const saved_ui = @import("saved.zig");
 const mosaic = @import("mosaic.zig");
 const guild_color = @import("guild_color.zig");
 const accounts_menu = @import("accounts_menu.zig");
+const status_menu = @import("status_menu.zig");
 const forum = @import("forum.zig");
 const thread_settings = @import("thread_settings.zig");
 const engine = @import("../plugins/engine.zig");
@@ -520,6 +521,8 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
         if (hb.hovered) d.rect(idl, ir, base, @max(ctx.th.radius - 2, 2));
         const tc = if (hb.hovered) (if (it.danger) d.Rgba.white else ctx.col(.accent_text)) else if (it.danger) ctx.col(.danger) else ctx.col(.text).mix(ctx.col(.muted), 0.15);
         _ = d.textClipped(idl, fam.get(.medium), 14, ir.x + 10, d.centerY(ir, 14), tc, i18n.tr(it.label, it.en), ir.w - (if (it.on) @as(f32, 40) else 18));
+        // Status: o visto no de agora e o submenu do prazo (ui/status_menu.zig).
+        if (kind == .status) status_menu.row(ctx, idl, ir, it, hb.hovered, tc);
         if (it.on) {
             // A opção que vale agora: um visto à direita.
             const cx = ir.right() - 18;
@@ -545,7 +548,9 @@ fn menu(ctx: *d.Ctx, kind: state.MenuKind, id: Id, x: f32, y: f32) void {
         ctx.dl = dl;
     }
     if (picked) |item| return choose(ctx, kind, id, item, r);
-    if (chosen_account) close(ctx);
+    if (chosen_account) return close(ctx);
+    // O submenu do prazo, fora da região que rola (ele é uma janela à parte).
+    if (kind == .status and status_menu.drawSub(ctx, r)) close(ctx);
 }
 
 /// Fileira "Cor do servidor": a primeira bolinha volta para a cor de sempre,

@@ -344,15 +344,19 @@ pub const Command = union(enum) {
     /// pede também a lista de quem está nela.
     subscribe_guild: struct { guild: Id, channel: Id, thread: Id = 0 },
     /// Aceita um pedido de amizade (true) ou remove/recusa/cancela (false).
-    relationship: struct { user: Id, accept: bool },
+    /// `from`: de onde foi o clique (o `X-Context-Properties`, core/conta.zig).
+    relationship: struct { user: Id, accept: bool, from: @import("conta.zig").Origin },
     /// Abre (ou acha) a DM com alguém; chega como CHANNEL_CREATE.
     create_dm: Id,
     /// Perfil completo (banner, bio…) ao abrir o cartão de alguém.
     fetch_profile: struct { user: Id, guild: Id },
     /// Dá (add) ou tira um cargo de alguém.
     member_role: struct { guild: Id, user: Id, role: Id, add: bool },
-    /// Nosso status (offline = invisível), pelo gateway (op 3).
-    set_status: types.Status,
+    /// Nosso status (offline = invisível): grava nas configurações da conta
+    /// (o guardado lá vence o op 3) e manda o op 3. `expires_ms` 0 = até
+    /// mudar; `auto`: o prazo passou e ele volta sozinho a online (sem aviso
+    /// se outro aparelho gravou antes).
+    set_status: struct { status: types.Status, expires_ms: i64 = 0, auto: bool = false },
     /// Guarda a nota sobre alguém (PUT /users/@me/notes/{id}).
     set_note: struct { user: Id, text: []const u8 },
     /// Ícone de uma aplicação (GET /applications/{id}/rpc).
@@ -545,15 +549,18 @@ pub const Action = union(enum) {
     discard_message: struct { channel: Id, nonce: u64 },
     /// O cartão de perfil abriu: busca o perfil completo (uma vez por pessoa).
     want_profile: Id,
-    /// Online, ausente, não perturbe ou invisível (offline).
+    /// Online, ausente, não perturbe ou invisível (offline), até mudar.
     set_status: types.Status,
+    /// O mesmo, por um tempo (`minutes`; 0 = até mudar), escolhido no submenu.
+    set_status_for: struct { status: types.Status, minutes: u32 },
     member_role: struct { guild: Id, user: Id, role: Id, add: bool },
     /// Muda uma configuração (índice em settings_state.fields(); booleano
     /// 0/1 ou byte) e salva. Usado pela paleta de comandos.
     set_setting: struct { index: usize, value: u8 },
-    accept_friend: Id,
-    /// Recusa um pedido, cancela o nosso ou desbloqueia.
-    remove_relationship: Id,
+    /// `from`: de onde foi o clique (o `X-Context-Properties`, core/conta.zig).
+    accept_friend: struct { user: Id, from: @import("conta.zig").Origin },
+    /// Recusa um pedido, cancela o nosso, desfaz a amizade ou desbloqueia.
+    remove_relationship: struct { user: Id, from: @import("conta.zig").Origin },
     /// Perfil grande (o cartão com abas); `tab`: 0 atividade, 1 amigos, 2 servidores.
     open_full_profile: struct { user: Id, tab: u8 = 0 },
     set_note: struct { user: Id, text: []const u8 },
