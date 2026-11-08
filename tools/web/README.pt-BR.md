@@ -7,7 +7,9 @@ gateway falso, sem rede, sem conta) em WebAssembly no site, carregada só quando
 visita clica em "Começar a demonstração".
 
 **Estado: compila, ainda não liga.** O app inteiro (Zig, Dear ImGui, as ligações do
-FreeType, FriBidi, Lua, RNNoise) compila para `wasm32-emscripten`. A ligação final com o
+FreeType, FriBidi, Lua) compila para `wasm32-emscripten`. O RNNoise e a conexão de voz
+ficam de fora, porque a página não tem voz (`sys.web` em `src/core/ruido.zig` e
+`src/net/discord.zig`). A ligação final com o
 `emcc` e um teste num navegador de verdade ainda não aconteceram: o SDK do Emscripten não
 foi instalado na máquina do build. Nada daqui muda o build nativo.
 
@@ -105,10 +107,10 @@ Outros passos:
    relógio de 2 s (`SDL_AddTimer` usa `emscripten_set_timeout` sem threads) e o arquivo
    `.data` com as fontes em `/fonts`.
 3. **Tamanho.** Medir o tamanho comprimido (o `gen_site.py` mostra na página). Alavancas:
-   `-Oz` com `wasm-opt` (já ligado), `IMGUI_DISABLE_DEBUG_TOOLS`, tirar Lua e RNNoise do
-   build do navegador atrás de `sys.web` (a demonstração não precisa deles) e um conjunto
-   menor de emojis. Estimativa antes de medir: de 3 a 5 MB de wasm, de 1,5 a 2 MB
-   comprimido.
+   `-Oz` com `wasm-opt` (já ligado), `IMGUI_DISABLE_DEBUG_TOOLS`, tirar o Lua do build
+   do navegador atrás de `sys.web` e um conjunto menor de emojis. O RNNoise e a conexão
+   de voz já saíram: o wasm foi de 5,77 MB para 4,30 MB (de 3,00 MB para 1,79 MB com
+   gzip -9).
 4. **Conferir o comportamento** no navegador: toda página de configurações abre; trocar
    de tema e de claro/escuro; mandar mensagem, reações, threads, o seletor de GIF (tudo com
    dados falsos); uma chamada aparece sem som; nada tenta abrir seletor de arquivo ou

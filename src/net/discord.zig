@@ -3597,6 +3597,8 @@ pub const Gateway = struct {
 
     /// O gateway de voz só abre quando já temos endpoint, token e session_id.
     fn tryStartVoice(g: *Gateway) void {
+        // Navegador: sem voz (e sem rede), então a conexão de voz fica fora do wasm.
+        if (sys.web) return;
         if (g.voice != null or g.voice_channel == 0 or g.me == 0) return;
         if (g.voice_endpoint_len == 0 or g.voice_token_len == 0 or g.voice_session_len == 0) return;
         const vc = alloc.create(voice_mod.Voice) catch return;

@@ -7,7 +7,9 @@ no network, no account) as WebAssembly on the website, loaded only when the visi
 clicks "Start demo".
 
 **Status: compiles, not linked yet.** The whole app (Zig, Dear ImGui, FreeType
-bindings, FriBidi, Lua, RNNoise) builds for `wasm32-emscripten`. The final link with
+bindings, FriBidi, Lua) builds for `wasm32-emscripten`. RNNoise and the voice connection
+stay out, since the page has no voice (`sys.web` in `src/core/ruido.zig` and
+`src/net/discord.zig`). The final link with
 `emcc` and a run in a real browser have not happened yet: the Emscripten SDK was not
 installed on the build machine. Nothing here changes the native build.
 
@@ -105,10 +107,10 @@ Other steps:
    (`SDL_AddTimer` uses `emscripten_set_timeout` without threads), and the `.data` file
    with the fonts at `/fonts`.
 3. **Size.** Measure the compressed size (`gen_site.py` prints it on the page). Levers:
-   `-Oz` with `wasm-opt` (already on), `IMGUI_DISABLE_DEBUG_TOOLS`, dropping Lua and
-   RNNoise from the browser build behind `sys.web` (the demo doesn't need them), and a
-   smaller emoji set. Rough estimate before measuring: 3 to 5 MB of wasm, 1.5 to 2 MB
-   compressed.
+   `-Oz` with `wasm-opt` (already on), `IMGUI_DISABLE_DEBUG_TOOLS`, dropping Lua from
+   the browser build behind `sys.web`, and a smaller emoji set. RNNoise and the voice
+   connection are already out: that took the wasm from 5.77 MB to 4.30 MB (3.00 MB to
+   1.79 MB with gzip -9).
 4. **Behavior checks** in the browser: every settings page opens; switching theme and
    light/dark; sending a message, reactions, threads, the GIF picker (all fake data);
    a call shows up without sound; nothing tries a file dialog or a subprocess.
