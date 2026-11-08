@@ -58,7 +58,7 @@
 - Se o Discord recusa uma mensagem por ser rápida demais, você vê quanto esperar, e a mensagem fica para reenviar.
 
 **Texto em qualquer idioma**
-- Árabe e hebraico aparecem certos, a partir do relato de majd-tqe (#9). As letras árabes saem ligadas, e o texto da direita para a esquerda vem na ordem certa nas mensagens, nos embeds e nos nomes de pessoas, canais e servidores. Copiar continua devolvendo exatamente o que foi escrito.
+- Árabe e hebraico aparecem certos, a partir do relato de majd-tqe (#9). As letras árabes saem ligadas, e o texto da direita para a esquerda vem na ordem certa nas mensagens, nos embeds e nos nomes de pessoas, canais e servidores. Parágrafos da direita para a esquerda ficam alinhados à direita nas mensagens e nos embeds, cada um por si quando a mensagem mistura idiomas. Copiar continua devolvendo exatamente o que foi escrito.
 - Uma letra que falta na fonte do tema, em qualquer escrita (tailandês, devanágari, etíope, georgiano, armênio, tibetano…), vem de uma fonte do sistema que a tenha, em vez de `?`. Cada bloco é procurado uma vez, só quando um texto assim aparece.
 
 **Temas**
