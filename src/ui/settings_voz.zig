@@ -1,5 +1,6 @@
 //! Configurações → Voz: microfone e saída, volumes, medidor, teste do
-//! microfone, detecção de voz ou aperte para falar, filtros e sons.
+//! microfone, detecção de voz ou aperte para falar, filtros e os sons de cada
+//! evento (desligado, um embutido ou um arquivo da pessoa, com volume e Ouvir).
 //! Só desenha e guarda em `Settings`: quem abre o áudio é net/voz_audio.zig,
 //! que também mede o microfone enquanto esta página está aberta.
 const std = @import("std");
@@ -11,6 +12,7 @@ const icons = @import("icons.zig");
 const i18n = @import("i18n.zig");
 const S = @import("settings_state.zig");
 const voz = @import("../core/voz.zig");
+const sons = @import("../core/sons.zig");
 const ruido = @import("../core/ruido.zig");
 const voz_audio = @import("../net/voz_audio.zig");
 const channels_ui = @import("comp_channels.zig");
@@ -67,7 +69,206 @@ pub fn draw(p: anytype) void {
 
     p.divider();
     p.heading(i18n.tr("Sons", "Sounds"));
-    p.toggle(i18n.tr("Sons da call", "Call sounds"), i18n.tr("Bipes curtos ao entrar, sair, mutar e desmutar.", "Short beeps when you join, leave, mute and unmute."), &s.voice_sounds);
+    p.toggle(i18n.tr("Sons da call", "Call sounds"), i18n.tr("Avisos curtos ao entrar, sair, mutar, ensurdecer e quando alguém entra ou sai. O toque de chamada segue a escolha dele, abaixo.", "Short cues when you join, leave, mute, deafen and when someone joins or leaves. The ringtone follows its own choice below."), &s.voice_sounds);
+    soundList(p, s);
+}
+
+// --- Sons de cada evento --------------------------------------------------------
+
+/// O evento esperando o arquivo do seletor do sistema.
+var picking: ?sons.Event = null;
+/// O seletor foi cancelado (o aviso vem da thread do diálogo).
+var pick_cancelled = std.atomic.Value(bool).init(false);
+
+fn eventLabel(e: sons.Event) []const u8 {
+    return switch (e) {
+        .join => i18n.tr("Você entrou na call", "You joined a call"),
+        .leave => i18n.tr("Você saiu da call", "You left a call"),
+        .user_join => i18n.tr("Alguém entrou na sua call", "Someone joined your call"),
+        .user_leave => i18n.tr("Alguém saiu da sua call", "Someone left your call"),
+        .mute => i18n.tr("Mutar", "Mute"),
+        .unmute => i18n.tr("Desmutar", "Unmute"),
+        .deafen => i18n.tr("Ensurdecer", "Deafen"),
+        .undeafen => i18n.tr("Desensurdecer", "Undeafen"),
+        .ring => i18n.tr("Chamada recebida (toque)", "Incoming call (ringtone)"),
+    };
+}
+
+fn variantLabel(v: sons.Variant) []const u8 {
+    return switch (v) {
+        .off => i18n.tr("Desligado", "Off"),
+        .classic => i18n.tr("Clássico", "Classic"),
+        .soft => i18n.tr("Suave", "Soft"),
+        .glass => i18n.tr("Cristal", "Crystal"),
+        .retro => i18n.tr("Retrô", "Retro"),
+        .custom => i18n.tr("Seu arquivo", "Your file"),
+    };
+}
+
+fn soundList(p: anytype, s: *S.Settings) void {
+    p.note(i18n.tr("Cada som pode ser desligado, trocado por outro embutido ou por um arquivo seu: WAV (PCM) ou Ogg Opus, até 2 MB e 5 s (o toque, até 15 s). O arquivo é copiado para a pasta do larperCord.", "Each sound can be turned off, swapped for another built-in one or for a file of yours: WAV (PCM) or Ogg Opus, up to 2 MB and 5 s (the ringtone, up to 15 s). The file is copied into larperCord's folder."));
+    p.y += 6;
+    for (std.enums.values(sons.Event)) |e| soundRow(p, s, e);
+}
+
+/// Uma linha por evento: o nome (e o arquivo, se é um), a escolha, o Ouvir e,
+/// embaixo, o volume.
+fn soundRow(p: anytype, s: *S.Settings, e: sons.Event) void {
+    const ctx = p.ctx;
+    const i = @backingInt(e);
+    const key = @tagName(e);
+    const variant = S.soundVariant(s, e);
+    const file = S.soundFile(s, e);
+    const has_file = file.len > 0;
+    const chosen = sons.Variant.fromByte(variant.*);
+    // "Arquivo" sem arquivo (configuração editada à mão) toca o clássico.
+    const shown: sons.Variant = if (chosen == .custom and !has_file) .classic else chosen;
+    const audible = shown != .off;
+    const y0 = p.y;
+
+    const play_r: d.Rect = .{ .x = p.x + p.w - 36, .y = y0, .w = 36, .h = 36 };
+    const box_w = @min(@as(f32, 230), p.w * 0.42);
+    const box_r: d.Rect = .{ .x = play_r.x - 8 - box_w, .y = y0, .w = box_w, .h = 36 };
+    const text_w = @max(box_r.x - p.x - 12, 0);
+
+    // Com o nome do arquivo embaixo, o do evento sobe; sozinho, fica no meio da linha.
+    const ly = y0 + (if (shown == .custom) @as(f32, 0) else 9);
+    const lw = d.textClipped(p.dl, p.font(.medium), 15, p.x, ly, if (audible) ctx.col(.text) else ctx.col(.muted), eventLabel(e), text_w);
+    p.markText(.{ .x = p.x, .y = ly, .w = lw, .h = 18 });
+    if (shown == .custom) {
+        const bad = voz_audio.sh.custom_bad.load(.monotonic) & (@as(u16, 1) << @intCast(i)) != 0;
+        const sub = if (bad) i18n.tr("O arquivo não abriu: tocando o clássico", "The file didn't open: playing the classic one") else sons.displayName(e, file.slice());
+        const sr: d.Rect = .{ .x = p.x, .y = y0 + 20, .w = text_w, .h = 16 };
+        qa.mark(sr, "som-nome:{s}", .{key});
+        _ = d.textClipped(p.dl, p.font(.regular), 13, sr.x, sr.y, if (bad) ctx.col(.danger) else ctx.col(.faint), sub, text_w);
+    }
+
+    // A escolha: abre a lista por cima da página.
+    const box_key = base_id + 0x100 + i;
+    const hb = d.hit(ctx, box_key, box_r);
+    qa.mark(box_r, "som-var:{s}", .{key});
+    if (hb.clicked) dropdown.toggle(box_key);
+    const opened = dropdown.isOpen(box_key);
+    d.rect(p.dl, box_r, ctx.col(.rail).mix(ctx.col(.elevated), if (hb.hovered) 0.4 else 0.2), ctx.th.radius);
+    d.border(p.dl, box_r, if (hb.hovered or opened) ctx.col(.accent).alpha(0.6) else ctx.col(.border), ctx.th.radius, 1);
+    _ = d.textClipped(p.dl, p.font(.medium), 14, box_r.x + 12, d.centerY(box_r, 14), if (audible) ctx.col(.text) else ctx.col(.muted), variantLabel(shown), box_r.w - 40);
+    icons.chevron(p.dl, box_r.right() - 18, box_r.y + 18, ctx.col(.muted).u(), if (opened) 0 else 1);
+
+    // Ouvir (mesmo com os sons da call desligados; desligado não tem o que tocar).
+    const ph = d.hit(ctx, base_id + 0x140 + i, play_r);
+    qa.mark(play_r, "som-play:{s}", .{key});
+    const pk = anim.to(anim.id("som-play", i), if (ph.hovered and audible) 1 else 0, 20);
+    const pc = if (audible) ctx.col(.accent).mix(d.Rgba.white, 0.1 * pk) else ctx.col(.faint).alpha(0.5);
+    d.circle(p.dl, play_r.x + 18, play_r.y + 18, 16, pc);
+    const ink = if (audible) ctx.col(.accent_text) else ctx.col(.muted);
+    const cx = play_r.x + 18;
+    const cy = play_r.y + 18;
+    c.ImDrawList_AddTriangleFilled(p.dl, d.v(cx - 4, cy - 7), d.v(cx - 4, cy + 7), d.v(cx + 7, cy), ink.u());
+    d.tip(ctx, play_r, if (audible) i18n.tr("Ouvir", "Preview") else i18n.tr("Desligado", "Off"), ph.hovered);
+    if (ph.clicked and audible) voz_audio.preview(e);
+
+    soundVolume(p, y0 + 44, i, S.soundVolume(s, e), audible);
+    p.y = y0 + 80;
+    d.line(p.dl, p.x, p.y - 6, p.x + p.w, p.y - 6, ctx.col(.border), 1);
+    p.y += 8;
+
+    // A lista: os embutidos, o arquivo já escolhido (se há) e escolher outro.
+    const row_h: f32 = 34;
+    const rows: usize = sons.Variant.builtin_count + @intFromBool(has_file) + 1;
+    const at = row_h * @as(f32, @floatFromInt(@min(@backingInt(shown), rows - 1)));
+    if (dropdown.beginAt(ctx, box_key, box_r, @max(box_w, 220), row_h * @as(f32, @floatFromInt(rows)), at)) |dd_c| {
+        var dd = dd_c;
+        defer dd.end();
+        for (0..sons.Variant.builtin_count + @intFromBool(has_file)) |k| {
+            const v: sons.Variant = @fromBackingInt(@intCast(k));
+            const sel = v == shown;
+            const ro = dd.row(row_h, sel);
+            qa.mark(ro.rect, "som-opt:{s}:{d}", .{ key, k });
+            if (ro.hit.clicked) {
+                variant.* = @intCast(k);
+                dropdown.close();
+                // Escolheu um som: ouve na hora, como num celular.
+                if (v != .off) {
+                    voz_audio.apply(s);
+                    voz_audio.preview(e);
+                }
+            }
+            var nb: [160]u8 = undefined;
+            const name = if (v == .custom) i18n.fmt(&nb, "Arquivo: {s}", "File: {s}", .{sons.displayName(e, file.slice())}) else variantLabel(v);
+            _ = d.textClipped(dd.dl, p.font(if (sel) .semibold else .regular), 14, ro.rect.x + 8, d.centerY(ro.rect, 14), if (sel) ctx.col(.text) else ctx.col(.muted), name, ro.rect.w - 16);
+        }
+        const ro = dd.row(row_h, false);
+        qa.mark(ro.rect, "som-arquivo:{s}", .{key});
+        if (ro.hit.clicked) {
+            dropdown.close();
+            picking = e;
+            pick_cancelled.store(false, .release);
+            ctx.act(.pick_sound);
+        }
+        _ = d.textClipped(dd.dl, p.font(.regular), 14, ro.rect.x + 8, d.centerY(ro.rect, 14), ctx.col(.accent), if (has_file) i18n.tr("Escolher outro arquivo…", "Choose another file…") else i18n.tr("Escolher arquivo…", "Choose a file…"), ro.rect.w - 16);
+    }
+}
+
+/// Volume do som (0..200%, 100 no meio = como foi gerado ou gravado).
+fn soundVolume(p: anytype, y: f32, i: usize, value: *u8, audible: bool) void {
+    const ctx = p.ctx;
+    var buf: [16]u8 = undefined;
+    const txt = std.fmt.bufPrint(&buf, "{d}%", .{value.*}) catch "";
+    const tw = d.width(p.font(.semibold), 13, txt);
+    const tr: d.Rect = .{ .x = p.x + 6, .y = y + 10, .w = @max(p.w - 70, 40), .h = 6 };
+    const hr: d.Rect = .{ .x = tr.x - 6, .y = tr.y - 10, .w = tr.w + 12, .h = 26 };
+    const hb = d.hit(ctx, base_id + 0x180 + i, hr);
+    qa.mark(hr, "som-vol:{s}", .{@tagName(@as(sons.Event, @fromBackingInt(@intCast(i))))});
+    if (hb.held) value.* = @intFromFloat(std.math.round(std.math.clamp((ctx.mouse.x - tr.x) / tr.w, 0, 1) * 200));
+    const k = @as(f32, @floatFromInt(@min(value.*, 200))) / 200;
+    const fill = if (audible) ctx.col(.accent) else ctx.col(.faint);
+    d.rect(p.dl, tr, ctx.col(.elevated).mix(ctx.col(.text), 0.08), 3);
+    d.rect(p.dl, .{ .x = tr.x, .y = tr.y, .w = tr.w * k, .h = tr.h }, fill, 3);
+    d.line(p.dl, tr.x + tr.w / 2, tr.y - 3, tr.x + tr.w / 2, tr.bottom() + 3, ctx.col(.faint), 1);
+    // A sombra e a borda separam a alça do fundo nos temas claros.
+    const knob: d.Rect = .{ .x = tr.x + tr.w * k - 5, .y = tr.y - 7, .w = 10, .h = 20 };
+    d.shadow(p.dl, knob, 3, 4, ctx.col(.shadow));
+    d.rect(p.dl, knob, d.Rgba.white, 3);
+    d.border(p.dl, knob, ctx.col(.border), 3, 1);
+    d.text(p.dl, p.font(.semibold), 13, p.x + p.w - tw, tr.y - 5, if (audible) ctx.col(.muted) else ctx.col(.faint), txt);
+}
+
+/// O seletor do sistema devolveu um arquivo: é o som esperado? Confere,
+/// copia e escolhe; recusado, diz o porquê. true = o arquivo era daqui.
+pub fn takePicked(st: anytype, now_ms: i64, path: [:0]const u8) bool {
+    const e = picking orelse return false;
+    picking = null;
+    const s = &st.settings;
+    var name: S.Text = .{};
+    voz_audio.importSound(e, path, S.soundFile(s, e).slice(), &name) catch |err| {
+        const max_s = e.maxMs() / 1000;
+        switch (err) {
+            error.TooBig => st.showToast(now_ms, true, "o arquivo passa de 2 MB", "the file is over 2 MB", .{}),
+            error.TooLong => st.showToast(now_ms, true, "o som passa de {d} s", "the sound is longer than {d} s", .{max_s}),
+            error.Unsupported => st.showToast(now_ms, true, "use WAV (PCM) ou Ogg Opus", "use WAV (PCM) or Ogg Opus", .{}),
+            error.Corrupt => st.showToast(now_ms, true, "o arquivo está estragado ou incompleto", "the file is damaged or incomplete", .{}),
+            error.Empty => st.showToast(now_ms, true, "o arquivo não tem som", "the file has no sound", .{}),
+            error.Read => st.showToast(now_ms, true, "não consegui ler o arquivo", "couldn't read the file", .{}),
+            error.Write => st.showToast(now_ms, true, "não consegui copiar o arquivo para a pasta do larperCord", "couldn't copy the file into larperCord's folder", .{}),
+            error.OutOfMemory => st.showToast(now_ms, true, "sem memória para abrir o som", "out of memory opening the sound", .{}),
+        }
+        return true;
+    };
+    S.soundFile(s, e).* = name;
+    S.soundVariant(s, e).* = @backingInt(sons.Variant.custom);
+    st.showToast(now_ms, false, "som trocado: {s}", "sound changed: {s}", .{sons.displayName(e, name.slice())});
+    return true;
+}
+
+/// O seletor fechou sem arquivo (chamado da thread do diálogo).
+pub fn cancelPick() void {
+    pick_cancelled.store(true, .release);
+}
+
+/// A cada volta do laço: o seletor cancelado não deixa o próximo arquivo
+/// (um anexo) virar som.
+pub fn pollCancel() void {
+    if (pick_cancelled.swap(false, .acq_rel)) picking = null;
 }
 
 // --- Dispositivos -----------------------------------------------------------

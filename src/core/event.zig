@@ -474,6 +474,8 @@ pub const Action = union(enum) {
     delete_thread: Id,
     edit_place: EditPlace,
     pick_image,
+    /// Abre o seletor para o som de um evento (ui/settings_voz.zig sabe qual).
+    pick_sound,
     restart,
     react: struct { id: Id, emoji: types.Reaction },
     open_dm: Id,
