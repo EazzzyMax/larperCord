@@ -279,6 +279,67 @@ pub fn edit(gpa: std.mem.Allocator, data: []const u8, change: Change) EditError!
     return try out.toOwnedSlice(gpa);
 }
 
+/// Várias estrelas seguidas numa gravação só, na ordem em que foram clicadas. null =
+/// nada mudou no fim (ligou e desligou o mesmo GIF, ou já estava assim). Um endereço
+/// longo demais fica de fora sem estragar os outros.
+pub fn editAll(gpa: std.mem.Allocator, data: []const u8, changes: []const Change) EditError!?[]u8 {
+    var cur: ?[]u8 = null;
+    errdefer if (cur) |x| gpa.free(x);
+    for (changes) |ch| {
+        const out = edit(gpa, cur orelse data, ch) catch |e| switch (e) {
+            error.TooLong => continue,
+            else => return e,
+        } orelse continue;
+        if (cur) |x| gpa.free(x);
+        cur = out;
+    }
+    const out = cur orelse return null;
+    if (std.mem.eql(u8, out, data)) {
+        gpa.free(out);
+        return null;
+    }
+    return out;
+}
+
+/// Só os favoritos (campo 2), como mensagem própria: o Discord troca cada campo de cima
+/// que vier e deixa os outros como estão (os emojis e figurinhas que outro aparelho
+/// acabou de mudar ficam). Vazio também vai: sem o campo, tirar o último favorito não
+/// mudaria nada.
+pub fn favoritesOnly(gpa: std.mem.Allocator, data: []const u8) error{ Malformed, OutOfMemory }![]u8 {
+    var inner: std.ArrayList(u8) = .empty;
+    defer inner.deinit(gpa);
+    var top: Reader = .{ .data = data };
+    // Repetido, o protobuf junta os campos: o mesmo que um só com tudo dentro.
+    while (try top.next()) |f| if (f.num == favorite_gifs) {
+        try want(f, 2);
+        try inner.appendSlice(gpa, f.bytes);
+    };
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    try putBytes(&out, gpa, favorite_gifs, inner.items);
+    return out.toOwnedSlice(gpa);
+}
+
+/// `{"settings":"<só os favoritos>","required_data_version":N}`. Com a versão lida no GET,
+/// o Discord recusa (`out_of_date`) se outro aparelho gravou no meio, em vez de voltar a
+/// mudança dele.
+pub fn patchBody(gpa: std.mem.Allocator, edited: []const u8, version: ?u32) error{ Malformed, OutOfMemory }![]u8 {
+    const only = try favoritesOnly(gpa, edited);
+    defer gpa.free(only);
+    const enc = std.base64.standard.Encoder;
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    try out.appendSlice(gpa, "{\"settings\":\"");
+    const at = out.items.len;
+    try out.resize(gpa, at + enc.calcSize(only.len));
+    // Base64 não tem nada a escapar no JSON.
+    _ = enc.encode(out.items[at..], only);
+    try out.append(gpa, '"');
+    if (version) |v| try out.print(gpa, ",\"required_data_version\":{d}", .{v});
+    try out.append(gpa, '}');
+    return out.toOwnedSlice(gpa);
+}
+
 /// A chave de um GIF da conversa nos favoritos: a página do Tenor/Giphy (o link que
 /// vai na mensagem) ou o próprio arquivo, num GIF anexado. Vazio = não é GIF.
 pub fn attachmentKey(content: []const u8, a: *const types.Attachment) []const u8 {
@@ -470,6 +531,65 @@ test "arquivo cortado ou com tipo errado nunca é escrito (e nunca lê fora)" {
     try std.testing.expectError(error.Malformed, edit(gpa, data, .{ .remove = "" }));
     const long: [max_url + 1]u8 = @splat('a');
     try std.testing.expectError(error.TooLong, edit(gpa, data, .{ .add = .{ .url = &long, .src = "s" } }));
+}
+
+test "corpo do PATCH: só os favoritos e a versão; o resto das configurações fica de fora" {
+    const gpa = std.testing.allocator;
+    const data = comptime sample();
+    const out = (try edit(gpa, data, .{ .add = .{ .url = "https://tenor.com/view/c", .src = "s" } })).?;
+    defer gpa.free(out);
+    const body = try patchBody(gpa, out, 41);
+    defer gpa.free(body);
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const v = try std.json.parseFromSliceLeaky(std.json.Value, arena.allocator(), body, .{});
+    try std.testing.expectEqual(@as(i64, 41), v.object.get("required_data_version").?.integer);
+    const b64 = v.object.get("settings").?.string;
+    const dec = std.base64.standard.Decoder;
+    const sent = try arena.allocator().alloc(u8, try dec.calcSizeForSlice(b64));
+    try dec.decode(sent, b64);
+    // Um campo só, o 2, com os três favoritos dentro.
+    var top: Reader = .{ .data = sent };
+    const f = (try top.next()).?;
+    try std.testing.expectEqual(@as(u64, favorite_gifs), f.num);
+    try std.testing.expect((try top.next()) == null);
+    const got = try parse(gpa, sent);
+    defer gpa.free(got);
+    try std.testing.expectEqual(3, got.len);
+    // Nada de fora dos favoritos vai junto (nem as versões, nem os campos desconhecidos).
+    try std.testing.expect(std.mem.indexOf(u8, sent, "xyz") == null);
+    // Sem a versão (não deu para ler): o corpo vai sem ela.
+    const plain = try patchBody(gpa, out, null);
+    defer gpa.free(plain);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "required_data_version") == null);
+}
+
+test "tirar o último favorito manda o campo vazio, não nenhum campo" {
+    const gpa = std.testing.allocator;
+    const only = try favoritesOnly(gpa, "\x0a\x02\x18\x07" ++ "\x12\x00" ++ "\x1a\x01x");
+    defer gpa.free(only);
+    try std.testing.expectEqualSlices(u8, "\x12\x00", only);
+    const none = try favoritesOnly(gpa, "\x0a\x02\x18\x07");
+    defer gpa.free(none);
+    try std.testing.expectEqualSlices(u8, "\x12\x00", none);
+}
+
+test "estrelas seguidas: uma gravação com todas, ou nenhuma se uma desfaz a outra" {
+    const gpa = std.testing.allocator;
+    const data = comptime sample();
+    const c_gif: Change = .{ .add = .{ .url = "https://tenor.com/view/c", .src = "s" } };
+    const long: [max_url + 1]u8 = @splat('a');
+    const out = (try editAll(gpa, data, &.{ c_gif, .{ .remove = "https://tenor.com/view/a" }, .{ .add = .{ .url = &long, .src = "s" } } })).?;
+    defer gpa.free(out);
+    const got = try parse(gpa, out);
+    defer gpa.free(got);
+    try std.testing.expectEqual(2, got.len);
+    try std.testing.expect(try contains(out, "https://tenor.com/view/c"));
+    try std.testing.expect(!try contains(out, "https://tenor.com/view/a"));
+    // Ligou e desligou: nada a gravar.
+    try std.testing.expectEqual(null, try editAll(gpa, data, &.{ c_gif, .{ .remove = "https://tenor.com/view/c" } }));
+    try std.testing.expectEqual(null, try editAll(gpa, data, &.{.{ .remove = "https://tenor.com/view/nunca" }}));
+    try std.testing.expectError(error.Malformed, editAll(gpa, "\x12", &.{c_gif}));
 }
 
 test "sem vazamento quando falta memória ao escrever" {

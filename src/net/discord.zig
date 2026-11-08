@@ -36,6 +36,7 @@ const leitura = @import("../core/leitura.zig");
 const read_json = @import("read_state_json.zig");
 const voice_mod = @import("voice.zig");
 const call_json = @import("call_json.zig");
+const status_proto = @import("status_proto.zig");
 const thread_json = @import("thread_json.zig");
 const user_json = @import("user_json.zig");
 const envio_json = @import("envio_json.zig");
@@ -146,6 +147,8 @@ pub const Gateway = struct {
     /// Comandos que chegaram enquanto o gateway estava reconectando ou
     /// esperando rate limit. São enviados quando a conexão volta.
     pending: std.ArrayList(ev.Command) = .empty,
+    /// Estrelas de GIF esperando o fim da volta do laço (`flushFavorites`).
+    fav_batch: std.ArrayList(ev.GifFavorite) = .empty,
     /// Comandos que vão pelo próprio gateway (op 3, 4, 14): só valem depois
     /// do READY/RESUMED (antes, o Discord fecha com 4003 e o pedido se perde).
     held: std.ArrayList(ev.Command) = .empty,
@@ -214,6 +217,8 @@ pub const Gateway = struct {
         g.voice_volumes.deinit(alloc);
         g.acks.deinit(alloc);
         g.conta.deinit();
+        for (g.fav_batch.items) |f| freeCommand(.{ .gif_favorite = f });
+        g.fav_batch.deinit(alloc);
     }
 
     const RoleInfo = struct { color: u32, pos: i64 };
@@ -280,6 +285,7 @@ pub const Gateway = struct {
                     g.pending.clearRetainingCapacity();
                     g.held.clearRetainingCapacity();
                     g.outbox.clear();
+                    g.dropFavorites();
                     // Fica só atendendo o encerramento.
                     var cmds: std.ArrayList(ev.Command) = .empty;
                     defer cmds.deinit(alloc);
@@ -522,6 +528,8 @@ pub const Gateway = struct {
                 if (g.stopping) freeCommand(cmd) else g.execute(cmd);
             }
             cmds.clearRetainingCapacity();
+            if (g.stopping) return .reconnect;
+            g.flushFavorites();
             if (g.stopping) return .reconnect;
             g.flushAcks();
             if (g.stopping) return .reconnect;
@@ -3378,46 +3386,80 @@ pub const Gateway = struct {
         g.emit(.{ .gifs = .{ .req = req, .favorites = true, .items = items } });
     }
 
-    /// Estrela de um GIF: sempre uma cópia nova das configurações (outro aparelho pode ter
-    /// mudado algo), só os favoritos mudam, e o resto (emojis recentes e outras
-    /// preferências) volta byte a byte. O que não der para ler inteiro não é escrito.
-    /// Dando errado, a lista volta ao que está na conta.
-    fn gifFavorite(g: *Gateway, f: ev.GifFavorite) void {
+    /// Estrelas de GIF que chegaram nesta volta do laço: gravadas juntas no fim dela
+    /// (`flushFavorites`), na ordem dos cliques. Cada gravação é um GET e um PATCH; as
+    /// estrelas clicadas enquanto uma gravação anda vão todas na próxima.
+    fn queueFavorite(g: *Gateway, f: ev.GifFavorite) void {
+        g.fav_batch.append(alloc, f) catch g.dropCommand(.{ .gif_favorite = f });
+    }
+
+    fn flushFavorites(g: *Gateway) void {
+        if (g.fav_batch.items.len == 0) return;
+        defer {
+            for (g.fav_batch.items) |f| freeCommand(.{ .gif_favorite = f });
+            g.fav_batch.clearRetainingCapacity();
+        }
+        g.gifFavorites(g.fav_batch.items);
+    }
+
+    /// Sem conexão de vez: quem espera a lista fica sabendo.
+    fn dropFavorites(g: *Gateway) void {
+        for (g.fav_batch.items) |f| g.dropCommand(.{ .gif_favorite = f });
+        g.fav_batch.clearRetainingCapacity();
+    }
+
+    /// Estrelas de GIF: sempre uma cópia nova das configurações (outro aparelho pode ter
+    /// mudado algo) e só os favoritos vão no PATCH, com a versão lida. Se outro aparelho
+    /// gravou no meio, o Discord recusa em vez de voltar a mudança dele, e as estrelas são
+    /// aplicadas de novo sobre o que ficou lá (uma vez). Dando errado, a lista volta ao que
+    /// está na conta.
+    fn gifFavorites(g: *Gateway, batch: []const ev.GifFavorite) void {
         const gf = @import("../core/gif_favorites.zig");
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
         const a = arena.allocator();
         const failed_pt = "não deu para salvar o GIF favorito";
         const failed_en = "couldn't save the favorite GIF";
-        const raw = g.frecency(a) orelse {
-            g.notice(failed_pt, failed_en, .{});
-            return g.emit(.{ .gifs = .{ .req = f.req, .favorites = true, .ok = false } });
-        };
-        const change: gf.Change = if (f.add) .{ .add = .{ .url = f.url, .src = f.src, .width = f.width, .height = f.height, .format = if (f.video) .video else .image } } else .{ .remove = f.url };
-        const out = gf.edit(a, raw, change) catch {
-            g.notice("{s}: as configurações da conta vieram num formato que o app não entende", "{s}: the account settings came in a format the app doesn't understand", .{i18n.tr(failed_pt, failed_en)});
-            return g.emitFavorites(f.req, raw);
-        } orelse return g.emitFavorites(f.req, raw);
-        const enc = std.base64.standard.Encoder;
-        const body = a.alloc(u8, enc.calcSize(out.len) + 16) catch return g.emitFavorites(f.req, raw);
-        // Base64 não tem nada a escapar no JSON.
-        const b64 = enc.encode(body[13..][0..enc.calcSize(out.len)], out);
-        @memcpy(body[0..13], "{\"settings\":\"");
-        body[13 + b64.len] = '"';
-        body[14 + b64.len] = '}';
-        var resp = g.request("PATCH", "/users/@me/settings-proto/2", body[0 .. 15 + b64.len]) orelse {
-            g.notice(failed_pt, failed_en, .{});
-            return g.emitFavorites(f.req, raw);
-        };
-        defer resp.body.deinit(alloc);
-        if (resp.status >= 300) {
-            g.noticeHttp(i18n.tr(failed_pt, failed_en), &resp);
-            return g.emitFavorites(f.req, raw);
+        // A resposta vai com o pedido mais novo: a tela ignora as dos anteriores.
+        const req = batch[batch.len - 1].req;
+        const changes = a.alloc(gf.Change, batch.len) catch return g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } });
+        for (changes, batch) |*ch, f| {
+            ch.* = if (f.add) .{ .add = .{ .url = f.url, .src = f.src, .width = f.width, .height = f.height, .format = if (f.video) .video else .image } } else .{ .remove = f.url };
         }
-        // A resposta traz o arquivo como ficou; sem ele, vale o que foi mandado.
-        const v = std.json.parseFromSliceLeaky(Value, a, resp.body.items, .{}) catch null;
-        const saved = if (v) |x| if (j.str(j.get(x, "settings"))) |s| decodeSettings(a, s) else null else null;
-        g.emitFavorites(f.req, saved orelse out);
+        var tries: u8 = 0;
+        while (true) : (tries += 1) {
+            const raw = g.frecency(a) orelse {
+                g.notice(failed_pt, failed_en, .{});
+                return g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } });
+            };
+            const out = gf.editAll(a, raw, changes) catch {
+                g.notice("{s}: as configurações da conta vieram num formato que o app não entende", "{s}: the account settings came in a format the app doesn't understand", .{i18n.tr(failed_pt, failed_en)});
+                return g.emitFavorites(req, raw);
+            } orelse return g.emitFavorites(req, raw);
+            // Sem a versão (o formato mudou), o corpo vai sem ela.
+            const version = status_proto.dataVersion(raw) catch null;
+            const body = gf.patchBody(a, out, version) catch return g.emitFavorites(req, raw);
+            var resp = g.request("PATCH", "/users/@me/settings-proto/2", body) orelse {
+                g.notice(failed_pt, failed_en, .{});
+                return g.emitFavorites(req, raw);
+            };
+            defer resp.body.deinit(alloc);
+            if (resp.status >= 300) {
+                g.noticeHttp(i18n.tr(failed_pt, failed_en), &resp);
+                return g.emitFavorites(req, raw);
+            }
+            const v = std.json.parseFromSliceLeaky(Value, a, resp.body.items, .{}) catch null;
+            const stale = if (v) |x| if (j.get(x, "out_of_date")) |o| o == .bool and o.bool else false else false;
+            if (stale) {
+                // Outro aparelho gravou entre o GET e o PATCH: lê de novo e refaz as estrelas.
+                if (tries == 0) continue;
+                g.notice("as configurações mudaram em outro aparelho: tente de novo", "the settings changed on another device: try again", .{});
+                return g.emitFavorites(req, g.frecency(a) orelse raw);
+            }
+            // A resposta traz o arquivo como ficou; sem ele, vale o que foi mandado.
+            const saved = if (v) |x| if (j.str(j.get(x, "settings"))) |st| decodeSettings(a, st) else null else null;
+            return g.emitFavorites(req, saved orelse out);
+        }
     }
 
     /// PATCH /guilds/{id} ou /channels/{id} (grupo). A tela muda quando o
@@ -3596,6 +3638,8 @@ pub const Gateway = struct {
     }
 
     fn execute(g: *Gateway, cmd: ev.Command) void {
+        // Grava no fim da volta do laço, junto com as outras estrelas que chegaram.
+        if (cmd == .gif_favorite) return g.queueFavorite(cmd.gif_favorite);
         if (!g.ws_ready and usesGateway(cmd)) {
             // Rich Presence: só a atividade mais nova espera a conexão voltar.
             if (cmd == .set_activity) g.dropHeldActivity();
@@ -3818,12 +3862,15 @@ pub const Gateway = struct {
                 if (resp.status >= 300) g.noticeHttp(i18n.tr("não deu para enviar a figurinha", "couldn't send the sticker"), &resp);
             },
             .gif_favorites => |req| {
+                // Estrelas clicadas antes deste pedido gravam antes: a lista que volta já as tem.
+                g.flushFavorites();
                 var arena = std.heap.ArenaAllocator.init(alloc);
                 defer arena.deinit();
                 const raw = g.frecency(arena.allocator()) orelse return g.emit(.{ .gifs = .{ .req = req, .favorites = true, .ok = false } });
                 g.emitFavorites(req, raw);
             },
-            .gif_favorite => |f| g.gifFavorite(f),
+            // Vai para `fav_batch` antes deste switch (`queueFavorite`).
+            .gif_favorite => unreachable,
             .fetch_invite => |code| {
                 const failed: ev.Event = .{ .invite = .{ .code = code, .invite = .{ .state = .failed } } };
                 const path = std.fmt.bufPrint(&path_buf, "/invites/{s}?with_counts=true&with_expiration=true", .{code.slice()}) catch return;
