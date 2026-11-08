@@ -883,17 +883,112 @@ def build_guide(lang, themes):
     return index
 
 
-# A demonstração no navegador (zig build web, ver tools/web/README.md). A página e o
-# link da inicial só entram quando o build dela está em docs/try/: sem ele, nada aparece.
+# A demonstração no navegador (zig build web, ver tools/web/README.md; no site, o
+# workflow pages.yml). A página e o link da inicial só entram quando o build inteiro
+# dela está em docs/try/: sem ele, nada aparece e as páginas de uma geração anterior saem.
 TRY_SIZE = None
+TRY_PAGES = ["try/index.html", "pt/try/index.html"]
+
+
+def wasm_shared_memory(data):
+    """A memória do wasm é compartilhada? Só com threads, e aí a página precisaria de
+    SharedArrayBuffer, que pede os cabeçalhos COOP/COEP que o GitHub Pages não manda."""
+    pos = 8
+
+    def leb():
+        nonlocal pos
+        n = shift = 0
+        while True:
+            byte = data[pos]
+            pos += 1
+            n |= (byte & 0x7F) << shift
+            shift += 7
+            if byte < 0x80:
+                return n
+
+    def limits():
+        nonlocal pos
+        flags = data[pos]
+        pos += 1
+        leb()
+        if flags & 1:
+            leb()
+        if flags & 8:
+            leb()
+        return bool(flags & 2)
+
+    if data[:4] != b"\0asm":
+        raise ValueError("não é um wasm")
+    while pos < len(data):
+        section = data[pos]
+        pos += 1
+        size = leb()
+        end = pos + size
+        if section == 2:  # importações: módulo, nome e o tipo do que vem de fora
+            for _ in range(leb()):
+                for _ in range(2):
+                    n = leb()
+                    pos += n
+                kind = data[pos]
+                pos += 1
+                if kind == 0:  # função
+                    leb()
+                elif kind == 1:  # tabela
+                    pos += 1
+                    limits()
+                elif kind == 2:  # memória
+                    if limits():
+                        return True
+                elif kind == 3:  # global
+                    pos += 2
+                elif kind == 4:  # tag
+                    pos += 1
+                    leb()
+                else:
+                    raise ValueError(f"importação de tipo {kind}")
+        elif section == 5:  # memórias do próprio módulo
+            for _ in range(leb()):
+                if limits():
+                    return True
+        pos = end
+    return False
 
 
 def try_size():
-    files = sorted((OUT / "try").glob("larpercord.*"))
-    if not any(f.suffix == ".wasm" for f in files):
+    """O tamanho do download da demonstração, ou None quando o build não serve para o site."""
+    d = OUT / "try"
+    js, wasm, data = (d / f"larpercord.{ext}" for ext in ("js", "wasm", "data"))
+    if not js.exists() and not wasm.exists():
         return None
-    total = sum(len(gzip.compress(f.read_bytes(), 9)) for f in files)
+    missing = [f.name for f in (js, wasm) if not f.exists()]
+    # As fontes vão no .data (--preload-file): o .js pede por ele ao abrir.
+    if js.exists() and "larpercord.data" in js.read_text(encoding="utf-8", errors="replace") and not data.exists():
+        missing.append(data.name)
+    if missing:
+        print(f"try/: falta {', '.join(missing)} em {d}; a página da demonstração fica de fora")
+        return None
+    try:
+        shared = wasm_shared_memory(wasm.read_bytes())
+    except (ValueError, IndexError) as e:
+        print(f"try/: não deu para ler {wasm.name} ({e}); a página da demonstração fica de fora")
+        return None
+    if shared:
+        print("try/: o wasm usa memória compartilhada (threads), que precisa de SharedArrayBuffer e de"
+              " cabeçalhos COOP/COEP que o GitHub Pages não manda; a página da demonstração fica de fora")
+        return None
+    # Uma estimativa do download: o .js e o .wasm com gzip, e o .data (as fontes, servido
+    # como application/octet-stream) contado sem compressão.
+    total = sum(len(gzip.compress(f.read_bytes(), 9)) for f in (js, wasm))
+    total += data.stat().st_size if data.exists() else 0
     return f"{total / 1e6:.1f} MB"
+
+
+def drop_try_pages():
+    for p in TRY_PAGES:
+        f = OUT / p
+        f.unlink(missing_ok=True)
+        if f.parent.is_dir() and not any(f.parent.iterdir()):
+            f.parent.rmdir()
 
 
 def build_try(lang):
@@ -902,7 +997,8 @@ def build_try(lang):
     path = "try/index.html" if lang == "en" else "pt/try/index.html"
     alt = "pt/try/index.html" if lang == "en" else "try/index.html"
     home = rel(path, page_url(lang) if lang == "pt" else "") or "./"
-    src = (src.replace("%TRY_SIZE%", TRY_SIZE).replace("%TRY_THEMES%", json.dumps(THEMES)).replace("%HOME%", home)
+    size = TRY_SIZE if lang == "en" else TRY_SIZE.replace(".", ",")
+    src = (src.replace("%TRY_SIZE%", size).replace("%TRY_THEMES%", json.dumps(THEMES)).replace("%HOME%", home)
            .replace("%ROOT%", root_of(path)).replace("%LANG%", lang)
            .replace("%GUIDE%", rel(path, page_url(lang, "x")).removesuffix("x.html")))
     title = t(lang, "Try larperCord in your browser", "Experimente o larperCord no navegador")
@@ -968,6 +1064,8 @@ def build_landing(lang, themes):
 def main():
     global TRY_SIZE
     TRY_SIZE = try_size()
+    if not TRY_SIZE:
+        drop_try_pages()
     themes = load_themes()
     data = {"order": THEMES, "themes": {**{k: {x: v[x] for x in v if x not in ("preset", "options", "desc", "descEn", "nodes")} for k, v in themes.items()},
                                         "larper": {k: BRAND[k] for k in ("radius", "display", "fx", "dark", "light")}}}
@@ -995,6 +1093,7 @@ def main():
     page = re.sub(r'(href|src)="(?!https?:|/|#)(?:\./)?([^"]*)"', r'\1="/larperCord/\2"', page)
     write("404.html", page)
     print(f"site gerado em {OUT} ({len(urls)} páginas no sitemap)")
+    print(f"demonstração no navegador: {f'try/, cerca de {TRY_SIZE}' if TRY_SIZE else 'fora (sem um build que sirva em docs/try/)'}")
 
 
 if __name__ == "__main__":

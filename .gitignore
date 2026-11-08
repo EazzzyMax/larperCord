@@ -3,3 +3,7 @@ zig-out/
 *.log
 qa-out/
 .deps/
+# Demonstração no navegador: o build (zig build web) e as páginas dele só existem no
+# workflow do site (.github/workflows/pages.yml), nunca no repositório.
+docs/try/
+docs/pt/try/

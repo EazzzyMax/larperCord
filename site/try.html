@@ -8,6 +8,7 @@
 .try-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:0 0;opacity:.35;filter:saturate(.7)}
 .try-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:14px;max-width:440px;padding:22px 24px;text-align:center;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius)}
 .try-cover[hidden]{display:none}
+.try-note{margin:0;max-width:38ch}
 .try-status{font:400 12px var(--mono);color:var(--muted);min-height:1.7em;margin:0}
 .try-bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:14px}
 .try-bar .foot{margin:0}
@@ -24,6 +25,7 @@
     <div class="try-cover" data-try-cover>
       <img class="try-poster" src="%ROOT%assets/shots/%LANG%/classico.webp" alt="" width="1280" height="800" decoding="async">
       <div class="try-card">
+        <p class="try-note">{{This is the demo mode: fake servers, fake people and fake messages. No network, no account.||Este é o modo demonstração: servidores, pessoas e mensagens de mentira. Sem rede e sem conta.}}</p>
         <button type="button" class="btn primary" data-try-start>{{Start demo||Começar a demonstração}} →</button>
         <p class="try-status" data-try-status aria-live="polite">{{Downloads about %TRY_SIZE% once. Nothing loads until you click.||Baixa cerca de %TRY_SIZE% uma vez. Nada carrega antes do clique.}}</p>
       </div>

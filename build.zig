@@ -468,6 +468,10 @@ fn addWeb(b: *std.Build, native_c: *std.Build.Module, themes_mod: *std.Build.Mod
 
     // O Zig num .a, o C/C++ em outro (sem libc pelo mesmo motivo do translate-c).
     const m = webModule(b, target, web_optimize, translate.createModule(), themes_mod, examples_mod);
+    // Sem threads, por escrito (no wasm32 já é o padrão do Zig): com elas a memória vira
+    // compartilhada e a página precisaria de SharedArrayBuffer, que só vem com os
+    // cabeçalhos COOP/COEP que o GitHub Pages não manda. O gen_site.py recusa um wasm assim.
+    m.single_threaded = true;
     const lib = b.addLibrary(.{ .name = "larpercord-web", .linkage = .static, .root_module = m });
     // Sem o compiler_rt do Zig: o do Emscripten entra na ligação.
     lib.bundle_compiler_rt = false;
