@@ -1252,6 +1252,9 @@ fn textSection(p: *Page) void {
         var seen: [8]?*const plain_letters.Script = @splat(null);
         var shown: usize = 0;
         for (missing) |cp| {
+            // A escrita ganhou uma fonte reserva e falta só esta letra nela: não é uma escrita
+            // sem fonte.
+            if (p.ctx.fonts.scriptHasFont(cp)) continue;
             const sc = plain_letters.scriptOf(cp);
             if (sc) |x| {
                 if (std.mem.indexOfScalar(?*const plain_letters.Script, seen[0..shown], x) != null) continue;
@@ -1263,7 +1266,7 @@ fn textSection(p: *Page) void {
             n += (piece catch break).len;
         }
         var buf: [320]u8 = undefined;
-        p.note(i18n.fmt(&buf, "Ainda sem fonte neste app, e por isso aparecem como ?: {s}.", "No font in this app yet, so these show as ?: {s}.", .{names[0..n]}));
+        if (n > 0) p.note(i18n.fmt(&buf, "Ainda sem fonte neste app, e por isso aparecem como ?: {s}.", "No font in this app yet, so these show as ?: {s}.", .{names[0..n]}));
     }
 }
 

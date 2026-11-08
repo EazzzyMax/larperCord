@@ -5,6 +5,7 @@
 const std = @import("std");
 const sys = @import("../platform/sys.zig");
 const plain_letters = @import("../core/plain_letters.zig");
+const font_blocks = @import("font_blocks.zig");
 const c = @import("c");
 
 pub const Weight = enum(u3) { regular, medium, semibold, bold, italic };
@@ -42,19 +43,42 @@ var wanted: [groups]bool = @splat(false);
 var tried_once: [groups]bool = @splat(false);
 var missing_buf: [32]u32 = undefined;
 var missing_n: usize = 0;
+/// As letras de qualquer outra escrita: que blocos pediram fonte e quais o sistema já respondeu
+/// (ver `loadBlocks`). Tamanho fixo, e nada acontece para quem nunca vê uma letra dessas.
+var misses: font_blocks.Misses = .{};
 
 fn onGlyphMissing(cp: c_uint) callconv(.c) void {
     // Invisível (o U+FEFF cai na faixa do árabe) não pede fonte nenhuma.
     if (plain_letters.invisible(cp)) return;
-    if (groupOf(cp)) |g| if (!tried_once[@intFromEnum(g)]) {
-        wanted[@intFromEnum(g)] = true;
-        return;
-    };
+    if (groupOf(cp)) |g| {
+        if (!tried_once[@intFromEnum(g)]) {
+            wanted[@intFromEnum(g)] = true;
+            return;
+        }
+    } else if (blockToSearch(cp)) |b| {
+        if (misses.note(b, cp)) return;
+    }
+    noteMissing(cp);
+}
+
+fn noteMissing(cp: u32) void {
     for (missing_buf[0..missing_n]) |m| if (m == cp) return;
     if (missing_n < missing_buf.len) {
         missing_buf[missing_n] = cp;
         missing_n += 1;
     }
+}
+
+/// O bloco que uma letra sem fonte pede ao sistema, ou null se ela não pede: emoji vem da
+/// fonte de emoji, uso privado não é escrita nenhuma (cada fonte põe ali os ícones dela) e a
+/// letra estilizada já virou a comum (ver `onGlyphPlain`).
+fn blockToSearch(cp: u32) ?font_blocks.Block {
+    if (inRanges(cp, &emoji_ranges) or plain_letters.of(cp) != null) return null;
+    return switch (cp) {
+        // Metades de par (não chegam sozinhas ao texto) e uso privado.
+        0xD800...0xF8FF, 0xF0000...0x10FFFF => null,
+        else => font_blocks.of(cp),
+    };
 }
 
 /// Nenhuma fonte tem esta letra: a estilizada (𝐫𝐞𝐠𝐫𝐚𝐬) vira a comum, em vez de "?".
@@ -78,11 +102,15 @@ pub fn missingLetters() []const u32 {
 
 /// O quadro que acabou pediu fontes: precisa de outro, mesmo sem evento nenhum.
 pub fn scriptsWanted() bool {
-    return std.mem.indexOfScalar(bool, &wanted, true) != null;
+    return std.mem.indexOfScalar(bool, &wanted, true) != null or misses.anyWanted();
 }
 
+/// O bloco do Unicode de uma letra (font_blocks.zig), para o QA perguntar por ele.
+pub const blockOf = font_blocks.of;
+
 /// Os grupos de fontes reserva. Cada um só entra quando um texto pede uma letra das faixas dele
-/// (ver `onGlyphMissing`): quem nunca vê árabe não carrega a fonte do árabe.
+/// (ver `onGlyphMissing`): quem nunca vê árabe não carrega a fonte do árabe. As outras escritas
+/// não precisam de grupo: o sistema diz a fonte de cada bloco (ver `Fonts.loadBlocks`).
 pub const Group = enum { cjk, arabic, hebrew };
 const groups = @typeInfo(Group).@"enum".field_names.len;
 
@@ -97,15 +125,43 @@ fn rangesOf(g: Group) [*]const c.ImWchar {
 pub fn groupOf(cp: u32) ?Group {
     for (0..groups) |gi| {
         const g: Group = @enumFromInt(gi);
-        const r = rangesOf(g);
-        var i: usize = 0;
-        while (r[i] != 0) : (i += 2) if (cp >= r[i] and cp <= r[i + 1]) return g;
+        if (inRanges(cp, rangesOf(g))) return g;
     }
     return null;
 }
 
+fn inRanges(cp: u32, r: [*]const c.ImWchar) bool {
+    var i: usize = 0;
+    while (r[i] != 0) : (i += 2) if (cp >= r[i] and cp <= r[i + 1]) return true;
+    return false;
+}
+
 /// Uma fonte reserva mesclada em todas as faces, só com as letras do grupo dela.
 const Reserve = struct { data: []u8, index: c_int, ranges: [*]const c.ImWchar };
+
+/// Uma fonte do sistema para as letras de outras escritas, valendo só nos blocos que pediram
+/// fonte a ela (em ordem crescente): o mesmo arquivo atende vários blocos sem abrir outra face.
+const Extra = struct { data: []u8, index: c_int, blocks: [extra_blocks_per_file]font_blocks.Block = undefined, n: usize = 0 };
+/// Tetos das outras escritas. Cada fonte entra em cada face do atlas (uma face do FreeType por
+/// face), e uma conversa com escritas demais não abre fonte sem fim: o que passar disso fica
+/// como letra sem fonte. Até 31 blocos separados cabem nas faixas do ImGui (font_blocks.exclude).
+const extra_files = 8;
+const extra_blocks = 24;
+const extra_blocks_per_file = 16;
+/// Blocos procurados por vez: com mais, o resto fica para o próximo intervalo entre quadros.
+const blocks_per_load = 8;
+/// O nome dessas fontes no atlas: é por ele que `larper_font_source_exclude` acha a certa (o
+/// mesmo arquivo pode estar lá também como fonte do tema).
+const extra_tag = "larper:escrita";
+extern fn larper_font_source_exclude(font: *c.ImFont, data: *const anyopaque, font_no: c_int, tag: [*:0]const u8, ranges: [*]const c.ImWchar) void;
+const ExtraRanges = [font_blocks.excludeLen(extra_blocks_per_file)]c.ImWchar;
+
+/// As faixas fora dos blocos da fonte, no formato do ImGui (ver font_blocks.exclude).
+fn extraRanges(x: *const Extra, out: *ExtraRanges) [*]const c.ImWchar {
+    var tmp: [out.len]u32 = undefined;
+    for (font_blocks.exclude(x.blocks[0..x.n], &tmp), 0..) |v, i| out[i] = @intCast(v);
+    return out;
+}
 
 pub const Fonts = struct {
     gpa: std.mem.Allocator,
@@ -130,6 +186,13 @@ pub const Fonts = struct {
     tried: [groups]bool = @splat(false),
     /// A escrita do idioma da interface: vence a do sistema (ver `preferLanguage`).
     script_pref: ?usize = null,
+    /// Fontes reserva de qualquer outra escrita (tailandês, devanágari, etíope...), achadas no
+    /// sistema bloco a bloco quando um texto pede (ver `loadBlocks`), em todas as famílias.
+    extras: [extra_files]Extra = undefined,
+    extras_n: usize = 0,
+    /// Os blocos que ganharam fonte do sistema.
+    blocks_on: std.StaticBitSet(font_blocks.count) = .empty,
+    blocks_n: usize = 0,
 
     pub fn init(gpa: std.mem.Allocator, atlas: *c.ImFontAtlas) Fonts {
         var f: Fonts = .{ .gpa = gpa, .atlas = atlas };
@@ -189,10 +252,94 @@ pub const Fonts = struct {
                 f.cjk_n += 1;
             }
         }
+        f.loadBlocks();
         // Como na abertura: o cache de fontes do sistema não precisa ficar na memória.
         if (!sys.windows) c.FcFini();
         for (f.faces.items) |e| for (f.cjk[first_new..f.cjk_n]) |j| f.mergeOne(e.font, j);
         return true;
+    }
+
+    /// Letras de outras escritas pediram fonte (ver `onGlyphMissing`): para cada bloco, uma vez
+    /// só, o sistema diz que fonte tem a letra, e ela entra em todas as faces só com esse bloco.
+    /// Sem fonte no sistema, a letra entra na lista das sem fonte (para as Configurações).
+    fn loadBlocks(f: *Fonts) void {
+        for (0..blocks_per_load) |_| {
+            const w = misses.next() orelse break;
+            if (f.blocks_n < extra_blocks) if (f.resolveChar(w.cp)) |m| {
+                defer std.heap.c_allocator.free(m.path);
+                if (f.addBlock(w.block, m, w.cp)) {
+                    // Só o nome do arquivo: o caminho pode ter o nome da pessoa (fontes da pasta dela).
+                    std.log.info("fontes: U+{X:0>4} (bloco {X:0>4}-{X:0>4}) vem de {s}", .{ w.cp, font_blocks.first(w.block), font_blocks.last(w.block), std.fs.path.basename(m.path) });
+                    continue;
+                }
+            };
+            std.log.info("fontes: U+{X:0>4} (bloco {X:0>4}-{X:0>4}) sem fonte no sistema", .{ w.cp, font_blocks.first(w.block), font_blocks.last(w.block) });
+            noteMissing(w.cp);
+        }
+    }
+
+    /// O bloco `b` passa a vir da fonte `m` em todas as faces. Falso se ela não serve: o FreeType
+    /// não acha a letra nela, ela já está inteira no atlas (e mesmo assim faltou), ou passou do teto.
+    fn addBlock(f: *Fonts, b: font_blocks.Block, m: Match, cp: u32) bool {
+        // Com as fontes no teto, só um arquivo que já é uma delas ainda serve: nem mapeia outro.
+        if (f.extras_n == f.extras.len and f.maps.get(m.path) == null) return false;
+        const data = f.mapPath(m.path) catch return false;
+        if (f.whole(data, m.index) or !fileHas(data, m.index, &.{cp})) return false;
+        const x = for (f.extras[0..f.extras_n]) |*x| {
+            if (x.data.ptr == data.ptr and x.index == m.index) break x;
+        } else blk: {
+            if (f.extras_n == f.extras.len) return false;
+            f.extras[f.extras_n] = .{ .data = data, .index = m.index };
+            f.extras_n += 1;
+            break :blk &f.extras[f.extras_n - 1];
+        };
+        if (x.n == x.blocks.len) return false;
+        var at = x.n;
+        while (at > 0 and x.blocks[at - 1] > b) : (at -= 1) x.blocks[at] = x.blocks[at - 1];
+        x.blocks[at] = b;
+        x.n += 1;
+        f.blocks_on.set(b);
+        f.blocks_n += 1;
+        // A primeira vez, a fonte entra; depois, só alarga as faixas em que vale.
+        var buf: ExtraRanges = undefined;
+        const ranges = extraRanges(x, &buf);
+        for (f.faces.items) |e| {
+            if (e.data == x.data.ptr and e.index == x.index) continue;
+            if (x.n == 1) f.mergeExtra(e.font, x) else larper_font_source_exclude(e.font, x.data.ptr, x.index, extra_tag, ranges);
+        }
+        return true;
+    }
+
+    /// A fonte já está no atlas valendo para tudo (emoji, símbolos, reserva de um grupo).
+    fn whole(f: *const Fonts, data: []u8, index: c_int) bool {
+        if (f.emoji) |e| if (e.ptr == data.ptr) return true;
+        if (f.symbols) |sym| if (sym.data.ptr == data.ptr and sym.index == index) return true;
+        for (f.cjk[0..f.cjk_n]) |o| if (o.data.ptr == data.ptr and o.index == index) return true;
+        return false;
+    }
+
+    /// O arquivo de fonte do sistema que tem a letra `cp`, ou null.
+    fn resolveChar(f: *Fonts, cp: u32) ?Match {
+        if (!sys.windows) return matchChar(cp);
+        return f.windowsFile(font_blocks.windowsFiles(cp), &.{cp});
+    }
+
+    /// Já procurou fonte para este bloco (pode não ter achado nenhuma).
+    pub fn triedBlock(_: *const Fonts, b: font_blocks.Block) bool {
+        return misses.triedBlock(b);
+    }
+
+    /// Uma fonte do sistema entrou para este bloco.
+    pub fn hasBlock(f: *const Fonts, b: font_blocks.Block) bool {
+        return f.blocks_on.isSet(b);
+    }
+
+    /// A escrita desta letra ganhou fonte reserva, mesmo que falte justo esta letra nela: as
+    /// Configurações só citam as escritas que continuam sem fonte nenhuma.
+    pub fn scriptHasFont(f: *const Fonts, cp: u32) bool {
+        if (groupOf(cp)) |g| return f.hasGroup(g);
+        const b = font_blocks.of(cp) orelse return false;
+        return f.hasBlock(b);
     }
 
     /// Já procurou as fontes reserva deste grupo (pode não ter achado nenhuma).
@@ -245,14 +392,19 @@ pub const Fonts = struct {
     /// O arquivo de fonte para a escrita `sc`, ou null se o sistema não tem um que sirva.
     fn resolveScript(f: *Fonts, sc: Script) ?Match {
         if (!sys.windows) return matchScript(sc, false) orelse matchScript(sc, true);
+        return f.windowsFile(sc.windows, sc.probes);
+    }
+
+    /// O primeiro de `files` (em C:\Windows\Fonts) que existe e tem todas as letras de prova.
+    fn windowsFile(f: *Fonts, files: []const []const u8, probes: []const u32) ?Match {
         const windir = if (c.SDL_getenv("WINDIR")) |w| std.mem.span(w) else "C:/Windows";
         var pb: [300]u8 = undefined;
-        for (sc.windows) |file| {
+        for (files) |file| {
             const p2 = std.fmt.bufPrintSentinel(&pb, "{s}/Fonts/{s}", .{ windir, file }, 0) catch continue;
             if (!sys.exists(p2.ptr)) continue;
             // Nem toda versão do arquivo traz as letras (as formas ligadas do árabe): confere antes.
             const data = f.mapPath(p2) catch continue;
-            if (!fileHas(data, 0, sc.probes)) continue;
+            if (!fileHas(data, 0, probes)) continue;
             return .{ .path = std.heap.c_allocator.dupeSentinel(u8, p2, 0) catch return null, .index = 0 };
         }
         return null;
@@ -316,7 +468,7 @@ pub const Fonts = struct {
         // O ImGui guarda a cópia descomprimida da fonte e cuida dela.
         cfg.FontDataOwnedByAtlas = true;
         const font = c.ImFontAtlas_AddFontDefaultVector(f.atlas, &cfg) orelse @panic("nenhuma fonte, nem a embutida no ImGui");
-        f.mergeExtras(font);
+        f.mergeExtras(font, @ptrCast(&builtin_tag), 0);
         // Na lista das faces: o peso, o encaixe e a densidade das Configurações valem para ela.
         f.faces.append(f.gpa, .{ .data = @ptrCast(&builtin_tag), .index = 0, .font = font }) catch {};
         builtin_family = .{ .name = builtin_name, .faces = @splat(font) };
@@ -336,7 +488,7 @@ pub const Fonts = struct {
         var cfg = f.baseConfig();
         cfg.FontNo = @intCast(index);
         const font = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, data.ptr, @intCast(data.len), 16, &cfg, null) orelse return error.FontLoad;
-        f.mergeExtras(font);
+        f.mergeExtras(font, data.ptr, index);
         return font;
     }
 
@@ -354,8 +506,9 @@ pub const Fonts = struct {
         return cfg;
     }
 
-    /// O emoji colorido, os símbolos e as reservas por cima da fonte principal.
-    fn mergeExtras(f: *Fonts, font: *c.ImFont) void {
+    /// O emoji colorido, os símbolos e as reservas por cima da fonte principal (a de
+    /// `data`/`index`, ver `mergeScripts`).
+    fn mergeExtras(f: *Fonts, font: *c.ImFont, data: [*]u8, index: c_int) void {
         if (f.emoji) |e| {
             var ecfg = defaultConfig();
             ecfg.MergeMode = true;
@@ -372,26 +525,44 @@ pub const Fonts = struct {
             scfg.RasterizerMultiply = f.text_weight;
             _ = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, sym.data.ptr, @intCast(sym.data.len), 16, &scfg, null);
         }
-        f.mergeScripts(font);
+        f.mergeScripts(font, data, index);
     }
 
-    /// As fontes reserva numa fonte do atlas: o resto das letras vem da fonte do tema, e estas
-    /// saem do mesmo tamanho e com o mesmo traço do texto ao lado (ver `add`).
-    fn mergeScripts(f: *Fonts, font: *c.ImFont) void {
+    /// As fontes reserva numa fonte do atlas (a de `data`/`index`). A de outra escrita que for
+    /// o mesmo arquivo dela não entra: a fonte já tem tudo dele.
+    fn mergeScripts(f: *Fonts, font: *c.ImFont, data: [*]u8, index: c_int) void {
         for (f.cjk[0..f.cjk_n]) |j| f.mergeOne(font, j);
+        for (f.extras[0..f.extras_n]) |*x| if (x.data.ptr != data or x.index != index) f.mergeExtra(font, x);
     }
 
     fn mergeOne(f: *Fonts, font: *c.ImFont, j: Reserve) void {
-        var jcfg = defaultConfig();
-        jcfg.MergeMode = true;
-        jcfg.DstFont = font;
-        jcfg.FontNo = @intCast(j.index);
-        jcfg.FontDataOwnedByAtlas = false;
+        var jcfg = f.reserveConfig(font, j.index);
         jcfg.GlyphRanges = j.ranges;
-        jcfg.PixelSnapH = true;
-        jcfg.FontLoaderFlags = f.text_hint | match_em;
-        jcfg.RasterizerMultiply = f.text_weight;
         _ = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, j.data.ptr, @intCast(j.data.len), 16, &jcfg, null);
+    }
+
+    /// Uma fonte de outra escrita, valendo só nos blocos dela: as faixas de fora ficam
+    /// excluídas (o ImGui guarda uma cópia delas).
+    fn mergeExtra(f: *Fonts, font: *c.ImFont, x: *const Extra) void {
+        var cfg = f.reserveConfig(font, x.index);
+        @memcpy(cfg.Name[0..extra_tag.len], extra_tag);
+        var buf: ExtraRanges = undefined;
+        cfg.GlyphExcludeRanges = extraRanges(x, &buf);
+        _ = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, x.data.ptr, @intCast(x.data.len), 16, &cfg, null);
+    }
+
+    /// Uma fonte reserva mesclada em `font`: o resto das letras vem da fonte do tema, e estas
+    /// saem do mesmo tamanho e com o mesmo traço do texto ao lado (ver `add`).
+    fn reserveConfig(f: *const Fonts, font: *c.ImFont, index: c_int) c.ImFontConfig {
+        var cfg = defaultConfig();
+        cfg.MergeMode = true;
+        cfg.DstFont = font;
+        cfg.FontNo = @intCast(index);
+        cfg.FontDataOwnedByAtlas = false;
+        cfg.PixelSnapH = true;
+        cfg.FontLoaderFlags = f.text_hint | match_em;
+        cfg.RasterizerMultiply = f.text_weight;
+        return cfg;
     }
 
     /// Mapeia o arquivo (somente leitura); só as páginas lidas ficam na RAM.
@@ -408,7 +579,7 @@ pub const Fonts = struct {
 const emoji_ranges = [_]c.ImWchar{ 0x2600, 0x27BF, 0x2B00, 0x2BFF, 0x1F000, 0x1FAFF, 0 };
 
 /// As letras que trazem as fontes reserva do CJK: quem vê outra letra sem fonte (tailandês,
-/// por exemplo) não carrega nada à toa.
+/// por exemplo) não carrega a fonte do CJK à toa.
 const cjk_ranges = [_]c.ImWchar{
     0x1100, 0x11FF, // hangul jamo
     0x2E80, 0x2FDF, // radicais
@@ -525,7 +696,8 @@ fn systemScript() ?usize {
     return null;
 }
 
-// FreeType (o mesmo do ImGui): no Windows não há fontconfig para dizer se um arquivo tem a letra.
+// FreeType (o mesmo do ImGui): no Windows não há fontconfig para dizer se um arquivo tem a letra,
+// e nas outras escritas é ele que confirma o que o fontconfig respondeu.
 extern fn FT_Init_FreeType(lib: *?*anyopaque) c_int;
 extern fn FT_Done_FreeType(lib: ?*anyopaque) c_int;
 extern fn FT_New_Memory_Face(lib: ?*anyopaque, base: [*]const u8, size: c_long, index: c_long, face: *?*anyopaque) c_int;
@@ -563,16 +735,51 @@ fn matchScript(sc: Script, by_chars: bool) ?Match {
     var result: c.FcResult = undefined;
     const m = c.FcFontMatch(null, pat, &result) orelse return null;
     defer c.FcPatternDestroy(m);
-    // Sem fonte para essa escrita, o fontconfig responde com outra qualquer: essa não serve.
+    return fcFile(m, sc.probes);
+}
+
+/// O arquivo de uma fonte que o fontconfig respondeu, se ela tem todas as letras de prova. Sem
+/// fonte para essa escrita, ele responde com outra qualquer: essa não serve.
+fn fcFile(m: *c.FcPattern, probes: []const u32) ?Match {
     var chars: ?*c.FcCharSet = null;
     if (c.FcPatternGetCharSet(m, c.FC_CHARSET, 0, &chars) != c.FcResultMatch) return null;
-    for (sc.probes) |p| if (c.FcCharSetHasChar(chars, p) == 0) return null;
+    for (probes) |p| if (c.FcCharSetHasChar(chars, p) == 0) return null;
     var file: [*c]c.FcChar8 = null;
     if (c.FcPatternGetString(m, c.FC_FILE, 0, &file) != c.FcResultMatch) return null;
     var index: c_int = 0;
     _ = c.FcPatternGetInteger(m, c.FC_INDEX, 0, &index);
     const path = std.heap.c_allocator.dupeSentinel(u8, std.mem.span(@as([*:0]const u8, @ptrCast(file))), 0) catch return null;
     return .{ .path = path, .index = index };
+}
+
+/// A fonte do sistema que tem a letra `cp` (qualquer escrita, ver `Fonts.loadBlocks`): das que
+/// o fontconfig ordena para "sans-serif" com essa letra, a primeira que tem mesmo a letra, com
+/// contorno (bitmap não muda de tamanho) e sem cor (as de emoji também trazem letras).
+fn matchChar(cp: u32) ?Match {
+    const pat = c.FcPatternCreate() orelse return null;
+    defer c.FcPatternDestroy(pat);
+    _ = c.FcPatternAddString(pat, c.FC_FAMILY, "sans-serif");
+    _ = c.FcPatternAddBool(pat, c.FC_SCALABLE, c.FcTrue);
+    _ = c.FcPatternAddBool(pat, c.FC_COLOR, c.FcFalse);
+    const want = c.FcCharSetCreate() orelse return null;
+    defer c.FcCharSetDestroy(want);
+    _ = c.FcCharSetAddChar(want, cp);
+    _ = c.FcPatternAddCharSet(pat, c.FC_CHARSET, want);
+    _ = c.FcConfigSubstitute(null, pat, c.FcMatchPattern);
+    c.FcDefaultSubstitute(pat);
+    var result: c.FcResult = undefined;
+    // Aparadas: só fica na lista quem cobre alguma letra que as anteriores não cobrem.
+    const set = c.FcFontSort(null, pat, c.FcTrue, null, &result) orelse return null;
+    defer c.FcFontSetDestroy(set);
+    if (set.*.nfont <= 0) return null;
+    for (set.*.fonts[0..@intCast(set.*.nfont)]) |each| {
+        const font = each orelse continue;
+        var flag: c.FcBool = c.FcFalse;
+        if (c.FcPatternGetBool(font, c.FC_SCALABLE, 0, &flag) == c.FcResultMatch and flag == c.FcFalse) continue;
+        if (c.FcPatternGetBool(font, c.FC_COLOR, 0, &flag) == c.FcResultMatch and flag != c.FcFalse) continue;
+        if (fcFile(font, &.{cp})) |m| return m;
+    }
+    return null;
 }
 
 /// Pergunta ao fontconfig qual arquivo atende família + peso + inclinação.

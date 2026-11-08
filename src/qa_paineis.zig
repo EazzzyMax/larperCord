@@ -629,14 +629,19 @@ fn probeLetters(app: *App) void {
     const font = app.fonts.faces.items[0].font;
     stylized_w = d.width(font, 14, "𝗠𝗲𝗺𝗲𝘀");
     question_w = d.width(font, 14, "?????");
-    // Javanês: nem a fonte do tema nem as reservas têm.
+    // Javanês: a fonte do tema não tem, e quase nenhum sistema tem uma fonte para ele.
     _ = d.width(font, 14, "꧁");
 }
 fn stylizedNotQuestion(_: *App) bool {
     return stylized_w > 0 and stylized_w != question_w;
 }
-fn lettersNoted(_: *App) bool {
-    return std.mem.indexOfScalar(u32, @import("ui/fonts.zig").missingLetters(), 0xA9C1) != null;
+/// O sistema foi consultado: sem fonte de javanês, a letra entra na lista para as Configurações;
+/// com uma (a Javanese Text do Windows, a Noto Sans Javanese), ela passa a valer no atlas.
+fn lettersNoted(app: *App) bool {
+    const fonts = @import("ui/fonts.zig");
+    if (std.mem.indexOfScalar(u32, fonts.missingLetters(), 0xA9C1) != null) return true;
+    const b = fonts.blockOf(0xA9C1) orelse return false;
+    return app.fonts.hasBlock(b);
 }
 /// Sem foto de 128 px reduzida na placa de vídeo: a textura tem o tamanho em que aparece.
 fn imageExactSize(app: *App) bool {
@@ -774,7 +779,7 @@ pub const ops_extras = [_]Op{
     s("letras sem fonte"),
     .{ .run = probeLetters },
     .{ .expect = .{ .name = "letra estilizada não vira ?", .check = stylizedNotQuestion, .timeout_ms = 2000 } },
-    .{ .expect = .{ .name = "e a escrita sem fonte é anotada para as Configurações", .check = lettersNoted, .timeout_ms = 2000 } },
+    .{ .expect = .{ .name = "e a escrita sem fonte é anotada para as Configurações (ou ganha uma fonte do sistema)", .check = lettersNoted, .timeout_ms = 2000 } },
     .{ .wait = 100 },
     .{ .shot = "letras-sem-fonte" },
     s("imagem no tamanho em que aparece"),
