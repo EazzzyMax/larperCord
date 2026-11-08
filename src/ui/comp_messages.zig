@@ -32,6 +32,7 @@ const forum = @import("forum.zig");
 const send_limits = @import("composer_limits.zig");
 const store_mod = @import("../core/store.zig");
 const types = @import("../core/types.zig");
+const reply_preview = @import("../core/reply_preview.zig");
 const i18n = @import("i18n.zig");
 const inbox_ui = @import("inbox.zig");
 const plugins = @import("../plugins/engine.zig");
@@ -69,6 +70,12 @@ const react_h: f32 = 30;
 
 var flash_id: Id = 0;
 var flash_until: i64 = 0;
+
+/// A última mensagem a que um pulo chegou (o QA confere o clique numa resposta).
+pub fn jumpedTo() Id {
+    return flash_id;
+}
+
 /// Última mensagem nossa no canal (recebe o "Entregue ✓✓" nas bolhas).
 var last_self_id: Id = 0;
 var show_ticks = false;
@@ -950,6 +957,62 @@ fn quotedText(ctx: *d.Ctx, m: *StoredMessage) []const u8 {
     return m.msg.content;
 }
 
+/// Frase da prévia quando a original não tem texto nem um nome para mostrar.
+fn replyPhrase(k: reply_preview.Kind) []const u8 {
+    return switch (k) {
+        .file, .files, .image, .video => i18n.tr3("Clique para ver o anexo", "Click to see attachment", "クリックして添付ファイルを表示"),
+        .voice => i18n.tr3("Mensagem de voz", "Voice message", "ボイスメッセージ"),
+        .sticker => i18n.tr("Figurinha", "Sticker"),
+        .poll => i18n.tr("Enquete", "Poll"),
+        .text, .embed, .empty => i18n.tr3("Clique para ver a mensagem", "Click to see message", "クリックしてメッセージを表示"),
+    };
+}
+
+/// Original sem texto: um ícone pequeno e o que ela tem. O nome que veio dela
+/// (arquivo, figurinha, pergunta, título do embed) fica normal; a frase, em itálico.
+fn replyMedia(dl: *c.ImDrawList, fam: *d.Family, ref: *const StoredMessage, id: Id, x: f32, y: f32, max_w: f32, col: d.Rgba) void {
+    const lb = reply_preview.of(&ref.msg);
+    const ic = col.u();
+    // 14 px: cabe na linha de 13 px, centrado nela.
+    const s: f32 = 0.6;
+    const icx = x + 7;
+    const icy = y + 9;
+    var xx = x;
+    switch (lb.kind) {
+        .file, .files => icons.file(dl, icx, icy, s, ic),
+        .image, .video => icons.picture(dl, icx, icy, s, ic),
+        .sticker => icons.sticker(dl, icx, icy, s, ic),
+        .voice => icons.voice(dl, icx, icy, s, ic),
+        .poll => icons.poll(dl, icx, icy, s, ic),
+        .text, .embed, .empty => {},
+    }
+    if (lb.kind != .text and lb.kind != .embed and lb.kind != .empty) {
+        qa.mark(.{ .x = x - 1, .y = y + 1, .w = 16, .h = 16 }, "reply-icon:{d}", .{id});
+        xx += 19;
+    }
+    var sb: [120]u8 = undefined;
+    const named = lb.text.len > 0;
+    const tw = d.textClipped(dl, fam.get(if (named) .regular else .italic), 13, xx, y + 1, col, if (named) snippet(&sb, lb.text) else replyPhrase(lb.kind), max_w - (xx - x));
+    qa.mark(.{ .x = x, .y = y, .w = xx - x + tw, .h = reply_h }, "reply-kind:{d}:{s}", .{ id, @tagName(lb.kind) });
+}
+
+/// A mesma prévia em texto puro, com a etiqueta entre colchetes (temas de terminal).
+fn ttyReplyLabel(buf: []u8, lb: reply_preview.Label) []const u8 {
+    var nb: [96]u8 = undefined;
+    const name = snippet(&nb, lb.text);
+    return switch (lb.kind) {
+        .file => i18n.fmt(buf, "[arquivo] {s}", "[file] {s}", .{name}),
+        .files => i18n.tr("[anexos]", "[attachments]"),
+        .image => i18n.tr("[imagem]", "[image]"),
+        .video => i18n.tr("[vídeo]", "[video]"),
+        .sticker => i18n.fmt(buf, "[figurinha] {s}", "[sticker] {s}", .{name}),
+        .voice => i18n.tr("[mensagem de voz]", "[voice message]"),
+        .poll => i18n.fmt(buf, "[enquete] {s}", "[poll] {s}", .{name}),
+        .text, .embed => snippet(buf, lb.text),
+        .empty => i18n.tr("[sem texto]", "[no text]"),
+    };
+}
+
 /// Linha "↱ @fulano  texto da mensagem original" (clicável).
 fn replyLine(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *const StoredMessage, x: f32, y: f32, max_w: f32, spine_x: ?f32, on_accent: bool) void {
     var buf: [160]u8 = undefined;
@@ -986,7 +1049,12 @@ fn replyLine(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *const StoredMessage, x:
         xx += d.width(fam.get(.semibold), 13, nm);
         if (!on_accent) xx += w.botTag(ctx, dl, xx, y + 9, u, false, 1);
         xx += 6;
-        _ = d.textClipped(dl, fam.get(.regular), 13, xx, y + 1, if (hb.hovered) ctx.col(.text) else muted, snippet(buf[40..], quotedText(ctx, f.m)), max_w - (xx - x));
+        const col = if (hb.hovered) ctx.col(.text) else muted;
+        const quoted = quotedText(ctx, f.m);
+        if (quoted.len > 0)
+            _ = d.textClipped(dl, fam.get(.regular), 13, xx, y + 1, col, snippet(buf[40..], quoted), max_w - (xx - x))
+        else
+            replyMedia(dl, fam, f.m, m.msg.id, xx, y, max_w - (xx - x), col);
     } else {
         d.text(dl, fam.get(.italic), 13, x, y + 1, muted, i18n.tr("mensagem original não carregada", "Original message could not be loaded"));
     }
@@ -1320,14 +1388,25 @@ fn drawMessage(ctx: *d.Ctx, dl: *c.ImDrawList, g: Geo, m: *StoredMessage, flags:
                 const found = ctx.store.findNear(m.msg.channel, m.msg.reply_to);
                 const ru = if (found) |f| ctx.store.user(f.m.msg.author) else null;
                 var rb: [160]u8 = undefined;
-                var sb: [60]u8 = undefined;
-                const line = std.fmt.bufPrint(&rb, "↳ {s}: {s}", .{ if (ru) |x| x.name else "?", if (found) |f| snippet(&sb, quotedText(ctx, f.m)) else "…" }) catch "";
+                var sb: [96]u8 = undefined;
+                // Original sem texto: a etiqueta entre colchetes ("[arquivo] nome.html").
+                const quoted = if (found) |f| quotedText(ctx, f.m) else "";
+                const tag: ?reply_preview.Label = if (found) |f| (if (quoted.len == 0) reply_preview.of(&f.m.msg) else null) else null;
+                const body = if (tag) |lb| ttyReplyLabel(&sb, lb) else if (found != null) snippet(&sb, quoted) else "…";
+                const head = std.fmt.bufPrint(&rb, "↳ {s}: ", .{if (ru) |x| x.name else "?"}) catch "";
+                const line = std.fmt.bufPrint(rb[head.len..], "{s}", .{body}) catch "";
+                const full = rb[0 .. head.len + line.len];
                 const lr: d.Rect = .{ .x = r.x + g.content_x, .y = y, .w = g.wrap, .h = g.line_h };
                 const hb = d.hitUnder(ctx, @truncate(m.msg.id ^ 0x5151), lr);
                 qa.mark(lr, "reply-line:{d}", .{m.msg.id});
                 if (hb.clicked) ctx.act(.{ .jump_to = m.msg.reply_to });
                 if (hb.right) ctx.popup(.{ .menu = .{ .kind = .message, .id = m.msg.id, .x = ctx.mouse.x, .y = ctx.mouse.y } });
-                _ = d.textClipped(dl, fam.get(.regular), g.size - 1, lr.x, d.centerY(lr, g.size - 1), if (hb.hovered) ctx.col(.text) else ctx.col(.faint), line, lr.w);
+                const rf = fam.get(.regular);
+                const fw = d.textClipped(dl, rf, g.size - 1, lr.x, d.centerY(lr, g.size - 1), if (hb.hovered) ctx.col(.text) else ctx.col(.faint), full, lr.w);
+                if (tag) |lb| {
+                    const hw = d.width(rf, g.size - 1, head);
+                    qa.mark(.{ .x = lr.x + hw, .y = y, .w = @max(fw - hw, 4), .h = g.line_h }, "reply-kind:{d}:{s}", .{ m.msg.id, @tagName(lb.kind) });
+                }
                 y += g.line_h;
             }
             const ty = y + (g.line_h - g.size * 1.2) / 2;

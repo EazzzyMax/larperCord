@@ -2587,6 +2587,7 @@ fn buildHistory(channel: Id, now_ms: i64) ![]types.Message {
         m.embeds = e;
     }
     if (channel == media_channel) try demoMediaMessages(msgs);
+    if (channel == reply_preview_channel) try demoReplyPreviews(msgs);
     // #bugs: o bot com botões, menus, modal e comandos de barra.
     if (channel == fake_interactions.channel()) try fake_interactions.demoMessage(&msgs[n - 1]);
     // #interface: links do Discord, convites e menções clicáveis.
@@ -2795,6 +2796,51 @@ fn demoMediaMessages(msgs: []types.Message) !void {
     try set(&msgs[n - 4], pick("final da série 👀 (spoiler!)", "series finale 👀 (spoiler!)"), .{ .url = try alloc.dupe(u8, "demo:2"), .filename = try alloc.dupe(u8, "SPOILER_final.png"), .width = 720, .height = 720, .spoiler = true });
     try set(&msgs[n - 8], "", .{ .url = try alloc.dupe(u8, "demo:3"), .filename = try alloc.dupe(u8, "foto.png"), .width = 960, .height = 540, .sensitive = true });
     try set(&msgs[n - 7], pick("foto de ontem", "yesterday's photo"), .{ .url = try alloc.dupe(u8, "demo:expired:1?ex=1&is=0&hm=qa"), .filename = try alloc.dupe(u8, "ontem.png"), .width = 900, .height = 560 });
+}
+
+/// #zig do primeiro servidor: respostas a mensagens sem texto, para a prévia
+/// mostrar o ícone e o que a original tem (QA_SUITE=tema, qa_temas.zig).
+pub const reply_preview_channel: Id = 500_010;
+/// O arquivo sozinho da demonstração (a resposta a ele vem logo depois).
+pub const reply_preview_file = "prototipo-do-tema.html";
+
+/// Contando do fim: um arquivo só (8) respondido no 7; uma mensagem de voz (16)
+/// respondida no 6; uma figurinha (21) no 11; a imagem da aurora (23, de todo
+/// canal) no 13; e o cartão do bot (18, de todo canal) no 17. As duas não lidas
+/// do fim ficam como estão (a contagem de menções delas não muda).
+fn demoReplyPreviews(msgs: []types.Message) !void {
+    const n = msgs.len;
+    const only = struct {
+        fn f(m: *types.Message, a: types.Attachment) !void {
+            alloc.free(m.content);
+            m.content = try alloc.dupe(u8, "");
+            m.reply_to = 0;
+            types.freeEmbeds(alloc, m.embeds);
+            m.embeds = &.{};
+            types.freeAttachments(alloc, m.attachments);
+            const list = try alloc.alloc(types.Attachment, 1);
+            list[0] = a;
+            m.attachments = list;
+        }
+    }.f;
+    var wave: [types.wave_bars]u8 = undefined;
+    for (&wave, 0..) |*b, i| b.* = @intCast(60 + (i * 53) % 170);
+    try only(&msgs[n - 8], .{ .url = try alloc.dupe(u8, "demo:file"), .filename = try alloc.dupe(u8, reply_preview_file), .size = 18_412 });
+    try only(&msgs[n - 16], .{ .url = try alloc.dupe(u8, "demo:voice"), .filename = try alloc.dupe(u8, "voice-message.ogg"), .size = 7_300, .voice = true, .voice_ms = 3000, .wave = wave });
+    try only(&msgs[n - 21], .{ .url = try alloc.dupe(u8, "demo:sticker:900401:0"), .filename = try alloc.dupe(u8, pick("bom dia", "good morning")), .width = 160, .height = 160 });
+    const replies = [_]struct { back: usize, to: usize, text: []const u8, text_en: []const u8 }{
+        .{ .back = 7, .to = 8, .text = "abri aqui no navegador, ficou muito bom 👀", .text_en = "opened it in the browser, looks great 👀" },
+        .{ .back = 6, .to = 16, .text = "kkkk o finalzinho do áudio", .text_en = "lol the end of the audio" },
+        .{ .back = 11, .to = 21, .text = "bom dia pra você também", .text_en = "good morning to you too" },
+        .{ .back = 13, .to = 23, .text = "essa aurora é de onde?", .text_en = "where is this aurora from?" },
+        .{ .back = 17, .to = 18, .text = "42 ms tá ótimo", .text_en = "42 ms is great" },
+    };
+    for (replies) |r| {
+        const m = &msgs[n - r.back];
+        alloc.free(m.content);
+        m.content = try alloc.dupe(u8, pick(r.text, r.text_en));
+        m.reply_to = msgs[n - r.to].id;
+    }
 }
 
 /// Emoji personalizado no meio do texto, mensagens só de emoji (grandes) e
