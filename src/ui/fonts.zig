@@ -9,6 +9,12 @@ const c = @import("c");
 
 pub const Weight = enum(u3) { regular, medium, semibold, bold, italic };
 
+/// A fonte que vem dentro do ImGui: a última saída quando o sistema não tem fonte nenhuma.
+pub const builtin_name = "ProggyForever";
+var builtin_family: ?Family = null;
+/// Marca a face embutida em `Fonts.faces` (não é um arquivo mapeado).
+var builtin_tag: u8 = 0;
+
 pub const Family = struct {
     name: []const u8,
     faces: [5]*c.ImFont,
@@ -96,6 +102,8 @@ pub const Fonts = struct {
     gpa: std.mem.Allocator,
     atlas: *c.ImFontAtlas,
     families: std.ArrayList(*Family) = .empty,
+    /// Famílias que o sistema não tem: sem perguntar de novo a cada quadro (ver `forgetMissing`).
+    missing: std.ArrayList([]u8) = .empty,
     maps: std.StringHashMapUnmanaged([]u8) = .empty,
     faces: std.ArrayList(struct { data: [*]u8, index: c_int, font: *c.ImFont }) = .empty,
     emoji: ?[]u8 = null,
@@ -250,9 +258,21 @@ pub const Fonts = struct {
     /// Família pelo nome ("Inter", "JetBrains Mono"...). Carrega se preciso.
     pub fn family(f: *Fonts, name: []const u8) !*Family {
         for (f.families.items) |fam| if (std.mem.eql(u8, fam.name, name)) return fam;
-
+        for (f.missing.items) |m| if (std.mem.eql(u8, m, name)) return error.FontNotFound;
+        const faces = f.loadFaces(name) catch |e| {
+            if (f.gpa.dupe(u8, name)) |n| f.missing.append(f.gpa, n) catch f.gpa.free(n) else |_| {}
+            return e;
+        };
         const fam = try f.gpa.create(Family);
-        fam.name = try f.gpa.dupe(u8, name);
+        errdefer f.gpa.destroy(fam);
+        fam.* = .{ .name = try f.gpa.dupe(u8, name), .faces = faces };
+        errdefer f.gpa.free(fam.name);
+        try f.families.append(f.gpa, fam);
+        return fam;
+    }
+
+    /// Os cinco pesos da família, de onde o sistema disser.
+    fn loadFaces(f: *Fonts, name: []const u8) ![5]*c.ImFont {
         const specs = [_]struct { w: c_int, slant: c_int }{
             .{ .w = 80, .slant = 0 }, // regular
             .{ .w = 100, .slant = 0 }, // medium
@@ -260,14 +280,38 @@ pub const Fonts = struct {
             .{ .w = 200, .slant = 0 }, // bold
             .{ .w = 80, .slant = 100 }, // itálico
         };
+        var faces: [5]*c.ImFont = undefined;
         for (specs, 0..) |s, i| {
             const m = resolve(name, s.w, s.slant) orelse return error.FontNotFound;
             defer std.heap.c_allocator.free(m.path);
             const data = try f.mapPath(m.path);
-            fam.faces[i] = try f.faceFor(data, m.index);
+            faces[i] = try f.faceFor(data, m.index);
         }
-        try f.families.append(f.gpa, fam);
-        return fam;
+        return faces;
+    }
+
+    /// Tema novo (ou recarregado): as famílias que faltavam são procuradas de novo (uma
+    /// fonte pode ter sido instalada com o app aberto).
+    pub fn forgetMissing(f: *Fonts) void {
+        for (f.missing.items) |m| f.gpa.free(m);
+        f.missing.clearRetainingCapacity();
+    }
+
+    /// Nenhuma família do sistema carregou (Windows sem C:\Windows\Fonts, Linux sem fonte
+    /// nenhuma no fontconfig): a fonte que vem dentro do ImGui, nos cinco pesos, para o app
+    /// abrir assim mesmo. Criada uma vez, fora do intervalo NewFrame/Render (o app pede ao
+    /// carregar o tema); o emoji, os símbolos e as reservas que houver entram nela também.
+    pub fn builtin(f: *Fonts) *Family {
+        if (builtin_family) |*fam| return fam;
+        var cfg = f.baseConfig();
+        // O ImGui guarda a cópia descomprimida da fonte e cuida dela.
+        cfg.FontDataOwnedByAtlas = true;
+        const font = c.ImFontAtlas_AddFontDefaultVector(f.atlas, &cfg) orelse @panic("nenhuma fonte, nem a embutida no ImGui");
+        f.mergeExtras(font);
+        // Na lista das faces: o peso, o encaixe e a densidade das Configurações valem para ela.
+        f.faces.append(f.gpa, .{ .data = @ptrCast(&builtin_tag), .index = 0, .font = font }) catch {};
+        builtin_family = .{ .name = builtin_name, .faces = @splat(font) };
+        return &builtin_family.?;
     }
 
     /// O mesmo arquivo pode atender vários pesos e famílias (a família não tem
@@ -280,8 +324,16 @@ pub const Fonts = struct {
     }
 
     fn add(f: *Fonts, data: []u8, index: c_int) !*c.ImFont {
-        var cfg = defaultConfig();
+        var cfg = f.baseConfig();
         cfg.FontNo = @intCast(index);
+        const font = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, data.ptr, @intCast(data.len), 16, &cfg, null) orelse return error.FontLoad;
+        f.mergeExtras(font);
+        return font;
+    }
+
+    /// A configuração da fonte principal de uma face.
+    fn baseConfig(f: *const Fonts) c.ImFontConfig {
+        var cfg = defaultConfig();
         cfg.PixelSnapH = true;
         // Por padrão, hinting leve: encaixa só na vertical (como o ClearType), sem mudar o desenho
         // da letra. E o traço como a fonte desenhou: multiplicar a cobertura engrossa, mas corta
@@ -290,7 +342,11 @@ pub const Fonts = struct {
         cfg.RasterizerMultiply = f.text_weight;
         cfg.FontDataOwnedByAtlas = false;
         if (f.emoji != null) cfg.GlyphExcludeRanges = &emoji_ranges;
-        const font = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, data.ptr, @intCast(data.len), 16, &cfg, null) orelse return error.FontLoad;
+        return cfg;
+    }
+
+    /// O emoji colorido, os símbolos e as reservas por cima da fonte principal.
+    fn mergeExtras(f: *Fonts, font: *c.ImFont) void {
         if (f.emoji) |e| {
             var ecfg = defaultConfig();
             ecfg.MergeMode = true;
@@ -308,7 +364,6 @@ pub const Fonts = struct {
             _ = c.ImFontAtlas_AddFontFromMemoryTTF(f.atlas, sym.data.ptr, @intCast(sym.data.len), 16, &scfg, null);
         }
         f.mergeScripts(font);
-        return font;
     }
 
     /// As fontes reserva numa fonte do atlas: o resto das letras vem da fonte do tema, e estas
