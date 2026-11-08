@@ -326,18 +326,39 @@ const Page = struct {
         const ctx = p.ctx;
         p.markText(.{ .x = p.x, .y = p.y, .w = p.w, .h = 36 });
         d.text(p.dl, p.font(.medium), 15, p.x, p.y + 8, ctx.col(.text), action);
+        // Da direita para a esquerda: alternativas separadas por " / " e, em cada uma,
+        // as teclas unidas por "+" ("Ctrl +" é Ctrl com a tecla +), como o site mostra.
         var x = p.x + p.w;
-        var it = std.mem.splitBackwardsScalar(u8, keys, '+');
-        while (it.next()) |k| {
-            const kw = d.width(p.font(.semibold), 13, k) + 18;
-            x -= kw;
-            const kr: d.Rect = .{ .x = x, .y = p.y + 4, .w = kw, .h = 28 };
-            d.rect(p.dl, kr, ctx.col(.elevated), 6);
-            d.rect(p.dl, .{ .x = kr.x, .y = kr.bottom() - 3, .w = kr.w, .h = 3 }, d.Rgba.black.alpha(0.25), 3);
-            d.text(p.dl, p.font(.semibold), 13, kr.x + 9, kr.y + 5, ctx.col(.text), k);
-            x -= 6;
+        var alts = std.mem.splitBackwardsSequence(u8, keys, " / ");
+        var first = true;
+        while (alts.next()) |alt| {
+            if (!first) {
+                x -= d.width(p.font(.medium), 14, "/") + 8;
+                d.text(p.dl, p.font(.medium), 14, x, p.y + 9, ctx.col(.muted), "/");
+                x -= 8;
+            }
+            first = false;
+            const sp = std.mem.lastIndexOfScalar(u8, alt, ' ');
+            if (sp != null and alt.len - sp.? == 2) {
+                p.keyCap(&x, alt[sp.? + 1 ..]);
+                p.keyCap(&x, alt[0..sp.?]);
+                continue;
+            }
+            var it = std.mem.splitBackwardsScalar(u8, alt, '+');
+            while (it.next()) |k| p.keyCap(&x, k);
         }
         p.y += 44;
+    }
+
+    fn keyCap(p: *Page, x: *f32, k: []const u8) void {
+        const ctx = p.ctx;
+        const kw = d.width(p.font(.semibold), 13, k) + 18;
+        x.* -= kw;
+        const kr: d.Rect = .{ .x = x.*, .y = p.y + 4, .w = kw, .h = 28 };
+        d.rect(p.dl, kr, ctx.col(.elevated), 6);
+        d.rect(p.dl, .{ .x = kr.x, .y = kr.bottom() - 3, .w = kr.w, .h = 3 }, d.Rgba.black.alpha(0.25), 3);
+        d.text(p.dl, p.font(.semibold), 13, kr.x + 9, kr.y + 5, ctx.col(.text), k);
+        x.* -= 6;
     }
 };
 
