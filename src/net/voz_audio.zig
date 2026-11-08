@@ -610,6 +610,11 @@ const Helper = struct {
         h.mic.close();
         h.cap.release();
         h.mic_open = false;
+        // A página pode fechar entre o stepPage (que leu aberta e mediu) e o hasWork (que já a
+        // vê fechada): a thread sai sem passar pelo ramo que zera, e o medidor ficaria parado
+        // no último volume. Microfone fechado é silêncio.
+        h.shown_db = voz.db_silence;
+        sh.level_db.store(voz.db_silence, .monotonic);
         if (h.loop) |s| c.SDL_DestroyAudioStream(s);
         h.loop = null;
         if (h.sfx) |s| c.SDL_DestroyAudioStream(s);
