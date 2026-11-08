@@ -17,6 +17,7 @@ test {
     _ = @import("core/mem_use.zig");
     _ = @import("core/image_uri.zig");
     _ = @import("core/version.zig");
+    _ = @import("core/atualizacao.zig");
     _ = @import("core/sort.zig");
     _ = @import("core/markdown.zig");
     _ = @import("core/changelog.zig");

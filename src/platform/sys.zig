@@ -597,6 +597,25 @@ pub fn restoreOld(to: [*:0]const u8) void {
     _ = replaceFile(old.ptr, to);
 }
 
+/// O caminho do executável que está rodando, com o nome que ele tiver. No Linux,
+/// o /proc/self/exe já resolvido (links simbólicos seguidos), como o kernel diz:
+/// trocado o arquivo com o app aberto, vem com " (deleted)" no fim (ver
+/// `core/atualizacao.liveExe`). No Windows, o GetModuleFileNameW, em UTF-8.
+pub fn selfExe(buf: []u8) ?[]const u8 {
+    if (web) return null;
+    if (windows) {
+        var wb: [1024]u16 = undefined;
+        const n: usize = c.GetModuleFileNameW(null, &wb, wb.len);
+        // Cortado (n = tamanho do buffer) ou sem lugar para ele em UTF-8.
+        if (n == 0 or n >= wb.len or std.unicode.calcWtf8Len(wb[0..n]) > buf.len) return null;
+        const len = std.unicode.utf16LeToUtf8(buf, wb[0..n]) catch return null;
+        return buf[0..len];
+    }
+    const n = c.readlink("/proc/self/exe", buf.ptr, buf.len);
+    if (n <= 0 or n >= buf.len) return null;
+    return buf[0..@intCast(n)];
+}
+
 /// Memória própria do processo, em KB.
 pub fn privateKb() u32 {
     if (!windows) return 0;

@@ -1,12 +1,13 @@
 //! Atualização: pergunta ao GitHub qual é a última versão, baixa os arquivos
-//! desta plataforma, confere o SHA256SUMS (assinado) e troca os arquivos ao lado
-//! do executável. Quem pede o reinício é a interface. Roda numa thread só dela,
-//! e nada aqui existe enquanto ninguém pede. Nenhum dado da conta vai junto.
+//! desta plataforma, confere o SHA256SUMS (assinado) e troca o executável que
+//! está rodando (no caminho e com o nome dele) e as DLLs ao lado. Quem pede o
+//! reinício é a interface. Roda numa thread só dela, e nada aqui existe enquanto
+//! ninguém pede. Nenhum dado da conta vai junto.
 const std = @import("std");
-const builtin = @import("builtin");
 const c = @import("c");
 const build_options = @import("build_options");
 const version = @import("../core/version.zig");
+const at = @import("../core/atualizacao.zig");
 const sys = @import("../platform/sys.zig");
 const proxy = @import("proxy.zig");
 
@@ -16,17 +17,16 @@ pub const current: []const u8 = build_options.version;
 const latest_url = "https://api.github.com/repos/RshaCuDeVidro/larperCord/releases/latest";
 pub const releases_page = "https://github.com/RshaCuDeVidro/larperCord/releases";
 
-/// Arquivo publicado -> nome ao lado do executável.
-const File = struct { asset: []const u8, target: []const u8 };
-const files: []const File = if (builtin.os.tag == .windows) &.{
-    .{ .asset = "larpercord-windows-x86_64.exe", .target = "larpercord.exe" },
-    .{ .asset = "SDL3.dll", .target = "SDL3.dll" },
-    .{ .asset = "libcurl-x64.dll", .target = "libcurl-x64.dll" },
-    .{ .asset = "libcrypto-3-x64.dll", .target = "libcrypto-3-x64.dll" },
-} else &.{
-    .{ .asset = "larpercord-linux-x86_64", .target = "larpercord" },
-};
-pub const exe_name: [:0]const u8 = if (builtin.os.tag == .windows) "larpercord.exe" else "larpercord";
+/// Arquivos publicados desta plataforma e onde cada um fica (core/atualizacao.zig).
+const files = at.files(sys.windows);
+
+/// O executável que está rodando, num caminho que existe: depois da troca, o
+/// nome dele já é o da versão nova. null se o sistema não disser.
+fn selfPath(buf: []u8) ?[]const u8 {
+    const raw = sys.selfExe(buf) orelse return null;
+    const p = at.liveExe(raw);
+    return if (p.len == 0) null else p;
+}
 
 pub const Phase = enum { idle, checking, up_to_date, available, downloading, ready, failed };
 pub const Error = enum { none, network, no_release, bad_signature, bad_hash, read_only, disk };
@@ -241,8 +241,8 @@ pub fn managedBySystem() bool {
 }
 
 fn runInstall() !void {
-    const base_c = c.SDL_GetBasePath() orelse return error.Disk;
-    const base = std.mem.span(base_c);
+    var sb: [1024]u8 = undefined;
+    const exe = selfPath(&sb) orelse return error.Disk;
     var ub: [1024]u8 = undefined;
 
     // A lista assinada vem primeiro: sem ela, nada é baixado.
@@ -255,7 +255,7 @@ fn runInstall() !void {
     if (!version.signatureOk(sums.items, sig.items, version.release_key_hex)) return error.BadSignature;
 
     var dir_buf: [1024]u8 = undefined;
-    const stage = std.fmt.bufPrintSentinel(&dir_buf, "{s}.update", .{base}, 0) catch return error.Disk;
+    const stage = at.stageDir(&dir_buf, exe, sys.windows) orelse return error.Disk;
     sys.mkdirPrivate(stage.ptr);
     if (!sys.exists(stage.ptr)) return error.ReadOnly;
 
@@ -269,7 +269,7 @@ fn runInstall() !void {
         std.crypto.hash.sha2.Sha256.hash(data.items, &got, .{});
         if (!std.mem.eql(u8, &got, &want)) return error.BadHash;
         var pb: [1100]u8 = undefined;
-        const tmp = std.fmt.bufPrintSentinel(&pb, "{s}/{s}", .{ stage, f.target }, 0) catch return error.Disk;
+        const tmp = at.staged(&pb, stage, f) orelse return error.Disk;
         if (!sys.writeNew(tmp.ptr, data.items, true)) return error.Disk;
         set(.downloading, .none, @intCast((i + 1) * 90 / files.len));
     }
@@ -279,15 +279,15 @@ fn runInstall() !void {
         // Algo falhou no meio: volta o que já tinha trocado.
         for (files[0..replaced]) |f| {
             var pb: [1100]u8 = undefined;
-            const dst = std.fmt.bufPrintSentinel(&pb, "{s}{s}", .{ base, f.target }, 0) catch continue;
+            const dst = at.place(&pb, exe, f, "", sys.windows) orelse continue;
             sys.restoreOld(dst.ptr);
         }
     }
     for (files) |f| {
         var pa: [1100]u8 = undefined;
         var pb: [1100]u8 = undefined;
-        const src = std.fmt.bufPrintSentinel(&pa, "{s}/{s}", .{ stage, f.target }, 0) catch return error.Disk;
-        const dst = std.fmt.bufPrintSentinel(&pb, "{s}{s}", .{ base, f.target }, 0) catch return error.Disk;
+        const src = at.staged(&pa, stage, f) orelse return error.Disk;
+        const dst = at.place(&pb, exe, f, "", sys.windows) orelse return error.Disk;
         if (!sys.replaceRunning(src.ptr, dst.ptr)) return error.ReadOnly;
         replaced += 1;
     }
@@ -297,20 +297,22 @@ fn runInstall() !void {
 
 /// Sobras da troca anterior (no Windows o executável velho só sai depois).
 pub fn cleanLeftovers() void {
-    const base_c = c.SDL_GetBasePath() orelse return;
-    const base = std.mem.span(base_c);
+    var sb: [1024]u8 = undefined;
+    const exe = selfPath(&sb) orelse return;
     for (files) |f| {
         var pb: [1100]u8 = undefined;
-        const old = std.fmt.bufPrintSentinel(&pb, "{s}{s}.old", .{ base, f.target }, 0) catch continue;
+        const old = at.place(&pb, exe, f, ".old", sys.windows) orelse continue;
         _ = c.SDL_RemovePath(old.ptr);
     }
 }
 
-/// Abre uma cópia nova do programa (no fim do `main`, depois de fechar tudo).
+/// Abre uma cópia nova do programa (no fim do `main`, depois de fechar tudo): o
+/// mesmo arquivo que estava rodando, que depois de uma atualização é a versão nova.
 pub fn spawnSelf() void {
-    const base_c = c.SDL_GetBasePath() orelse return;
+    var sb: [1024]u8 = undefined;
+    const exe = selfPath(&sb) orelse return;
     var pb: [1100]u8 = undefined;
-    const path = std.fmt.bufPrintSentinel(&pb, "{s}{s}", .{ std.mem.span(base_c), exe_name }, 0) catch return;
+    const path = std.fmt.bufPrintSentinel(&pb, "{s}", .{exe}, 0) catch return;
     const flag: [:0]const u8 = "--restarted";
     var argv = [_:null]?[*:0]const u8{ path.ptr, flag.ptr };
     if (c.SDL_CreateProcess(@ptrCast(&argv), false)) |p| c.SDL_DestroyProcess(p);
