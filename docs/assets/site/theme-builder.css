@@ -525,6 +525,7 @@ html:not(.js) [data-export-close],html:not(.js) .tbx-sheet .tbx-btns,html:not(.j
 .tbx-steps{margin:16px 0 0;padding-left:1.3em;font-size:13.5px;line-height:1.65;color:color-mix(in srgb,var(--text) 90%,var(--bg))}
 .tbx-steps li{margin:0 0 12px}
 .tbx-steps .code{margin:8px 0 0}
+.tbx-steps li>p{margin:8px 0 0}
 .tbx-steps kbd{font-size:.8em}
 .tbx-facts{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:8px;font-size:12.5px;color:var(--muted)}
 .tbx-facts li{padding:10px 12px;border-radius:var(--r);background:var(--bg);box-shadow:inset 0 0 0 1px var(--border)}

@@ -451,9 +451,10 @@ where anyone can see a live preview, open them in the theme builder or download 
 `themes/community/` in this repository.
 
 1. Make the theme in the [theme builder](https://rshacudevidro.github.io/larperCord/theme-builder.html), or by hand. In the
-   builder's **File info** tab, fill in the name, the author, a description and the license. The panel under the preview,
-   "Share it in the community gallery", lists anything still missing.
-2. Download the `.kdl`. The file is named after the theme: "Neon Dusk" becomes `neon-dusk.kdl`.
+   builder's **File** tab (or click the file name at the top), fill in the name, the author, a description and the
+   license. "Ready for the community gallery?", at the end of that tab, lists anything still missing.
+2. Download the `.kdl` with **Export** → **Download .kdl**. The file is named after the theme: "Neon Dusk" becomes
+   `neon-dusk.kdl`.
 3. Fork the repository, add the file to `themes/community/` and open a pull request. One theme per pull request.
 
 The `theme` node carries the metadata:
@@ -495,7 +496,7 @@ What is checked:
   fontconfig. On Windows it goes by a file in `C:\Windows\Fonts` named after the family, or else Segoe UI, Consolas
   or Georgia ([Fonts on Windows](#fonts-on-windows)), so check that your theme still looks right with those.
 - **An open license** from the list above. It tells people they may use and change the theme. If the colors came from
-  someone else's theme (the builder's "Import from Discord theme CSS", for example), that theme's license has to allow
+  someone else's theme (the builder's **Open** → "Colors from a Discord theme", for example), that theme's license has to allow
   it, and the description should credit its author.
 
 ## Design tips

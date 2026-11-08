@@ -300,7 +300,7 @@
     line("-- " + C("Where the plugin tells you things.", "Onde o plugin conta as coisas para você."));
     line("local function report(text)");
     if (f.settings) line("  if not active then return end");
-    line("  print(text) -- " + C("goes to the terminal, if you started larpercord from one", "vai para o terminal, se você abriu o larpercord por um"));
+    line("  print(text) -- " + C("goes to the terminal, or to the debug log file with Settings > Advanced > Save debug log on (the only way on Windows)", "vai para o terminal, ou para o arquivo do registro de depuração com Configurações > Avançado > Salvar registro de depuração ligado (o único jeito no Windows)"));
     if (f.notify) line("  larper.notify(short(text, 200))");
     if (f.panel) {
       line("  table.insert(log, 1, { title = short(text, 200), meta = os.date(\"%H:%M\") })");

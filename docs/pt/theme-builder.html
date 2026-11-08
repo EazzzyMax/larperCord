@@ -198,7 +198,7 @@
         <label class="tbx-lbl" for="tbx-f-mono">Fonte monoespaçada <code>fonts mono</code></label>
         <input id="tbx-f-mono" class="tbx-in" type="text" list="tbx-fonts-mono" spellcheck="false" autocomplete="off" data-f-mono>
         <div class="tbx-fonts" data-font-chips="mono"></div>
-        <p class="tbx-hint">Linux: qualquer família que o fontconfig conheça (<code>fc-list</code> mostra). Windows: um arquivo com esse nome em <code>C:\Windows\Fonts</code>, senão Segoe UI, Consolas ou Georgia. A prévia usa a fonte se o seu navegador tiver.</p>
+        <p class="tbx-hint">Linux: qualquer família que o fontconfig conheça (<code>fc-list</code> mostra). Windows: só <code>C:\Windows\Fonts</code>. Um arquivo com o nome da família em minúsculas, sem espaços (<code>Cascadia Code</code> → <code>cascadiacode.ttf</code>), vale para todos os pesos, então não tem negrito nem itálico de verdade. Senão, nomes com mono, code, consol, courier ou term viram Consolas, nomes com serif, georgia, times, garamond ou playfair (e sem sans) viram Georgia, DejaVu Sans e DejaVu Sans Mono viram Segoe UI Symbol, e o resto vira Segoe UI. Fontes instaladas só para o seu usuário não são vistas. A prévia usa a fonte se o seu navegador tiver.</p>
       </div>
       <div class="tbx-sec" data-s="size tamanho text texto base">
         <div class="tbx-slider"><label for="tbx-f-size">Tamanho do texto <code>size</code></label><input id="tbx-f-size" type="range" min="10" max="24" step="0.5" data-f-size><input class="tbx-num" type="number" min="6" max="72" step="0.5" aria-label="Tamanho do texto, em pixels" data-f-size-n></div>
@@ -209,7 +209,7 @@
         <div class="tbx-radii" data-radii></div>
       </div>
       <div class="tbx-sec" data-s="transparent transparente window janela blur glass vidro">
-        <label class="tbx-switch"><input type="checkbox" data-f-transparent><span class="tbx-sw-ui" aria-hidden="true"></span><span><b>Janela transparente</b> <code>window transparent</code><small>O fundo da janela deixa a área de trabalho aparecer, e o compositor aplica o blur (Hyprland, KDE…). Um <code>bg</code> translúcido já liga isto sozinho.</small></span></label>
+        <label class="tbx-switch"><input type="checkbox" data-f-transparent><span class="tbx-sw-ui" aria-hidden="true"></span><span><b>Janela transparente</b> <code>window transparent</code><small>O fundo da janela deixa a área de trabalho aparecer. No Linux, o compositor aplica o blur (Hyprland, KDE…). No Windows o app não pede desfoque, então não tem. Um <code>bg</code> translúcido já liga isto sozinho.</small></span></label>
         <p class="tbx-hint tbx-clear-note" data-f-clear-note hidden>Nada aparece por trás ainda: o <code>bg</code> é opaco nos dois modos, no app e na prévia. Baixe o alfa dele (A, no editor de cor) e a prévia desenha um papel de parede de exemplo atrás da janela.</p>
       </div>
       <div class="tbx-sec" data-s="thumbnail miniatura settings configurações preview">
@@ -354,9 +354,10 @@
           <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">mkdir</span> <span class="t-p">-p</span> ~/.config/larpercord/themes
 <span class="t-k">mv</span> ~/Downloads/<span data-fname>my-theme.kdl</span> ~/.config/larpercord/themes/</code></pre></div>
         </li>
-        <li>Se a pasta não existia antes, reinicie o larperCord uma vez: o app vigia as pastas de tema que existem quando ele abre. Daí em diante, salvar o arquivo recarrega a janela.</li>
+        <li>Se a pasta não existia antes, reinicie o larperCord uma vez: Configurações → Atualizações → Reiniciar o larperCord, ou Sair no menu do ícone da bandeja e abrir de novo (com bandeja, fechar a janela só manda o app para lá). O app vigia as pastas de tema que existem quando ele abre. Daí em diante, salvar o arquivo recarrega a janela.</li>
         <li>Escolha com <kbd>F2</kbd>, pela paleta (<kbd>Ctrl</kbd><kbd>K</kbd> → "tema: <span data-tname>my-theme</span>") ou em Configurações → Aparência. Ou abra o app com ele:
           <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">larpercord</span> <span class="t-p">--theme</span> <span data-tname>my-theme</span></code></pre></div>
+          <p>Isso só funciona com o larperCord fechado. Se ele estiver na bandeja, abrir de novo só traz a janela de volta, então saia dele antes.</p>
         </li>
       </ol>
     </div>
@@ -366,14 +367,17 @@
           <div class="code" data-lang="powershell"><span class="code-lang">powershell</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">New-Item</span> <span class="t-p">-ItemType</span> Directory <span class="t-p">-Force</span> <span class="t-s">"$env:APPDATA\larpercord\themes"</span> | <span class="t-k">Out-Null</span>
 <span class="t-k">Move-Item</span> <span class="t-s">"$HOME\Downloads\<span data-fname>my-theme.kdl</span>"</span> <span class="t-s">"$env:APPDATA\larpercord\themes\"</span></code></pre></div>
         </li>
-        <li>Se a pasta não existia antes, feche e abra o larperCord uma vez: o app vigia as pastas de tema que existem quando ele abre. Daí em diante, salvar o arquivo recarrega a janela.</li>
-        <li>Escolha com <kbd>F2</kbd>, pela paleta (<kbd>Ctrl</kbd><kbd>K</kbd> → "tema: <span data-tname>my-theme</span>") ou em Configurações → Aparência. Ou abra pelo terminal com <code>larpercord.exe --theme <span data-tname>my-theme</span></code>.</li>
+        <li>Se a pasta não existia antes, reinicie o larperCord uma vez: Configurações → Atualizações → Reiniciar o larperCord. Fechar a janela não basta, porque por padrão ela só esconde o app na bandeja (para sair por lá, clique com o botão direito no ícone da bandeja, escolha Sair e abra de novo). O app vigia as pastas de tema que existem quando ele abre. Daí em diante, salvar o arquivo recarrega a janela. Dica: cole <code>%APPDATA%\larpercord\themes</code> na barra de endereço do Explorador de Arquivos para abrir a pasta.</li>
+        <li>Escolha com <kbd>F2</kbd>, pela paleta (<kbd>Ctrl</kbd><kbd>K</kbd> → "tema: <span data-tname>my-theme</span>") ou em Configurações → Aparência. Ou abra o app com ele pelo PowerShell (é onde o script de instalação coloca o app; pelo zip, rode <code>.\larpercord.exe --theme <span data-tname>my-theme</span></code> na pasta dele):
+          <div class="code" data-lang="powershell"><span class="code-lang">powershell</span><button class="copy" type="button" data-copy>copy</button><pre><code>&amp; <span class="t-s">"$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe"</span> <span class="t-p">--theme</span> <span data-tname>my-theme</span></code></pre></div>
+          <p>Isso só funciona com o larperCord fechado. Se ele estiver na bandeja, abrir de novo só traz a janela de volta, então saia dele antes.</p>
+        </li>
       </ol>
     </div>
     <ul class="tbx-facts">
       <li>O app lista um tema pelo <strong>nome do arquivo</strong>. Um arquivo com o nome de um tema embutido (por exemplo <code>orbital.kdl</code>) fica no lugar dele.</li>
       <li>Se o arquivo tiver um erro, um aviso mostra <code>arquivo:linha:coluna</code> e o tema anterior continua na tela.</li>
-      <li>As cores vão escritas por inteiro nos dois modos, então o arquivo não depende do pywal. Para seguir o wallpaper, edite à mão com <code>palette "wal"</code> (<a href="../pt/guide/themes.html">referência de temas</a>).</li>
+      <li>As cores vão escritas por inteiro nos dois modos, então o arquivo não depende do pywal. Para seguir o wallpaper no Linux, edite à mão com <code>palette "wal"</code> (<a href="../pt/guide/themes.html">referência de temas</a>). No Windows o app só lê as cores do pywal quando a variável <code>HOME</code> existe, e não acompanha as mudanças ao vivo.</li>
     </ul>
     <div class="tbx-xshare"><button type="button" class="tbx-link" data-goto="file"><i data-ic="users"></i><span data-export-ready></span></button></div>
   </div>
