@@ -30,6 +30,8 @@
   <nav aria-label="Main">
     <a href="../#themes">Themes</a>
     <a href="../#playground">Playground</a>
+    <a href="../theme-builder.html">Theme builder</a>
+    <a href="../community-themes.html">Community</a>
     <a href="../#features">Features</a>
     <a href="../guide/vs-discord.html">vs. Discord</a>
     <a href="../guide/getting-started.html" aria-current="page">Guide</a>
@@ -54,7 +56,8 @@
 <p>The QA drives the real UI: it clicks through elements, and a button with no effect counts as a failure. It runs in demo mode, without a window, and never touches your account.</p>
 <p>CI (<code>.github/workflows/ci.yml</code>) runs the tests, then builds the app on Arch and runs the full QA on every push and pull request.</p>
 <h2 id="sending-a-theme"><a class="anchor" href="#sending-a-theme" aria-hidden="true">#</a>Sending a theme</h2>
-<p>A theme is the easiest way to contribute: one <code>.kdl</code> file and no Zig. <code>zig build test</code> loads every built-in theme and builds its layout, so a new one gets checked automatically. Read <a href="../guide/themes.html">Writing themes</a>, especially the design tips at the end.</p>
+<p>A theme is the easiest way to contribute: one <code>.kdl</code> file and no Zig. Read <a href="../guide/themes.html">Writing themes</a>, especially the design tips at the end.</p>
+<p>To share it with everyone, add it to <code>themes/community/</code> in a pull request: it shows up in the <a href="../community-themes.html">community gallery</a> with a live preview. <a href="../guide/themes.html#sharing-your-theme">Sharing your theme</a> has the steps, the metadata the file needs and what is checked. <code>python3 tools/gen_site.py</code> stops on a broken community theme, and CI runs that check on every pull request.</p>
 <p>To add one as built-in, put the file in <code>themes/</code> and add its name to <code>theme_names</code> in <code>build.zig</code> and to <code>themes/builtin.zig</code>.</p>
 <h2 id="sending-code"><a class="anchor" href="#sending-code" aria-hidden="true">#</a>Sending code</h2>
 <ul><li>Keep the layers apart: <code>core/</code> knows nothing about windows, and the UI never changes data directly.</li><li>Keep it light. Don't add work per frame, per message or per keystroke when nothing is using it, and remember the loop is supposed to sleep.</li><li>Test the pure parts in <code>zig build test</code>, and add a step to the QA for UI behavior.</li><li>Run <code>tools/qa.sh</code> before opening a pull request.</li><li>Code comments and identifiers in this repository are mostly in Portuguese, so follow the file you're editing.</li></ul>

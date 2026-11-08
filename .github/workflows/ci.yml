@@ -104,3 +104,19 @@ jobs:
         with:
           name: qa-out
           path: qa-out/
+
+  # O site: cada tema de themes/community/ com as regras do app e da galeria (metadados,
+  # nome único, sem cópia de tema embutido) e o teste do criador de temas, que carrega cada
+  # um como o app. Um tema quebrado num pull request falha aqui, antes de chegar ao Pages.
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: python3 tools/gen_site.py --check-community
+      - run: node tools/theme_builder_test.js

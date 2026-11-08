@@ -1,0 +1,31 @@
+/* Galeria da comunidade. Os cartões usam a prévia do criador (theme-builder.css: .tb-screen, .tb-frame, .pv-*). */
+.cg-bar{display:flex;align-items:center;gap:12px;margin-top:36px;font:400 12px var(--mono);color:var(--muted)}
+.cg-count{margin-left:auto}
+.cg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));gap:clamp(16px,2.4vw,28px);margin-top:14px}
+.cg-card{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:calc(var(--radius) + 4px);background:var(--surface);overflow:hidden;min-width:0}
+.cg-card .cg-screen{margin:0;border:0;border-bottom:1px solid var(--border);border-radius:0;box-shadow:none}
+/* Sem a prévia (sem JS ou antes de desenhar): uma faixa com as cores do tema no modo escuro. */
+.cg-swatches{position:absolute;inset:0;display:flex}
+.cg-swatches i{flex:1}
+.cg-live .cg-swatches{display:none}
+.cg-body{display:flex;flex-direction:column;gap:6px;padding:14px 16px 16px;flex:1}
+.cg-name{font:600 18px/1.25 var(--sans);margin:0;overflow-wrap:anywhere}
+.cg-meta{margin:0;font:400 12px/1.5 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.cg-meta strong{color:var(--text);font-weight:500}
+.cg-meta code{font-size:11.5px}
+.cg-desc{margin:2px 0 0;font-size:14px;line-height:1.55;color:color-mix(in srgb,var(--text) 88%,var(--bg));overflow-wrap:anywhere}
+.cg-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:auto;padding-top:10px}
+.cg-actions .tb-b{text-decoration:none}
+.cg-src{margin-left:auto;font:400 12px var(--mono);color:var(--link)}
+.cg-empty{margin-top:clamp(40px,6vw,72px);padding:clamp(22px,4vw,40px);border:1px dashed var(--border);border-radius:calc(var(--radius) + 6px);background:var(--surface);max-width:880px}
+.cg-empty .h{font-size:clamp(26px,3.6vw,40px);margin:0 0 12px}
+.cg-empty .lede{max-width:64ch;margin:0}
+.cg-empty .lede code,.cg-send code{background:var(--code-bg);border:1px solid var(--border);padding:.02em .32em;border-radius:3px;color:var(--text);font-size:.86em;overflow-wrap:anywhere}
+.cg-empty-actions{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0 0}
+.cg-empty-actions .tb-b{text-decoration:none;font-size:13px;padding:8px 14px}
+.cg-send .tb-steps a,.cg-send .tb-facts a,.cg-more a,.cg .lede a{color:var(--link)}
+.cg-more{margin-top:18px}
+@media (max-width:620px){
+  .cg-bar{flex-wrap:wrap}
+  .cg-src{margin-left:0}
+}

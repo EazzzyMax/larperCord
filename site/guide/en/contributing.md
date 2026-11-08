@@ -25,7 +25,9 @@ CI (`.github/workflows/ci.yml`) runs the tests, then builds the app on Arch and 
 
 ## Sending a theme
 
-A theme is the easiest way to contribute: one `.kdl` file and no Zig. `zig build test` loads every built-in theme and builds its layout, so a new one gets checked automatically. Read [Writing themes](page:themes), especially the design tips at the end.
+A theme is the easiest way to contribute: one `.kdl` file and no Zig. Read [Writing themes](page:themes), especially the design tips at the end.
+
+To share it with everyone, add it to `themes/community/` in a pull request: it shows up in the [community gallery](community:) with a live preview. [Sharing your theme](page:themes#sharing-your-theme) has the steps, the metadata the file needs and what is checked. `python3 tools/gen_site.py` stops on a broken community theme, and CI runs that check on every pull request.
 
 To add one as built-in, put the file in `themes/` and add its name to `theme_names` in `build.zig` and to `themes/builtin.zig`.
 

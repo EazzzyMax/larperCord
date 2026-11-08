@@ -12,6 +12,12 @@ notice shows `file:line:column` and the previous theme stays in effect.
 
 Switch themes with `F2`, from the palette (`Ctrl+K` → "theme: …") or in Settings → Appearance.
 
+Prefer clicking to typing? The [theme builder](https://rshacudevidro.github.io/larperCord/theme-builder.html) on the site
+starts from any built-in theme, edits colors, fonts and layout with a live preview, checks contrast and gives you the `.kdl`.
+It can also take the colors of a BetterDiscord or Vencord theme. Themes other people made are in the
+[community gallery](https://rshacudevidro.github.io/larperCord/community-themes.html), and
+[Sharing your theme](#sharing-your-theme) explains how to add yours.
+
 ## Minimal example
 
 ```kdl
@@ -394,7 +400,58 @@ options {
 - [`cupertino.kdl`](cupertino.kdl): Mac-style desktop, with wallpaper, floating window, traffic lights and Dock
 
 The tests (`zig build test`) load every built-in theme and build the layout of each one.
-If you send a new theme in a pull request, it's checked automatically.
+To share a theme of your own, send it to the community gallery (next section).
+
+## Sharing your theme
+
+Finished themes can go in the [community gallery](https://rshacudevidro.github.io/larperCord/community-themes.html),
+where anyone can see a live preview, open them in the theme builder or download the `.kdl`. The gallery is built from
+`themes/community/` in this repository.
+
+1. Make the theme in the [theme builder](https://rshacudevidro.github.io/larperCord/theme-builder.html), or by hand. In the
+   builder's **File info** tab, fill in the name, the author, a description and the license. The panel under the preview,
+   "Share it in the community gallery", lists anything still missing.
+2. Download the `.kdl`. The file is named after the theme: "Neon Dusk" becomes `neon-dusk.kdl`.
+3. Fork the repository, add the file to `themes/community/` and open a pull request. One theme per pull request.
+
+The `theme` node carries the metadata:
+
+```kdl
+theme "Neon Dusk" author="your name" description-en="Purple dusk over a dark city." description="Crepúsculo roxo sobre uma cidade escura." license="CC0-1.0" preview=classic
+```
+
+| Field | Rule |
+|---|---|
+| name (the first argument) | up to 48 characters. The file name is the name in lowercase with hyphens (`neon-dusk.kdl`) |
+| `author=` | your name or handle, up to 80 characters |
+| `description-en=` / `description=` | at least one (English or Portuguese), up to 240 characters each. Both is best |
+| `license=` | an open license from the list below, written as its [SPDX identifier](https://spdx.org/licenses/). The app ignores it |
+| `preview=` | optional, one of the thumbnails listed in [Top-level nodes](#top-level-nodes) |
+
+The licenses the gallery takes, alone or joined with `AND` / `OR` (`GPL-3.0-or-later OR MIT`): `CC0-1.0`,
+`CC-BY-4.0`, `CC-BY-SA-4.0`, `CC-BY-3.0`, `CC-BY-SA-3.0`, `MIT`, `MIT-0`, `ISC`, `0BSD`, `BSD-2-Clause`,
+`BSD-3-Clause`, `Apache-2.0`, `MPL-2.0`, `Zlib`, `Unlicense`, `WTFPL`, `EUPL-1.2`, `GPL-2.0-only`, `GPL-2.0-or-later`,
+`GPL-3.0-only`, `GPL-3.0-or-later`, `LGPL-2.1-only`, `LGPL-2.1-or-later`, `LGPL-3.0-only`, `LGPL-3.0-or-later`,
+`AGPL-3.0-only` and `AGPL-3.0-or-later`. All of them let people use and change the theme.
+
+What is checked:
+
+- **It has to load in the app.** `python3 tools/gen_site.py` reads every file in `themes/community/` with the app's rules
+  (syntax, color tokens, color expressions, component names, the metadata above) and stops with `file:line:column` at
+  the first problem, so a broken file fails the site build. `node tools/theme_builder_test.js` then loads each theme
+  with the site's copy of the app's theme loader (`docs/assets/site/theme-builder-core.js`), in both modes and with
+  every option. CI runs both on every pull request. You can run the same check before sending:
+  `python3 tools/gen_site.py --check-community`. To see it in the app itself, put the file in your themes folder and
+  run `larpercord --theme neon-dusk`.
+- **A name of its own.** Not the name of a built-in theme (a file called `orbital.kdl` would take its place in the app)
+  and not one already in the gallery. A built-in theme with only the name changed is turned away: change its colors or
+  its layout.
+- **No copyrighted logos or fonts.** Only `.kdl` files go in the folder, so no images or font files. Don't redraw
+  someone else's logo or wordmark with `label`, `shape` or ASCII art, and only name fonts people can get freely: fonts
+  are looked up by family on the user's system and never ship with the theme.
+- **An open license** from the list above. It tells people they may use and change the theme. If the colors came from
+  someone else's theme (the builder's "Import from Discord theme CSS", for example), that theme's license has to allow
+  it, and the description should credit its author.
 
 ## Design tips
 

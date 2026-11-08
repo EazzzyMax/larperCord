@@ -30,6 +30,8 @@
   <nav aria-label="Principal">
     <a href="../../pt/#themes">Temas</a>
     <a href="../../pt/#playground">Playground</a>
+    <a href="../../pt/theme-builder.html">Criar tema</a>
+    <a href="../../pt/community-themes.html">Comunidade</a>
     <a href="../../pt/#features">Recursos</a>
     <a href="../../pt/guide/vs-discord.html">vs. Discord</a>
     <a href="../../pt/guide/getting-started.html" aria-current="page">Guia</a>
@@ -54,7 +56,8 @@
 <p>O QA controla a interface de verdade: ele clica nos elementos, e um botão sem efeito conta como falha. Roda em modo demonstração, sem janela, e nunca toca na sua conta.</p>
 <p>O CI (<code>.github/workflows/ci.yml</code>) roda os testes, depois compila o app no Arch e roda o QA completo a cada push e pull request.</p>
 <h2 id="enviando-um-tema"><a class="anchor" href="#enviando-um-tema" aria-hidden="true">#</a>Enviando um tema</h2>
-<p>Um tema é o jeito mais fácil de contribuir: um arquivo <code>.kdl</code> e nada de Zig. O <code>zig build test</code> carrega todos os temas embutidos e monta o layout de cada um, então um tema novo é verificado automaticamente. Leia <a href="../../pt/guide/themes.html">Escrevendo temas</a>, principalmente as dicas de design no final.</p>
+<p>Um tema é o jeito mais fácil de contribuir: um arquivo <code>.kdl</code> e nada de Zig. Leia <a href="../../pt/guide/themes.html">Escrevendo temas</a>, principalmente as dicas de design no final.</p>
+<p>Para compartilhar com todo mundo, coloque ele em <code>themes/community/</code> num pull request: ele aparece na <a href="../../pt/community-themes.html">galeria da comunidade</a> com prévia ao vivo. <a href="../../pt/guide/themes.html#compartilhar-seu-tema">Compartilhar seu tema</a> tem os passos, os metadados que o arquivo precisa e o que é conferido. O <code>python3 tools/gen_site.py</code> para num tema da comunidade quebrado, e o CI roda essa checagem em todo pull request.</p>
 <p>Para incluir um como embutido, ponha o arquivo em <code>themes/</code> e acrescente o nome dele em <code>theme_names</code> no <code>build.zig</code> e em <code>themes/builtin.zig</code>.</p>
 <h2 id="enviando-codigo"><a class="anchor" href="#enviando-codigo" aria-hidden="true">#</a>Enviando código</h2>
 <ul><li>Mantenha as camadas separadas: o <code>core/</code> não sabe nada de janelas, e a interface nunca muda dados diretamente.</li><li>Mantenha leve. Não acrescente trabalho por quadro, por mensagem ou por tecla quando ninguém está usando, e lembre que o laço deve dormir.</li><li>Teste as partes puras no <code>zig build test</code> e acrescente um passo ao QA para o comportamento da interface.</li><li>Rode o <code>tools/qa.sh</code> antes de abrir um pull request.</li><li>Os comentários e identificadores do código deste repositório estão, em sua maioria, em português, então siga o arquivo que você está editando.</li></ul>
