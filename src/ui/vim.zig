@@ -16,6 +16,10 @@ pub var composer_active = false;
 var keep_blur = false;
 /// Primeiro `g` do `gg` (ms).
 var g_at: i64 = 0;
+/// Até quanto depois do primeiro `g` o segundo ainda faz `gg`. O QA multiplica pelo
+/// QA_SLOW: cada tecla do roteiro leva alguns quadros, e sem GPU (no wine, a uns 6 quadros
+/// por segundo) os dois `g` chegavam mais de 700 ms separados.
+pub var gg_ms: i64 = 700;
 
 const line_step: f32 = 64;
 
@@ -65,7 +69,7 @@ pub fn keys(ctx: *d.Ctx) void {
     if (pressed(c.ImGuiKey_G)) {
         if (shift) {
             edge(ctx, false);
-        } else if (ctx.now_ms - g_at < 700) {
+        } else if (ctx.now_ms - g_at < gg_ms) {
             edge(ctx, true);
             g_at = 0;
         } else g_at = ctx.now_ms;

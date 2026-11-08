@@ -3707,6 +3707,8 @@ pub const Runner = struct {
         if (r.started_ms == 0) {
             r.started_ms = now();
             r.step_ms = now();
+            // A janela do `gg` é tempo de relógio, como os limites das etapas.
+            @import("ui/vim.zig").gg_ms = slowed(@import("ui/vim.zig").gg_ms);
             std.debug.print("\nlarperCord — QA automático\n", .{});
         }
         const list = script();
