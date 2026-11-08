@@ -34,8 +34,8 @@ const gpa = std.heap.c_allocator;
 
 const Pending = struct { nonce: u64 = 0, msg: Id = 0, key: u64 = 0, at: i64 = 0 };
 var pending: [8]Pending = @splat(.{});
-/// Sem resposta do Discord até aqui: dá a interação por falha.
-const timeout_ms: i64 = 12_000;
+/// Sem resposta do Discord até aqui: dá a interação por falha (a rede não manda depois).
+const timeout_ms = ix.timeout_ms;
 
 /// Nonces que mandamos há pouco: um modal só abre se for resposta a um deles.
 var recent: [8]Pending = @splat(.{});
@@ -81,6 +81,13 @@ fn sentRecently(nonce: u64, now_ms: i64) bool {
     if (nonce == 0) return false;
     for (recent) |r| if (r.nonce == nonce and now_ms - r.at < 60_000) return true;
     return false;
+}
+
+/// A mensagem de um clique recente (0 = não foi numa mensagem, ou já saiu da lista).
+fn recentMsg(nonce: u64) Id {
+    if (nonce == 0) return 0;
+    for (recent) |r| if (r.nonce == nonce) return r.msg;
+    return 0;
 }
 
 fn takePending(nonce: u64) ?Pending {
@@ -153,7 +160,7 @@ fn msgCtx(ctx: *d.Ctx) ?MsgCtx {
 fn sendComponent(ctx: *d.Ctx, mc: MsgCtx, kind: u8, custom_id: []const u8, values: ?[]const []const u8) void {
     const data = ix.componentData(gpa, kind, custom_id, values) catch return;
     const nonce = nextNonce(ctx.now_ms);
-    send(ctx, .{ .kind = .component, .app = mc.app, .guild = mc.guild, .channel = mc.channel, .message = mc.msg, .message_flags = mc.flags, .nonce = nonce, .data = data });
+    send(ctx, .{ .kind = .component, .app = mc.app, .guild = mc.guild, .channel = mc.channel, .message = mc.msg, .message_flags = mc.flags, .nonce = nonce, .data = data, .sent_ms = ctx.now_ms });
     addPending(nonce, mc.msg, keyOf(custom_id), ctx.now_ms);
     clearFailed(ctx.store, mc.msg);
 }
@@ -625,7 +632,12 @@ pub fn appCommands(ctx: *d.Ctx, ch_id: Id, out: []Found) usize {
 pub fn onEvent(st: *State, store: *Store, e: ix.Event) void {
     switch (e) {
         .created => {},
-        .succeeded => |x| _ = takePending(x.nonce),
+        .succeeded => |x| if (takePending(x.nonce) == null) {
+            // O pedido saiu antes do prazo e a resposta veio depois: a ação rodou, então a
+            // mensagem não fica marcada como falha.
+            const msg = recentMsg(x.nonce);
+            if (msg != 0) clearFailed(store, msg);
+        },
         .failed => |x| if (takePending(x.nonce)) |p| {
             if (p.msg != 0) markFailed(store, p.msg) else st.showToast(anim.now_ms, true, "a interação falhou", "the interaction failed", .{});
         },
@@ -988,7 +1000,7 @@ fn submitModal(ctx: *d.Ctx, ms: *ModalState) void {
     for (m.fields, 0..) |_, i| vals[i] = fieldValue(arena.allocator(), ms, i) catch return;
     const data = ix.modalData(gpa, m, vals[0..m.fields.len]) catch return;
     const nonce = nextNonce(ctx.now_ms);
-    send(ctx, .{ .kind = .modal_submit, .app = m.app, .guild = ms.guild, .channel = m.channel, .nonce = nonce, .data = data });
+    send(ctx, .{ .kind = .modal_submit, .app = m.app, .guild = ms.guild, .channel = m.channel, .nonce = nonce, .data = data, .sent_ms = ctx.now_ms });
     addPending(nonce, 0, 0, ctx.now_ms);
     closeModal();
 }
@@ -1441,7 +1453,7 @@ fn requestAutocomplete(ctx: *d.Ctx, fs: *FormState) void {
     }
     const data = ix.commandData(gpa, fs.cmd, fs.path[0..fs.path_len], vals[0..n], &.{}) catch return;
     const nonce = nextNonce(ctx.now_ms);
-    send(ctx, .{ .kind = .autocomplete, .app = fs.cmd.app, .guild = fs.guild, .channel = fs.channel, .nonce = nonce, .data = data });
+    send(ctx, .{ .kind = .autocomplete, .app = fs.cmd.app, .guild = fs.guild, .channel = fs.channel, .nonce = nonce, .data = data, .sent_ms = ctx.now_ms });
     fs.ac_nonce = nonce;
     fs.ac_shown = i;
     if (fs.ac_list) |old| {
@@ -1488,7 +1500,7 @@ fn submitForm(ctx: *d.Ctx, fs: *FormState) void {
         files = list;
     }
     const nonce = nextNonce(ctx.now_ms);
-    send(ctx, .{ .kind = .command, .app = fs.cmd.app, .guild = fs.guild, .channel = fs.channel, .nonce = nonce, .data = data, .files = files });
+    send(ctx, .{ .kind = .command, .app = fs.cmd.app, .guild = fs.guild, .channel = fs.channel, .nonce = nonce, .data = data, .files = files, .sent_ms = ctx.now_ms });
     addPending(nonce, 0, 0, ctx.now_ms);
     // O arquivo foi com o comando: sai da bandeja (a imagem colada fica; ela
     // é um arquivo temporário que a bandeja apagaria antes do envio).

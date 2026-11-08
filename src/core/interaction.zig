@@ -668,6 +668,10 @@ pub fn checkOption(o: *const CmdOption, text: []const u8) Problem {
 
 // --- Corpos do POST /interactions ----------------------------------------------------
 
+/// Sem resposta do Discord até aqui, a interface dá a interação por falha e o botão
+/// pode ser clicado de novo. A rede usa o mesmo prazo: depois dele o pedido não sai mais.
+pub const timeout_ms: i64 = 12_000;
+
 /// Pedido pronto para ir ao Discord. `data` é o objeto `data` em JSON.
 pub const Send = struct {
     kind: Kind,
@@ -681,7 +685,20 @@ pub const Send = struct {
     data: []const u8,
     /// Opções de anexo: caminhos dos arquivos (files[n]).
     files: []const [:0]const u8 = &.{},
+    /// Quando a pessoa clicou ou enviou (o relógio do app): o prazo conta daqui.
+    sent_ms: i64,
 };
+
+/// Até quando o pedido ainda pode sair.
+pub fn deadline(s: Send) i64 {
+    return s.sent_ms + timeout_ms;
+}
+
+/// A interface já deu esta interação por falha: mandar agora faria a ação rodar
+/// atrasada, ou duas vezes se a pessoa clicou de novo.
+pub fn expired(s: Send, now_ms: i64) bool {
+    return now_ms >= deadline(s);
+}
 
 /// De onde vem o índice de comandos: do servidor, do canal (DM) ou da conta.
 pub const Scope = struct {
@@ -917,7 +934,7 @@ test "payload de componente tem os campos do Discord" {
     const data = try componentData(gpa, 3, "cor:\"x\"", &.{ "azul", "verde" });
     defer gpa.free(data);
     try testing.expectEqualStrings("{\"component_type\":3,\"custom_id\":\"cor:\\\"x\\\"\",\"values\":[\"azul\",\"verde\"]}", data);
-    const body = try payload(gpa, .{ .kind = .component, .app = 11, .guild = 22, .channel = 33, .message = 44, .message_flags = 64, .nonce = 55, .data = data }, "sess");
+    const body = try payload(gpa, .{ .kind = .component, .app = 11, .guild = 22, .channel = 33, .message = 44, .message_flags = 64, .nonce = 55, .data = data, .sent_ms = 0 }, "sess");
     defer gpa.free(body);
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -933,12 +950,22 @@ test "payload de componente tem os campos do Discord" {
     try testing.expectEqualStrings("azul", j.str(j.array(j.get(j.get(v, "data").?, "values"))[0]).?);
 }
 
+test "interação velha não sai: o prazo é o mesmo da interface" {
+    const s: Send = .{ .kind = .component, .app = 1, .channel = 2, .nonce = 3, .data = "{}", .sent_ms = 50_000 };
+    try testing.expect(!expired(s, 50_000));
+    try testing.expect(!expired(s, 50_000 + timeout_ms - 1));
+    // Na fila durante uma reconexão ou uma espera de rate limit: vence junto com a interface.
+    try testing.expect(expired(s, 50_000 + timeout_ms));
+    try testing.expect(expired(s, 50_000 + 60_000));
+    try testing.expectEqual(@as(i64, 50_000 + timeout_ms), deadline(s));
+}
+
 test "botão: sem values; comando em DM: sem guild_id nem message_id" {
     const gpa = testing.allocator;
     const data = try componentData(gpa, 2, "ping", null);
     defer gpa.free(data);
     try testing.expectEqualStrings("{\"component_type\":2,\"custom_id\":\"ping\"}", data);
-    const body = try payload(gpa, .{ .kind = .command, .app = 1, .channel = 2, .nonce = 3, .data = "{}" }, "");
+    const body = try payload(gpa, .{ .kind = .command, .app = 1, .channel = 2, .nonce = 3, .data = "{}", .sent_ms = 0 }, "");
     defer gpa.free(body);
     try testing.expectEqualStrings("{\"type\":2,\"application_id\":\"1\",\"channel_id\":\"2\",\"nonce\":\"3\",\"data\":{}}", body);
 }

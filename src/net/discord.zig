@@ -137,6 +137,9 @@ pub const Gateway = struct {
     global_until: i64 = 0,
     /// `X-Audit-Log-Reason` do próximo pedido (moderação), já em URL.
     audit_reason: ?[:0]const u8 = null,
+    /// Prazo do próximo pedido (interação com bot): uma espera de rate limit que passe
+    /// dele desiste em vez de mandar atrasado (0 = sem prazo).
+    deadline_ms: i64 = 0,
     /// Comandos que chegaram enquanto o gateway estava reconectando ou
     /// esperando rate limit. São enviados quando a conexão volta.
     pending: std.ArrayList(ev.Command) = .empty,
@@ -2439,6 +2442,9 @@ pub const Gateway = struct {
         switch (cmd) {
             .send => |s| {
                 const failed: ev.Event = .{ .interaction = .{ .failed = .{ .nonce = s.nonce } } };
+                // Esperou demais na fila (reconexão, rate limit, upload em andamento): a
+                // interface já mostrou "falhou" e o botão pode ter sido clicado de novo.
+                if (interaction.expired(s, nowMs())) return g.emit(failed);
                 const body = interaction.payload(alloc, s, g.session_id[0..g.session_len]) catch return g.emit(failed);
                 defer alloc.free(body);
                 var mime: ?*c.curl_mime = null;
@@ -2458,6 +2464,7 @@ pub const Gateway = struct {
                         _ = c.curl_mime_filedata(fp, f.ptr);
                     }
                 }
+                g.deadline_ms = interaction.deadline(s);
                 var resp = g.requestEx("POST", "/interactions", if (mime == null) body else null, mime) orelse return g.emit(failed);
                 defer resp.body.deinit(alloc);
                 if (resp.status >= 300) {
@@ -2968,9 +2975,11 @@ pub const Gateway = struct {
 
     /// `mime`: corpo multipart (envio de arquivos) no lugar do JSON.
     fn requestEx(g: *Gateway, method: [:0]const u8, path: []const u8, body: ?[]const u8, mime: ?*c.curl_mime) ?Response {
-        // O motivo é só deste pedido: um pedido feito durante uma espera não o herda.
+        // O motivo e o prazo são só deste pedido: um pedido feito durante uma espera não os herda.
         const audit = g.audit_reason;
         g.audit_reason = null;
+        const deadline = g.deadline_ms;
+        g.deadline_ms = 0;
         const h = g.rest orelse return null;
         if (!validToken(g.token)) {
             g.notice("token inválido", "invalid token", .{});
@@ -3004,9 +3013,13 @@ pub const Gateway = struct {
                     g.noticeBlocked(until);
                     return null;
                 }
+                // Com prazo: a espera passaria dele, e o pedido sairia depois de a interface
+                // já ter desistido.
+                if (deadline != 0 and until >= deadline) return null;
                 g.sleepServing(@intCast(until - now));
                 if (g.stopping) return null;
             }
+            if (deadline != 0 and nowMs() >= deadline) return null;
 
             var headers: ?*c.struct_curl_slist = null;
             headers = c.curl_slist_append(headers, auth.ptr);
@@ -3060,6 +3073,8 @@ pub const Gateway = struct {
             _ = c.curl_easy_setopt(h, c.CURLOPT_HEADERFUNCTION, headerCb);
             _ = c.curl_easy_setopt(h, c.CURLOPT_HEADERDATA, &rate);
             _ = c.curl_easy_setopt(h, c.CURLOPT_TIMEOUT, @as(c_long, if (mime != null) 180 else 20));
+            // Com prazo, a conexão também: sem isso uma rede travada mandaria o pedido depois dele.
+            if (deadline != 0) _ = c.curl_easy_setopt(h, c.CURLOPT_CONNECTTIMEOUT_MS, @as(c_long, @intCast(std.math.clamp(deadline - nowMs(), 1, 60_000))));
             _ = c.curl_easy_setopt(h, c.CURLOPT_ACCEPT_ENCODING, "");
             g.abortable(h);
             if (mime) |mp| {
@@ -3112,6 +3127,7 @@ pub const Gateway = struct {
                 // Quem pediu não quer repetição: devolve o 429 para ele explicar.
                 if (g.no_retry) return resp;
                 resp.body.deinit(alloc);
+                if (deadline != 0 and retry_at >= deadline) return null;
                 if (wait_ms > long_block_ms) {
                     g.noticeBlocked(retry_at);
                     return null;
