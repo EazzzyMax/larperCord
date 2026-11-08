@@ -1352,7 +1352,6 @@
 "the folder has FFmpeg, but it didn't load: the reason is under Videos" "フォルダーにFFmpegがありますが、読み込めませんでした。理由は「動画」に表示されます"
 "The group already has {d} people, the limit." "グループはすでに上限の{d}人です。"
 "the house favorite" "いちばん人気"
-"The icon stays in the system tray while the app runs, with Open and Quit in its menu, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app." "アプリの実行中はアイコンがシステムトレイに残り、メニューには「開く」と「終了」があります。ウィンドウを閉じてもアプリは接続を維持します。オフの場合、アイコンは表示されず、ウィンドウを閉じるとアプリが終了します。"
 "The icon stays in the system tray while the app runs: clicking it shows or hides the window, its menu has Open and Quit, and closing the window keeps the app connected there. When off, there's no icon and closing quits the app." "アプリの実行中はアイコンがシステムトレイに残ります。クリックでウィンドウの表示/非表示を切り替え、メニューには「開く」と「終了」があります。ウィンドウを閉じてもアプリは接続を維持します。オフの場合、アイコンは表示されず、ウィンドウを閉じるとアプリが終了します。"
 "the image is over 10 MB" "画像が10 MBを超えています"
 "the interaction failed" "インタラクションに失敗しました"
