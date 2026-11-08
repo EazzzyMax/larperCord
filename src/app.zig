@@ -2436,10 +2436,10 @@ pub const App = struct {
             var got = if (busy or wait <= 0)
                 c.SDL_PollEvent(&e)
             else if (due != std.math.maxInt(i64))
-                c.SDL_WaitEventTimeout(&e, @intCast(@min(wait, 1000)))
+                c.SDL_WaitEventTimeout(&e, @intCast(anim.sleepFor(wait)))
             else
                 c.SDL_WaitEvent(&e);
-            // Acordou só porque o teto de 1 s da espera venceu.
+            // Acordou só porque o teto da espera venceu (ver anim.sleepFor).
             const timed_out = !got and !busy and wait > 0;
             var input = false;
             while (got) {
