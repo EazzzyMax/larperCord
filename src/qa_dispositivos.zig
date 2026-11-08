@@ -73,6 +73,13 @@ fn tZenMe(app: *App, _: []u8) []const u8 {
     return if (isZen(app)) "status-me" else "";
 }
 
+/// O nome (e o status) no painel do usuário tem espaço ao lado dos botões (nos temas
+/// de terminal, os rótulos [mic] [fone] encurtam quando o painel é estreito).
+fn nameRoom(app: *App) bool {
+    if (!hasPanel(app)) return true;
+    const r = qa.find("me") orelse return false;
+    return r.w >= 100;
+}
 fn micMenu(app: *App) bool {
     return switch (app.st.popup) {
         .devices => |dv| dv.which == .mic and qa.find("device-menu") != null,
@@ -87,6 +94,20 @@ fn listsFake(_: *App) bool {
 }
 fn micChosen(app: *App) bool {
     return app.st.popup == .none and std.mem.eql(u8, app.st.settings.voice_mic.slice(), "Microfone de teste 2");
+}
+/// Saída escolhida que não está ligada agora: aparece no fim da lista, marcada.
+const lost_out = "Fone que sumiu";
+fn setLostOut(app: *App) void {
+    app.st.settings.voice_out.set(lost_out);
+}
+fn lostListed(app: *App) bool {
+    return switch (app.st.popup) {
+        .devices => |dv| dv.which == .out and qa.find("device-opt:out:4") != null and qa.find("device-sel:out:4") != null,
+        else => false,
+    };
+}
+fn lostKept(app: *App) bool {
+    return app.st.popup == .none and std.mem.eql(u8, app.st.settings.voice_out.slice(), lost_out);
 }
 fn outMenu(app: *App) bool {
     return switch (app.st.popup) {
@@ -150,6 +171,7 @@ fn unmute(app: *App) void {
 
 pub const ops_theme = [_]Op{
     .{ .section = "dispositivos" },
+    expect("o nome no painel do usuário tem espaço ao lado dos botões", nameRoom),
     .{ .run = fake },
     .{ .rclick = .{ .dyn = tMic } },
     expect("botão direito no microfone abre o menu de dispositivos", micMenu),
@@ -157,6 +179,11 @@ pub const ops_theme = [_]Op{
     .{ .shot = "tema-dispositivos" },
     click("device-opt:mic:2"),
     expect("escolher um microfone grava na hora nas configurações", micChosen),
+    .{ .run = setLostOut },
+    .{ .click = .{ .dyn = tDeafMenu } },
+    expect("a saída que sumiu aparece marcada no fim da lista", lostListed),
+    click("device-opt:out:4"),
+    expect("clicar nela fecha o menu e o nome continua guardado", lostKept),
     .{ .click = .{ .dyn = tDeafMenu } },
     expect("a setinha do fone abre as saídas", outMenu),
     .{ .drag = .{ .from = .{ .at = .{ .key = "device-vol:out", .fx = 0.5, .fy = 0.5 } }, .to = .{ .at = .{ .key = "device-vol:out", .fx = 0.04, .fy = 0.5 } } } },

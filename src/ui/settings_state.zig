@@ -36,8 +36,12 @@ pub const Text = struct {
 
     pub fn set(t: *Text, s: []const u8) void {
         const n = @min(s.len, t.buf.len);
+        // `s` pode ser o próprio texto (o nome guardado de um dispositivo que sumiu):
+        // zerar antes de copiar apagaria a origem.
+        var tmp: [255]u8 = undefined;
+        @memcpy(tmp[0..n], s[0..n]);
         t.* = .{};
-        @memcpy(t.buf[0..n], s[0..n]);
+        @memcpy(t.buf[0..n], tmp[0..n]);
         t.len = @intCast(n);
     }
 };
@@ -486,6 +490,16 @@ test "configurações de voz vão e voltam (volume acima de 3x e nome com acento
     try std.testing.expectEqual(@as(usize, 0), fresh.voice_mic.slice().len);
     try std.testing.expect(fresh.voice_highpass and fresh.voice_sounds and !fresh.voice_ptt);
     try std.testing.expectEqual(@as(u8, 1), fresh.voice_denoise);
+}
+
+test "texto copiado dele mesmo não se apaga" {
+    var t: Text = .{};
+    t.set("Fone USB (sumiu)");
+    t.set(t.slice());
+    try std.testing.expectEqualStrings("Fone USB (sumiu)", t.slice());
+    // Um pedaço do próprio texto também vale.
+    t.set(t.slice()[5..8]);
+    try std.testing.expectEqualStrings("USB", t.slice());
 }
 
 test "volume dos vídeos e fechar para a bandeja vão e voltam" {

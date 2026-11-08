@@ -354,7 +354,7 @@ pub fn statusBar(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
         };
         const font = segFont(fam, item);
         const tw: f32 = switch (item) {
-            .mic, .deaf => if (tty) devices.ttyWidth(font, fs, if (item == .mic) .mic else .deaf) else 30,
+            .mic, .deaf => if (tty) devices.ttyWidth(font, fs, if (item == .mic) .mic else .deaf, .tty) else 30,
             .me => d.width(font, fs, text) + (if (tty) @as(f32, 0) else 13),
             else => d.width(font, fs, text),
         };

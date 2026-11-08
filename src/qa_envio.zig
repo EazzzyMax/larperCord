@@ -317,6 +317,41 @@ fn burstList(app: *App) bool {
 fn reactionsPopup(app: *App) bool {
     return app.st.popup == .reactions and app.store.people.state == .loaded;
 }
+/// Reações a mais na mensagem da festa, até o máximo que uma mensagem guarda.
+var party_n: u8 = 0;
+fn fillReactions(app: *App) void {
+    const m = partyMsg(app) orelse return;
+    party_n = m.n_reactions;
+    const extra = [_][]const u8{ "😀", "🔥", "👀", "🚀", "✅", "💯", "🙏", "🤔" };
+    for (extra, 1..) |e, k| {
+        if (m.n_reactions == m.reactions.len) break;
+        var r = types.Reaction.init(e);
+        r.count = @intCast(k);
+        m.reactions[m.n_reactions] = r;
+        m.n_reactions += 1;
+    }
+    m.layout_w = -1;
+}
+fn dropReactions(app: *App) void {
+    const m = partyMsg(app) orelse return;
+    m.n_reactions = party_n;
+    m.layout_w = -1;
+}
+/// Todas as abas dentro do popup, sem uma cobrir a outra.
+fn allTabs(app: *App) bool {
+    const m = partyMsg(app) orelse return false;
+    if (app.st.popup != .reactions or m.n_reactions != m.reactions.len) return false;
+    const box = qa.find("reactors") orelse return false;
+    var b: [32]u8 = undefined;
+    for (0..m.n_reactions) |i| {
+        const t = qa.find(mk(&b, "reactors-tab:{d}", .{i})) orelse return false;
+        if (t.x < box.x or t.right() > box.right() or t.y < box.y or t.bottom() > box.bottom()) return false;
+    }
+    return qa.overlapping(&.{"reactors-tab:"}) == null;
+}
+fn lastTabFetched(app: *App) bool {
+    return app.st.popup == .reactions and gw.sent.people_fetches.load(.monotonic) == fetches_before + 1;
+}
 
 // --- Fixadas ------------------------------------------------------------------
 
@@ -476,6 +511,16 @@ pub const ops = [_]Op{
     click("menu:Ver reações"),
     expect("\"Ver reações\" no menu da mensagem abre a mesma lista", reactionsPopup),
     key(c.ImGuiKey_Escape),
+    run(fillReactions),
+    .{ .rclick = .{ .dyn = tPartyMsg } },
+    click("menu:Ver reações"),
+    expect("com 8 reações, as abas que não cabem descem para outra linha", allTabs),
+    .{ .shot = "reacoes-abas" },
+    run(noteFetches),
+    click("reactors-tab:7"),
+    expect("a última aba também busca quem reagiu", lastTabFetched),
+    key(c.ImGuiKey_Escape),
+    run(dropReactions),
 
     s("envio: fixadas em páginas"),
     click("header-pins"),

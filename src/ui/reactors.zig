@@ -24,6 +24,8 @@ var query: ev.PeopleQuery = .{ .channel = 0, .id = 0 };
 const pop_w: f32 = 320;
 const pop_h: f32 = 384;
 const row_h: f32 = 40;
+/// Uma linha de abas das reações (30 da aba e o espaço até a de baixo).
+const tab_row: f32 = 36;
 
 fn want(ctx: *d.Ctx, q: ev.PeopleQuery) void {
     query = q;
@@ -95,14 +97,19 @@ pub fn drawReactions(ctx: *d.Ctx, msg: Id, x: f32, y: f32) void {
     qa.mark(r, "reactors", .{});
     const fam = ctx.ui;
 
-    // Uma aba por emoji, com quantas pessoas.
+    // Uma aba por emoji, com quantas pessoas. As que não cabem na linha descem para
+    // a próxima (são no máximo 8 reações por mensagem: duas linhas).
     var tx = r.x + 10;
+    var ty = r.y + 10;
     var cb: [16]u8 = undefined;
     for (rs, 0..) |*rc, i| {
         const cnt = std.fmt.bufPrint(&cb, "{d}", .{rc.count}) catch "";
         const tw: f32 = 8 + 20 + 6 + d.width(fam.get(.semibold), 13, cnt) + 10;
-        const tr: d.Rect = .{ .x = tx, .y = r.y + 10, .w = tw, .h = 30 };
-        if (tr.right() > r.right() - 8) break;
+        if (tx > r.x + 10 and tx + tw > r.right() - 8) {
+            tx = r.x + 10;
+            ty += tab_row;
+        }
+        const tr: d.Rect = .{ .x = tx, .y = ty, .w = tw, .h = 30 };
         const hb = d.hit(ctx, 0x5e00 + i, tr);
         qa.mark(tr, "reactors-tab:{d}", .{i});
         const on = i == sel;
@@ -118,7 +125,7 @@ pub fn drawReactions(ctx: *d.Ctx, msg: Id, x: f32, y: f32) void {
         }
         tx += tw + 6;
     }
-    var top = r.y + 48;
+    var top = ty + tab_row + 2;
     const cur = &rs[sel];
     // Super reações: uma segunda lista, só quando a reação tem alguma.
     if (cur.burst > 0) {
@@ -164,7 +171,7 @@ pub fn drawVoters(ctx: *d.Ctx, msg: Id, answer: u32, x: f32, y: f32) void {
     if (a.emoji.len > 0) ax += 6;
     _ = d.textClipped(dl, fam.get(.bold), 15, ax, r.y + 13, ctx.col(.text), a.text, r.right() - ax - 14);
     var vb: [48]u8 = undefined;
-    const votes = if (p.known) i18n.fmt(&vb, "{d} votos", "{d} votes", .{a.count}) else i18n.tr("votos desconhecidos", "votes unknown");
+    const votes = if (p.known) @import("poll_card.zig").votesText(&vb, a.count) else i18n.tr("votos desconhecidos", "votes unknown");
     d.text(dl, fam.get(.regular), 12.5, r.x + 14, r.y + 36, ctx.col(.muted), votes);
     const top = r.y + 58;
     d.line(dl, r.x, top, r.right(), top, ctx.col(.border), 1);

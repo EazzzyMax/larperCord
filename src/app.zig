@@ -496,6 +496,12 @@ pub const App = struct {
         c.SDL_ShowOpenFileDialog(pickedCb, app, app.win.window, null, 0, null, true);
     }
 
+    /// Um arquivo só, para a opção de anexo de um comando de bot (ui/interact.zig).
+    fn pickFile(app: *App) void {
+        if (app.opts.qa) return;
+        c.SDL_ShowOpenFileDialog(pickedCb, app, app.win.window, null, 0, null, false);
+    }
+
     /// Só uma imagem, para o ícone ou o banner (ui/edit_place.zig).
     fn pickImage(app: *App) void {
         if (app.opts.qa) return;
@@ -1774,6 +1780,7 @@ pub const App = struct {
             },
             .save_settings => app.saveSettings(),
             .pick_files => app.pickFiles(),
+            .pick_file => app.pickFile(),
             .remove_upload => |i| if (i < st.uploads.items.len) {
                 dropUpload(st.uploads.items[i]);
                 _ = st.uploads.orderedRemove(i);
@@ -2551,6 +2558,7 @@ pub const App = struct {
                 for (picked.items) |p| {
                     defer std.heap.c_allocator.free(p);
                     if (@import("ui/edit_place.zig").takePicked(&app.st, now(), p)) continue;
+                    if (interact.takePicked(&app.st, now(), p)) continue;
                     if (app.store.ready) app.attachFile(p);
                 }
                 if (picked.items.len > 0) pending = 3;

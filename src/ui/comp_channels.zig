@@ -430,6 +430,14 @@ fn customLine(ctx: *d.Ctx, buf: []u8) ?[]const u8 {
     return if (cs.text.len > 0) cs.text else cs.emoji_name;
 }
 
+/// O mínimo para o nome (e o status) no painel do usuário dos temas de terminal.
+const name_min_w: f32 = 116;
+
+/// Largura dos botões da direita no estilo texto: mudo, ensurdecer e o ⚙.
+fn ttyButtons(fam: *d.Family, fs: f32, bs: f32, look: devices.Look) f32 {
+    return bs + devices.ttyWidth(fam.get(.bold), fs, .mic, look) + devices.ttyWidth(fam.get(.bold), fs, .deaf, look);
+}
+
 pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     const fam = ctx.familyFor(n);
     const tty = d.is(n, "variant", "tty", "discord");
@@ -450,11 +458,13 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     // ele, a atividade do Rich Presence ocupa o mesmo lugar.
     var cb: [600]u8 = undefined;
     const custom = customLine(ctx, &cb);
-    // Os botões da direita: no estilo texto, a largura vem dos rótulos.
+    // Os botões da direita: no estilo texto, a largura vem dos rótulos. Com eles
+    // inteiros ([mic] [fone]) sobrando pouco para o nome, ficam os curtos ([m] [f]).
     const bs: f32 = if (tty) 22 else 32;
     const btn_fs = ctx.th.font_size - 1;
-    const btns_w = bs + if (tty) devices.ttyWidth(fam.get(.bold), btn_fs, .mic) + devices.ttyWidth(fam.get(.bold), btn_fs, .deaf) else 2 * bs;
+    const look: devices.Look = if (!tty) .icon else if (pr.w - ttyButtons(fam, btn_fs, bs, .tty) - 16 < name_min_w) .tty_short else .tty;
     if (tty) {
+        const btns_w = ttyButtons(fam, btn_fs, bs, look);
         var buf: [256]u8 = undefined;
         const t = if (modes) |ml|
             std.fmt.bufPrint(&buf, "{s} {s} [{s}]", .{ w.statusGlyph(me.status), me.name, ml }) catch ""
@@ -506,11 +516,11 @@ pub fn userPanel(ctx: *d.Ctx, n: *const kdl.Node, r: d.Rect) void {
     var bx = gr.x;
     for ([_]devices.Kind{ .deaf, .mic }) |kind| {
         const i: usize = if (kind == .mic) 0 else 1;
-        const bw = if (tty) devices.ttyWidth(fam.get(.bold), btn_fs, kind) else bs;
+        const bw = if (tty) devices.ttyWidth(fam.get(.bold), btn_fs, kind, look) else bs;
         bx -= bw;
         const br: d.Rect = .{ .x = bx, .y = gr.y, .w = bw, .h = bs };
         qa.mark(br, "user-btn:{d}", .{i});
-        if (devices.toggle(ctx, ctx.dl, fam.get(.bold), btn_fs, kind, br, if (tty) .tty else .icon, 10 + i, if (i == 0) "user-btn:0" else "user-btn:1"))
+        if (devices.toggle(ctx, ctx.dl, fam.get(.bold), btn_fs, kind, br, look, 10 + i, if (i == 0) "user-btn:0" else "user-btn:1"))
             qa.mark(br, "user-forced:{d}", .{i});
     }
     const hb = d.hit(ctx, 12, gr);

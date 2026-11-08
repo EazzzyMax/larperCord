@@ -163,6 +163,11 @@ fn section(ctx: *d.Ctx, dl: *c.ImDrawList, r: d.Rect, y: *f32, side: Side, cap: 
             d.line(dl, cx - 1.5, cy + 3.5, cx + 5, cy - 4, ck, 2);
         }
         if (hb.clicked) {
+            // O que sumiu já é o escolhido: o nome fica guardado para quando ele voltar.
+            if (is_lost) {
+                popup.close(ctx);
+                return true;
+            }
             if (i == 0) value.* = .{} else value.set(name);
             ctx.act(.save_settings);
             popup.close(ctx);
@@ -220,13 +225,18 @@ fn section(ctx: *d.Ctx, dl: *c.ImDrawList, r: d.Rect, y: *f32, side: Side, cap: 
 // --- Botões de mudo e ensurdecer --------------------------------------------
 
 pub const Kind = enum { mic, deaf };
-/// `icon`: ícone desenhado; `tty`: rótulo em texto ([mic] [fone]).
-pub const Look = enum { icon, tty };
+/// `icon`: ícone desenhado; `tty`: rótulo em texto ([mic] [fone]); `tty_short`: o
+/// rótulo curto ([m] [f]), quando o painel é estreito demais para o nome caber.
+pub const Look = enum { icon, tty, tty_short };
 
 /// Largura da setinha que abre o menu.
 pub const chev_w: f32 = 11;
 
-pub fn ttyLabel(kind: Kind) []const u8 {
+pub fn ttyLabel(kind: Kind, look: Look) []const u8 {
+    if (look == .tty_short) return switch (kind) {
+        .mic => i18n.tr("[m]", "[m]"),
+        .deaf => i18n.tr("[f]", "[a]"),
+    };
     return switch (kind) {
         .mic => i18n.tr("[mic]", "[mic]"),
         .deaf => i18n.tr("[fone]", "[audio]"),
@@ -234,8 +244,8 @@ pub fn ttyLabel(kind: Kind) []const u8 {
 }
 
 /// Largura do botão no estilo texto, já com a setinha.
-pub fn ttyWidth(font: *c.ImFont, fs: f32, kind: Kind) f32 {
-    return @round(d.width(font, fs, ttyLabel(kind)) + 8 + chev_w);
+pub fn ttyWidth(font: *c.ImFont, fs: f32, kind: Kind, look: Look) f32 {
+    return @round(d.width(font, fs, ttyLabel(kind, look)) + 8 + chev_w);
 }
 
 /// Mudo (`mic`) ou ensurdecer (`deaf`) em `br`: clicar alterna; o botão direito
@@ -279,9 +289,9 @@ pub fn toggle(ctx: *d.Ctx, dl: *c.ImDrawList, font: *c.ImFont, fs: f32, kind: Ki
     const ink = if (active) ctx.col(.danger) else ctx.col(.muted).mix(ctx.col(.text), k);
     const cy = br.y + br.h / 2;
     switch (look) {
-        .tty => {
+        .tty, .tty_short => {
             if (hovered or menu_open) d.rect(dl, br, ctx.col(.hover), 0);
-            const label = ttyLabel(kind);
+            const label = ttyLabel(kind, look);
             const lw = d.width(font, fs, label);
             const lx = mr.x + 4;
             d.text(dl, font, fs, lx, d.centerY(br, fs), ink, label);
