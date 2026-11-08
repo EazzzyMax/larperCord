@@ -2912,4 +2912,225 @@ pub const App = struct {
         timeline.report();
         return runner.fail == 0;
     }
+
+    /// O que o laço da página guarda de um quadro para o outro (ver `webFrame`).
+    pub const WebLoop = struct {
+        pending: u32 = 3,
+        last_ns: u64 = 0,
+        typing_check_ms: i64 = 0,
+        lang_setting: i16 = -1,
+        bg_dirty: bool = false,
+        was_active: bool = false,
+        login_result: ?login_mod.Result = null,
+        /// web-sim: salva um print quando a conversa estabilizar, e o laço para.
+        shot: ?[*:0]const u8 = null,
+        settled: u32 = 0,
+    };
+
+    /// Navegador (src/web_main.zig): uma volta do laço a cada quadro da página. Quem
+    /// espera é o navegador, então nada aqui dorme: trata o que chegou e só desenha se
+    /// algo mudou (sem desenhar, o canvas fica com o quadro anterior). É o `run` sem
+    /// bandeja, voz, LSP, Rich Presence, prints de verdade, QA e --stats. Falso: parar.
+    pub fn webFrame(app: *App, wl: *WebLoop) bool {
+        if (wl.last_ns == 0) wl.last_ns = c.SDL_GetTicksNS();
+        // Sem thread: a demonstração anda aqui (ver Gateway.pump), e os plugins também
+        // (ver runtime.inline_mode); o que eles pedirem chega como o aviso .plugins.
+        switch (app.net) {
+            .fake => |*g| g.pump(),
+            else => {},
+        }
+        app.plugins.pump();
+        var e: c.SDL_Event = undefined;
+        var input = false;
+        while (c.SDL_PollEvent(&e)) {
+            if (e.type == app.win.wake_type) {
+                switch (@as(platform.Wake, @fromBackingInt(@intCast(e.user.code)))) {
+                    .gateway => {
+                        app.gw_signaled.store(false, .release);
+                        app.drainEvents();
+                        wl.bg_dirty = true;
+                    },
+                    .tick => wl.pending = @max(wl.pending, 1),
+                    .media => wl.bg_dirty = true,
+                    .plugins => {
+                        app.plugins.drain();
+                        wl.pending = @max(wl.pending, 2);
+                    },
+                    .quit => return false,
+                    .theme, .token, .show => {},
+                }
+                continue;
+            }
+            input = true;
+            if ((e.type >= c.SDL_EVENT_WINDOW_FIRST and e.type <= c.SDL_EVENT_WINDOW_LAST) or
+                e.type == c.SDL_EVENT_RENDER_TARGETS_RESET or e.type == c.SDL_EVENT_RENDER_DEVICE_RESET) app.gate.redraw();
+            const for_list = e.type == c.SDL_EVENT_KEY_DOWN and autocomplete.takeSdlKey(e.key.key, e.key.mod);
+            if (e.type == c.SDL_EVENT_MOUSE_MOTION) {
+                const s = app.uiScale();
+                e.motion.x /= s;
+                e.motion.y /= s;
+            }
+            if (!for_list) _ = c.cImGui_ImplSDL3_ProcessEvent(&e);
+            if (e.type == c.SDL_EVENT_QUIT) return false;
+        }
+        if (input) wl.pending = 3;
+        const now_ms = now();
+        if (now_ms - wl.typing_check_ms >= 250) {
+            wl.typing_check_ms = now_ms;
+            if (app.store.expireTyping(now_ms)) wl.pending = 2;
+        }
+        app.flushSubscribe();
+        app.images.now_ms = now_ms;
+        if (app.images.pump()) wl.bg_dirty = true;
+        const due = @min(@min(app.images.next_frame_ms, anim.next_wake_ms), app.sub_wait.due());
+        if (wl.pending == 0 and !wl.bg_dirty and !wl.was_active and !app.login.visible() and now_ms < due and wl.shot == null) return true;
+        wl.bg_dirty = false;
+        anim.now_ms = now_ms;
+        anim.next_wake_ms = std.math.maxInt(i64);
+        app.images.next_frame_ms = std.math.maxInt(i64);
+        app.images.drawn_ms = now_ms;
+        const t0 = c.SDL_GetTicksNS();
+        anim.dt = std.math.clamp(@as(f32, @floatFromInt(t0 - wl.last_ns)) / 1e9, 0.001, 1.0 / 30.0);
+        wl.last_ns = t0;
+        anim.active = false;
+
+        if (app.fonts_lang_changed) {
+            app.fonts_lang_changed = false;
+            app.fonts.preferLanguage(@tagName(i18n.current()));
+        }
+        if (app.fonts.loadWanted()) {
+            app.st.theme_gen +%= 1;
+            app.gate.redraw();
+            wl.pending = 3;
+        }
+
+        c.cImGui_ImplSDLRenderer3_NewFrame();
+        c.cImGui_ImplSDL3_NewFrame();
+        if (!app.io.*.MouseDown[0]) app.ui_size = @round(std.math.clamp(app.st.settings.ui_scale, 0.75, 2) * 20) / 20;
+        const ui_scale = app.uiScale();
+        larper_ime_scale = ui_scale;
+        app.io.*.DisplaySize.x /= ui_scale;
+        app.io.*.DisplaySize.y /= ui_scale;
+        app.io.*.DisplayFramebufferScale.x *= ui_scale;
+        app.io.*.DisplayFramebufferScale.y *= ui_scale;
+        app.fonts.setDensity(app.io.*.DisplayFramebufferScale.x);
+        app.st.window_focused = wl.shot != null or c.SDL_GetWindowFlags(app.win.window) & c.SDL_WINDOW_INPUT_FOCUS != 0;
+        const set = &app.st.settings;
+        const mode = app.wantedMode();
+        if (mode != app.themes.mode) {
+            if (app.themes.setMode(mode)) app.applyThemeStyle();
+        }
+        d.text_scale = std.math.clamp(set.font_scale, 0.5, 3);
+        const text_weight = @round(std.math.clamp(set.text_weight, 1, 1.6) * 20) / 20;
+        if (text_weight != app.fonts.text_weight or set.text_hinting != app.fonts.text_mode) app.fonts.setStyle(text_weight, set.text_hinting);
+        app.images.budget_bytes = @as(usize, @intFromFloat(std.math.clamp(set.image_cache_mb, 16, 128))) * 1024 * 1024;
+        @import("ui/images.zig").gif_limit_bytes.store(@as(usize, @intFromFloat(std.math.clamp(set.gif_limit_mb, 4, 32))) * 1024 * 1024, .monotonic);
+        app.store.message_budget = @intFromFloat(std.math.clamp(set.message_budget, 500, 5000));
+        if (set.language != wl.lang_setting) {
+            wl.lang_setting = set.language;
+            i18n.set(app.opts.lang orelse i18n.fromSetting(set.language));
+            app.fonts_lang_changed = true;
+            app.st.theme_gen +%= 1;
+        }
+        anim.instant = set.reduce_motion;
+        plugin_host.frame(app);
+        @import("ui/attachments.zig").hide_embeds = !set.show_embeds;
+        app.store.keep_log = set.message_log;
+        widgets.hour12 = !set.clock_24h;
+        app.images.data_saver = set.data_saver;
+        if (app.st.filtros.focus_until != 0 and !app.st.filtros.focusOn(now_ms)) app.st.filtros.endFocus(&app.store);
+        if (app.st.filtros.save) {
+            app.st.filtros.save = false;
+            app.saveSettings();
+        }
+        if (app.store.ready) app.syncDraft();
+        const key = set.layoutKey();
+        if (key != app.layout_key) {
+            app.layout_key = key;
+            app.st.theme_gen +%= 1;
+        }
+
+        c.ImGui_NewFrame();
+        qa_mod.beginFrame();
+        if (app.store.ready and app.login.phase != .form) {
+            const th = app.customTheme();
+            if (guild_color.changed(app.st.guild)) app.applyImGuiColors(th);
+            var ctx: d.Ctx = .{
+                .th = th,
+                .theme_name = app.themes.name(),
+                .theme_names = app.themes.names.items,
+                .theme_index = app.themes.current,
+                .store = &app.store,
+                .st = &app.st,
+                .fonts = &app.fonts,
+                .ui = app.uiFamily(th.font_ui),
+                .mono = app.uiFamily(th.font_mono),
+                .dl = undefined,
+                .fg = undefined,
+                .io = app.io,
+                .mouse = app.io.*.MousePos,
+                .now_ms = now(),
+                .actions = &app.actions,
+                .stats = &app.stats,
+                .images = &app.images,
+                .win = undefined,
+            };
+            if (app.st.settings.open) app.themes.ensurePreviews();
+            root.frame(&ctx, &app.placed, app.themes.previews.items);
+            plugin_host.pollKeys(app);
+            const rel = &app.io.*.MouseReleased;
+            if (rel[0] or rel[1] or rel[2]) app.store.rev +%= 1;
+        }
+        if (app.login.visible()) {
+            var login_accounts: [login_mod.max_accounts]*const accounts_mod.Account = undefined;
+            if (login_mod.draw(&app.login, .{
+                .ui = app.uiFamily("Inter"),
+                .io = app.io,
+                .light = app.themes.mode == .light,
+                .reduce = set.reduce_motion,
+                .dt = anim.dt,
+                .accounts = app_accounts.others(&login_accounts),
+            })) |r| wl.login_result = r;
+        }
+        @import("ui/video.zig").endFrame(now());
+        c.ImGui_Render();
+
+        const r = app.win.renderer;
+        const bg = app.themes.theme_().c(.bg);
+        const clear = [4]f32{ bg.r * bg.a, bg.g * bg.a, bg.b * bg.a, bg.a };
+        const draw_data = c.ImGui_GetDrawData();
+        if (@import("ui/video.zig").takeChanged()) app.gate.redraw();
+        const show = app.gate.check(quadro.sum(draw_data, clear), wl.shot != null or quadro.texturesDirty(draw_data));
+        if (show) {
+            _ = c.SDL_SetRenderScale(r, app.io.*.DisplayFramebufferScale.x, app.io.*.DisplayFramebufferScale.y);
+            _ = c.SDL_SetRenderDrawColorFloat(r, clear[0], clear[1], clear[2], clear[3]);
+            _ = c.SDL_RenderClear(r);
+            c.cImGui_ImplSDLRenderer3_RenderDrawData(draw_data, r);
+        }
+        app.stats.frame_us = @intCast((c.SDL_GetTicksNS() - t0) / 1000);
+
+        if (wl.login_result) |lr| {
+            wl.login_result = null;
+            app.loginResult(lr);
+            wl.pending = 3;
+        }
+        for (app.actions.items) |a| app.handle(a);
+        if (app.actions.items.len > 0) wl.pending = 3;
+        app.actions.clearRetainingCapacity();
+
+        var keep = true;
+        if (wl.shot) |path| {
+            const ready = app.store.ready and !app.images.busy() and if (app.st.activeChannel()) |ch| (app.store.channel(ch).?.history == .loaded and app.store.channel(ch).?.around != .loading) else false;
+            wl.settled = if (ready) wl.settled + 1 else 0;
+            if (wl.settled == 12 or c.SDL_GetTicksNS() - app.started_ns > 15 * std.time.ns_per_s) {
+                if (!app.win.screenshot(path)) std.log.err("não consegui salvar {s}", .{path});
+                keep = false;
+            }
+        }
+        if (show) _ = c.SDL_RenderPresent(r);
+        if (wl.pending > 0) wl.pending -= 1;
+        if (fonts_mod.scriptsWanted()) wl.pending = @max(wl.pending, 1);
+        wl.was_active = anim.active;
+        return keep;
+    }
 };

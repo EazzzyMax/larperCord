@@ -3,6 +3,11 @@
 #include "dcimgui.h"
 #include "dcimgui_impl_sdl3.h"
 #include "dcimgui_impl_sdlrenderer3.h"
+#ifdef __EMSCRIPTEN__
+/* Navegador (src/web_main.zig): o laço é o da página. */
+#include <emscripten.h>
+#include <emscripten/heap.h>
+#endif
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -20,7 +25,9 @@
 #include <fontconfig/fontconfig.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#ifndef __EMSCRIPTEN__
 #include <sys/inotify.h>
+#endif
 #include <sys/file.h>
 #include <unistd.h>
 #include <dirent.h>

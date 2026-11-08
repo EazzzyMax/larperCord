@@ -3,3 +3,9 @@ zig-out/
 *.log
 qa-out/
 .deps/
+# Demonstração no navegador: o build (zig build web) e as páginas dele só existem no
+# workflow do site (.github/workflows/pages.yml), nunca no repositório.
+docs/try/
+docs/pt/try/
+# O emcc carrega tools/web/freetype_png.py como módulo e o Python grava o bytecode ao lado.
+tools/web/__pycache__/

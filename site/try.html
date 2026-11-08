@@ -1,0 +1,116 @@
+<main id="main">
+<style>
+.try-node{padding-top:clamp(40px,6vw,72px)}
+.try-stage{position:relative;margin-top:28px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);overflow:hidden;height:min(78vh,820px);min-height:420px}
+.try-stage canvas{display:block;width:100%;height:100%;outline:none}
+.try-stage canvas:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.try-cover{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px}
+.try-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:0 0;opacity:.35;filter:saturate(.7)}
+.try-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:14px;max-width:440px;padding:22px 24px;text-align:center;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius)}
+.try-cover[hidden]{display:none}
+.try-note{margin:0;max-width:38ch}
+.try-status{font:400 12px var(--mono);color:var(--muted);min-height:1.7em;margin:0}
+.try-bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:14px}
+.try-bar .foot{margin:0}
+.try-list{max-width:72ch;color:var(--muted);padding-left:1.2em}
+.try-list li{margin:6px 0}
+@media (max-width:640px){.try-stage{height:70vh;min-height:360px}}
+</style>
+<section class="node try-node" id="try">
+  <span class="tag"><b>larpercord</b> <i>--demo {</i></span>
+  <h1 class="h">{{The real app, <em>in this tab.</em>||O app de verdade, <em>nesta aba.</em>}}</h1>
+  <p class="lede">{{This is larperCord itself, compiled to WebAssembly and running its demo mode: made-up servers, made-up people, messages that arrive on their own. There is no network and no account. Nothing you type leaves this tab, and closing it forgets everything.||Este é o próprio larperCord, compilado para WebAssembly e rodando o modo demonstração: servidores inventados, pessoas inventadas, mensagens que chegam sozinhas. Não tem rede nem conta. Nada do que você digita sai desta aba, e fechar a aba esquece tudo.}}</p>
+  <div class="try-stage" data-try-stage>
+    <canvas id="canvas" tabindex="0" aria-label="{{larperCord demo. Click it before using the keyboard.||Demonstração do larperCord. Clique nela antes de usar o teclado.}}" hidden></canvas>
+    <div class="try-cover" data-try-cover>
+      <img class="try-poster" src="%ROOT%assets/shots/%LANG%/classico.webp" alt="" width="1280" height="800" decoding="async">
+      <div class="try-card">
+        <p class="try-note">{{This is the demo mode: fake servers, fake people and fake messages. No network, no account.||Este é o modo demonstração: servidores, pessoas e mensagens de mentira. Sem rede e sem conta.}}</p>
+        <button type="button" class="btn primary" data-try-start>{{Start demo||Começar a demonstração}} →</button>
+        <p class="try-status" data-try-status aria-live="polite">{{Downloads about %TRY_SIZE% once. Nothing loads until you click.||Baixa cerca de %TRY_SIZE% uma vez. Nada carrega antes do clique.}}</p>
+      </div>
+    </div>
+  </div>
+  <div class="try-bar">
+    <button type="button" class="btn" data-try-full hidden>{{Full screen||Tela cheia}}</button>
+    <p class="foot">{{Click the demo before typing. Ctrl+K opens the palette, Ctrl+, the settings, F2 changes the theme.||Clique na demonstração antes de digitar. Ctrl+K abre a paleta, Ctrl+, as configurações, F2 troca o tema.}}</p>
+  </div>
+  <h2 class="h" style="margin-top:56px">{{What's different <em>from the desktop app.</em>||O que muda <em>do app no computador.</em>}}</h2>
+  <ul class="try-list">
+    <li>{{No voice and no sound. Calls show up, but nothing opens the microphone or plays audio.||Sem voz e sem som. As chamadas aparecem, mas nada abre o microfone nem toca áudio.}}</li>
+    <li>{{It runs on one thread, so it uses more CPU than the native app. The RAM and CPU numbers on the home page are for the native app.||Roda numa thread só, então gasta mais CPU que o app nativo. Os números de RAM e CPU da página inicial são do app nativo.}}</li>
+    <li>{{Only Latin text and the emoji the demo uses come with the page. Japanese, Chinese, Korean, Arabic and Hebrew need the desktop app and your system fonts.||Só o texto latino e os emojis que a demonstração usa vêm com a página. Japonês, chinês, coreano, árabe e hebraico precisam do app no computador e das fontes do seu sistema.}}</li>
+    <li>{{No files: attaching, drag and drop and plugins that reach the network are off. Settings last until you close the tab.||Sem arquivos: anexar, arrastar e soltar e plugins que usam a rede ficam desligados. As configurações duram até você fechar a aba.}}</li>
+    <li>{{The app is laid out for a desktop window. On a phone it works, but it's cramped.||O app foi feito para uma janela de computador. No celular funciona, mas fica apertado.}}</li>
+  </ul>
+  <div class="cta" style="margin-top:28px">
+    <a class="btn primary" href="%HOME%#download">{{Download the real thing →||Baixar o de verdade →}}</a>
+    <a class="btn" href="%GUIDE%getting-started.html">{{Getting started||Primeiros passos}}</a>
+  </div>
+  <span class="close">}</span>
+</section>
+</main>
+<script>
+// A demonstração só carrega no clique: a página em si fica leve.
+(function () {
+  var html = document.documentElement;
+  var base = (html.dataset.root || "") + "try/";
+  var stage = document.querySelector("[data-try-stage]");
+  var cover = document.querySelector("[data-try-cover]");
+  var start = document.querySelector("[data-try-start]");
+  var status = document.querySelector("[data-try-status]");
+  var full = document.querySelector("[data-try-full]");
+  var canvas = document.getElementById("canvas");
+  var themes = %TRY_THEMES%;
+  var mod = null;
+
+  function fail(msg) {
+    status.textContent = msg;
+    start.disabled = false;
+    start.textContent = "{{Try again||Tentar de novo}}";
+  }
+
+  function resize() {
+    if (!mod) return;
+    var r = stage.getBoundingClientRect();
+    mod._larper_web_resize(Math.round(r.width), Math.round(r.height));
+  }
+
+  start.addEventListener("click", function () {
+    if (typeof WebAssembly !== "object") return fail("{{This browser can't run WebAssembly.||Este navegador não roda WebAssembly.}}");
+    var gl = document.createElement("canvas").getContext("webgl2");
+    if (!gl) return fail("{{This browser has WebGL 2 turned off, and the demo draws with it.||Este navegador está com o WebGL 2 desligado, e a demonstração desenha com ele.}}");
+    start.disabled = true;
+    status.textContent = "{{Downloading…||Baixando…}}";
+    var s = document.createElement("script");
+    s.src = base + "larpercord.js";
+    s.onerror = function () { fail("{{The download failed. Check your connection and try again.||O download falhou. Confira a conexão e tente de novo.}}"); };
+    s.onload = function () {
+      var args = ["--lang", html.dataset.lang === "pt" ? "pt" : "en", "--mode", html.dataset.mode === "light" ? "light" : "dark"];
+      if (themes.indexOf(html.dataset.theme) >= 0) args.push("--theme", html.dataset.theme);
+      window.larperCord({
+        canvas: canvas,
+        locateFile: function (f) { return base + f; },
+        print: function () {},
+        printErr: function (t) { if (window.console) console.warn(t); },
+        setStatus: function (t) { if (t) status.textContent = "{{Loading…||Carregando…}}"; }
+      }).then(function (m) {
+        mod = m;
+        canvas.hidden = false;
+        cover.hidden = true;
+        full.hidden = !canvas.requestFullscreen;
+        m.callMain(args);
+        resize();
+        if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
+        canvas.focus();
+      }, function () { fail("{{The demo couldn't start in this browser.||A demonstração não conseguiu abrir neste navegador.}}"); });
+    };
+    document.head.appendChild(s);
+  });
+
+  full.addEventListener("click", function () {
+    if (stage.requestFullscreen) stage.requestFullscreen().then(function () { canvas.focus(); }, function () {});
+  });
+  document.addEventListener("fullscreenchange", resize);
+})();
+</script>

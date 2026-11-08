@@ -6,6 +6,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const c = @import("c");
+const sys = @import("sys.zig");
 
 pub const Phase = enum(u8) {
     main,
@@ -68,12 +69,12 @@ pub const Phase = enum(u8) {
 const n_phases = std.enums.values(Phase).len;
 
 pub var enabled = false;
-var stamps: [n_phases]std.atomic.Value(u64) = @splat(.init(0));
+var stamps: [n_phases]sys.Atomic(u64) = @splat(.init(0));
 var base_ns: u64 = 0;
 /// Quanto o processo já tinha rodado ao chegar no main (carregar as bibliotecas).
 var before_main_ms: i64 = -1;
-var ready_comprimido: std.atomic.Value(u64) = .init(0);
-var ready_json_bytes: std.atomic.Value(u64) = .init(0);
+var ready_comprimido: sys.Atomic(u64) = .init(0);
+var ready_json_bytes: sys.Atomic(u64) = .init(0);
 var reported = false;
 
 pub fn now() u64 {

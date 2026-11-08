@@ -2,6 +2,7 @@
 //! É a única parte que conhece o SDL e o backend gráfico; um backend por
 //! software (wl_shm, sem GPU) entraria aqui sem mexer no resto.
 const std = @import("std");
+const builtin = @import("builtin");
 const sys = @import("sys.zig");
 const c = @import("c");
 
@@ -36,7 +37,8 @@ pub const Window = struct {
             return error.SdlInit;
         }
         errdefer c.SDL_Quit();
-        var flags = c.SDL_WINDOW_RESIZABLE | c.SDL_WINDOW_HIGH_PIXEL_DENSITY | c.SDL_WINDOW_TRANSPARENT;
+        // Navegador: o canvas fica opaco (transparente, apareceria a página por trás).
+        var flags = c.SDL_WINDOW_RESIZABLE | c.SDL_WINDOW_HIGH_PIXEL_DENSITY | (if (sys.web) 0 else c.SDL_WINDOW_TRANSPARENT);
         // LARPER_HIDDEN=1: janela escondida (medir desempenho com a GPU de verdade).
         if (c.SDL_getenv("LARPER_HIDDEN") != null) flags |= c.SDL_WINDOW_HIDDEN;
         const window = c.SDL_CreateWindow(title, w, h, flags) orelse return error.SdlWindow;
@@ -185,6 +187,8 @@ pub const SelfMem = struct { pss: u32 = 0, file: u32 = 0 };
 
 pub fn selfMemKb() SelfMem {
     if (sys.windows) return .{ .pss = sys.privateKb() };
+    // Navegador: não há /proc; o que a aba guarda para o app é a memória do wasm.
+    if (builtin.os.tag == .emscripten) return .{ .pss = @intCast(c.emscripten_get_heap_size() / 1024) };
     // Arquivos do /proc não informam o tamanho, então lê direto.
     const fd = c.open("/proc/self/smaps_rollup", c.O_RDONLY);
     if (fd < 0) return .{};

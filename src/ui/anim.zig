@@ -36,7 +36,7 @@ pub fn sleepFor(wait_ms: i64) i64 {
     return @min(wait_ms - 60_000, std.math.maxInt(i32));
 }
 
-pub fn id(comptime tag: []const u8, n: usize) u32 {
+pub fn id(comptime tag: []const u8, n: u64) u32 {
     return @truncate(std.hash.Wyhash.hash(n, tag));
 }
 

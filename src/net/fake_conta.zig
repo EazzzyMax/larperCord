@@ -2,6 +2,7 @@
 //! guarda o que "foi mandado" para o QA conferir. Roda na thread do gateway
 //! falso; os contadores são atômicos porque o QA lê da thread da interface.
 const std = @import("std");
+const sys = @import("../platform/sys.zig");
 const types = @import("../core/types.zig");
 const conta = @import("../core/conta.zig");
 const conta_json = @import("conta_json.zig");
@@ -18,7 +19,7 @@ const alloc = std.heap.c_allocator;
 pub const captcha_user: Id = 1010;
 
 pub const sent = struct {
-    const A = std.atomic.Value(u64);
+    const A = sys.Atomic(u64);
     pub var blocks: A = .init(0);
     pub var block_user: A = .init(0);
     pub var ignores: A = .init(0);

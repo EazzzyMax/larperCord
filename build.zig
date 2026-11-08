@@ -379,4 +379,225 @@ pub fn build(b: *std.Build) void {
         shot.has_side_effects = true;
         snaps.dependOn(&shot.step);
     }
+
+    // Navegador (protótipo): passos próprios, o executável de sempre não muda.
+    addWeb(b, translate.createModule(), builtin_themes, plugin_examples);
+}
+
+/// Navegador: o C/C++ que a demonstração usa. Sem a voz (libdave, mlspp, OpenSSL):
+/// curl, opus, webp, fontconfig e DAVE respondem pelo src/platform/web/stubs.c.
+const web_cxx_sources = [_][]const u8{
+    "imgui/imgui.cpp",
+    "imgui/imgui_draw.cpp",
+    "imgui/imgui_tables.cpp",
+    "imgui/imgui_widgets.cpp",
+    "imgui/misc/freetype/imgui_freetype.cpp",
+    "imgui/backends/imgui_impl_sdl3.cpp",
+    "imgui/backends/imgui_impl_sdlrenderer3.cpp",
+    "dcimgui/dcimgui.cpp",
+    "dcimgui/backends/dcimgui_impl_sdl3.cpp",
+    "dcimgui/backends/dcimgui_impl_sdlrenderer3.cpp",
+};
+
+/// A demonstração no navegador (ver tools/web/README.md). Três passos:
+///   web-lib  compila tudo para wasm32-emscripten num .a (só precisa dos cabeçalhos
+///            do Emscripten: -Dweb-sysroot, -Demscripten ou -Demsdk);
+///   web      liga o .a com o emcc em zig-out/web (precisa de -Demscripten ou -Demsdk);
+///   web-sim  o mesmo caminho da página (sem threads, sem rede, fontes embutidas)
+///            num executável comum, para conferir sem navegador.
+fn addWeb(b: *std.Build, native_c: *std.Build.Module, themes_mod: *std.Build.Module, examples_mod: *std.Build.Module) void {
+    // O emcc fica em upstream/emscripten no emsdk; num pacote do sistema (o emscripten
+    // do Arch, por exemplo) a pasta do emcc é outra, então ela pode vir direto.
+    const emscripten_opt = b.option([]const u8, "emscripten", "Navegador: pasta do emcc e do embuilder (padrão: <emsdk>/upstream/emscripten)");
+    const emsdk = b.option([]const u8, "emsdk", "Navegador: pasta do emsdk (a que tem upstream/emscripten)");
+    const em_dir: ?[]const u8 = emscripten_opt orelse if (emsdk) |e| b.pathJoin(&.{ e, "upstream", "emscripten" }) else null;
+    const sysroot_opt = b.option([]const u8, "web-sysroot", "Navegador: sysroot do Emscripten (padrão: cache/sysroot na pasta do emcc)");
+    const host_inc = b.option([]const u8, "web-host-include", "Navegador: de onde vêm os cabeçalhos de curl, opus, webp e fontconfig (padrão: /usr/include)") orelse "/usr/include";
+    const web_optimize = b.option(std.builtin.OptimizeMode, "web-optimize", "Navegador: otimização do wasm (padrão: small)") orelse .small;
+    const fonts_dir = b.option([]const u8, "web-fonts", "Navegador: pasta com as fontes da página (padrão: zig-out/web-fonts, ver tools/web/fonts.py)") orelse b.root.joinString(b.allocator, "zig-out/web-fonts") catch @panic("OOM");
+
+    const lib_step = b.step("web-lib", "Navegador: compila a demonstração para wasm32-emscripten (sem ligar)");
+    const web_step = b.step("web", "Navegador: a demonstração em WebAssembly em zig-out/web (precisa de -Demscripten ou -Demsdk)");
+    const sim_step = b.step("web-sim", "Navegador: o caminho da página numa janela comum");
+
+    // --- web-sim: nativo, mesmas bibliotecas do sistema menos as que a página não tem.
+    {
+        const target = b.graph.host;
+        const m = webModule(b, target, .debug, native_c, themes_mod, examples_mod);
+        m.link_libcpp = true;
+        const flags: []const []const u8 = &.{ "-std=c++17", "-fno-exceptions", "-fno-rtti" };
+        m.addCSourceFiles(.{ .root = b.path("third_party"), .files = &web_cxx_sources, .flags = flags });
+        m.addCSourceFile(.{ .file = b.path("third_party/imgui/imgui_demo.cpp"), .flags = &.{ "-std=c++17", "-fno-exceptions", "-fno-rtti", "-DIMGUI_DISABLE_DEMO_WINDOWS" } });
+        m.addCSourceFile(.{ .file = b.path("src/ui/font_metrics.cpp"), .flags = flags });
+        m.addCSourceFile(.{ .file = b.path("third_party/stb/stb_image.c"), .flags = &.{"-O2"} });
+        m.addCSourceFile(.{ .file = b.path("src/platform/web/stubs.c"), .flags = &.{"-std=gnu99"} });
+        addLua(b, m);
+        addRnnoise(b, m);
+        addFribidi(b, m);
+        for ([_][]const u8{ "sdl3", "freetype2", "zlib" }) |l| m.linkSystemLibrary(l, .{});
+        const exe = b.addExecutable(.{ .name = "larpercord-web-sim", .root_module = m });
+        const run = b.addRunArtifact(exe);
+        run.addArg(b.fmt("--fonts={s}", .{fonts_dir}));
+        run.addPassthruArgs();
+        sim_step.dependOn(&run.step);
+    }
+
+    // --- web-lib e web: wasm32-emscripten.
+    const sysroot: []const u8 = sysroot_opt orelse if (em_dir) |e| b.pathJoin(&.{ e, "cache", "sysroot" }) else {
+        const fail = b.addFail("navegador: passe -Demscripten=<pasta do emcc> ou -Demsdk=<pasta do emsdk> (ou -Dweb-sysroot=<sysroot> para só compilar); ver tools/web/README.md");
+        lib_step.dependOn(&fail.step);
+        web_step.dependOn(&fail.step);
+        return;
+    };
+    const sys_inc = b.pathJoin(&.{ sysroot, "include" });
+    const target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .emscripten });
+
+    // Os cabeçalhos das bibliotecas que a página não tem: só para os tipos e as
+    // assinaturas (os stubs respondem). SDL3, FreeType e zlib vêm do sysroot (portas).
+    const host = b.addWriteFiles();
+    for ([_][]const u8{ "curl", "opus", "webp", "fontconfig" }) |sub| _ = host.addCopyDirectory(.{ .cwd_relative = b.pathJoin(&.{ host_inc, sub }) }, sub, .{});
+    const host_dir = host.getDirectory();
+
+    // Sem a libc do Zig: para um alvo que ele não tem, ele cairia nos cabeçalhos do
+    // sistema (/usr/include). Só os do sysroot do Emscripten entram.
+    const translate = b.addTranslateC(.{ .root_source_file = b.path("src/c.h"), .target = target, .optimize = web_optimize, .link_libc = false });
+    translate.addSystemIncludePath(.{ .cwd_relative = sys_inc });
+    translate.addIncludePath(host_dir);
+    translate.addIncludePath(b.path("third_party/imgui"));
+    translate.addIncludePath(b.path("third_party/dcimgui"));
+    translate.addIncludePath(b.path("third_party/dcimgui/backends"));
+    translate.addIncludePath(b.path("third_party/stb"));
+    translate.addIncludePath(b.path("third_party/libdave/includes"));
+    translate.defineCMacro("IMGUI_USE_WCHAR32", "1");
+
+    // O Zig num .a, o C/C++ em outro (sem libc pelo mesmo motivo do translate-c).
+    const m = webModule(b, target, web_optimize, translate.createModule(), themes_mod, examples_mod);
+    // Sem threads, por escrito (no wasm32 já é o padrão do Zig): com elas a memória vira
+    // compartilhada e a página precisaria de SharedArrayBuffer, que só vem com os
+    // cabeçalhos COOP/COEP que o GitHub Pages não manda. O gen_site.py recusa um wasm assim.
+    m.single_threaded = true;
+    const lib = b.addLibrary(.{ .name = "larpercord-web", .linkage = .static, .root_module = m });
+    // Sem o compiler_rt do Zig: o do Emscripten entra na ligação.
+    lib.bundle_compiler_rt = false;
+
+    const cm = b.createModule(.{ .target = target, .optimize = web_optimize, .link_libc = false });
+    for ([_][]const u8{ "third_party/imgui", "third_party/imgui/backends", "third_party/dcimgui", "third_party/dcimgui/backends", "third_party/stb", "third_party/libdave/includes" }) |p| cm.addIncludePath(b.path(p));
+    cm.addIncludePath(host_dir);
+    cm.addCMacro("IMGUI_ENABLE_FREETYPE", "1");
+    cm.addCMacro("IMGUI_USE_WCHAR32", "1");
+    // libc++ antes dos cabeçalhos do clang que o Zig põe na frente (-I vem antes de -isystem).
+    const cxx = b.fmt("-I{s}", .{b.pathJoin(&.{ sys_inc, "c++", "v1" })});
+    const c_inc = b.fmt("-isystem{s}", .{sys_inc});
+    const ft_inc = b.fmt("-isystem{s}", .{b.pathJoin(&.{ sys_inc, "freetype2" })});
+    const cxx_flags: []const []const u8 = &.{ "-std=c++17", "-fno-exceptions", "-fno-rtti", cxx, c_inc, ft_inc };
+    cm.addCSourceFiles(.{ .root = b.path("third_party"), .files = &web_cxx_sources, .flags = cxx_flags });
+    cm.addCSourceFile(.{ .file = b.path("third_party/imgui/imgui_demo.cpp"), .flags = &.{ "-std=c++17", "-fno-exceptions", "-fno-rtti", cxx, c_inc, "-DIMGUI_DISABLE_DEMO_WINDOWS" } });
+    cm.addCSourceFile(.{ .file = b.path("src/ui/font_metrics.cpp"), .flags = cxx_flags });
+    cm.addCSourceFile(.{ .file = b.path("third_party/stb/stb_image.c"), .flags = &.{ "-O2", c_inc } });
+    cm.addCSourceFile(.{ .file = b.path("src/platform/web/stubs.c"), .flags = &.{ "-std=gnu99", c_inc } });
+    // Lua com o setjmp/longjmp do Emscripten (o mesmo que o emcc liga por padrão).
+    cm.addCSourceFiles(.{ .root = b.path("third_party/lua"), .files = &lua_sources, .flags = &.{ "-std=gnu99", "-O2", "-fno-sanitize=undefined", "-mllvm", "-enable-emscripten-sjlj", c_inc } });
+    addWebC(b, cm, c_inc);
+    const clib = b.addLibrary(.{ .name = "larpercord-web-c", .linkage = .static, .root_module = cm });
+    clib.bundle_compiler_rt = false;
+
+    for ([_]*std.Build.Step.Compile{ lib, clib }) |l| lib_step.dependOn(&b.addInstallArtifact(l, .{ .dest_dir = .{ .override = .{ .custom = "web" } } }).step);
+
+    const em = em_dir orelse {
+        web_step.dependOn(&b.addFail("navegador: ligar precisa do emcc (-Demscripten=<pasta do emcc> ou -Demsdk=<pasta do emsdk>); para só compilar use zig build web-lib").step);
+        return;
+    };
+    // As portas (SDL3, FreeType, zlib) primeiro: os cabeçalhos delas entram no sysroot.
+    // O sysroot vem antes: com o cache vazio a porta do SDL3 cai ao gravar o .pc dela
+    // numa pasta que só o sysroot cria (o emcc instala sozinho, o embuilder não).
+    // O FreeType é o de tools/web/freetype_png.py: a porta do Emscripten vem sem PNG,
+    // e sem PNG o emoji colorido (CBDT) não abre.
+    const freetype_port = b.path("tools/web/freetype_png.py");
+    const ports = b.addSystemCommand(&.{ b.pathJoin(&.{ em, "embuilder" }), "build", "sysroot", "sdl3", "zlib" });
+    ports.addFileArg(freetype_port);
+    translate.step.dependOn(&ports.step);
+    clib.step.dependOn(&ports.step);
+
+    const link = b.addSystemCommand(&.{b.pathJoin(&.{ em, "emcc" })});
+    link.addArtifactArg(lib);
+    link.addArtifactArg(clib);
+    // As portas do Emscripten: SDL3 (canvas, WebGL 2, eventos), zlib e o FreeType com
+    // PNG (que puxa a libpng).
+    link.addPrefixedFileArg("--use-port=", freetype_port);
+    link.addArgs(&.{
+        "-sUSE_SDL=3",
+        "-sUSE_ZLIB=1",
+        "-sMIN_WEBGL_VERSION=2",
+        "-sMAX_WEBGL_VERSION=2",
+        "-sALLOW_MEMORY_GROWTH=1",
+        "-sINITIAL_MEMORY=64MB",
+        // A pilha da thread principal de um app nativo (há quadros com buffers grandes).
+        "-sSTACK_SIZE=8MB",
+        "-sSUPPORT_LONGJMP=emscripten",
+        // A página chama `callMain` no clique de "Começar" (com idioma e claro/escuro).
+        "-sMODULARIZE=1",
+        "-sEXPORT_NAME=larperCord",
+        "-sENVIRONMENT=web",
+        "-sINVOKE_RUN=0",
+        "-sEXIT_RUNTIME=0",
+        "-sEXPORTED_RUNTIME_METHODS=callMain",
+        "-sEXPORTED_FUNCTIONS=_main,_larper_web_resize",
+        if (web_optimize == .debug) "-O1" else "-Oz",
+        "--preload-file",
+    });
+    link.addArg(b.fmt("{s}@/fonts", .{fonts_dir}));
+    // A pasta entra como texto: sem isto, fontes novas do tools/web/fonts.py não
+    // refazem a ligação e o .data sai com as antigas.
+    for ([_][]const u8{ "ui-regular.ttf", "ui-medium.ttf", "ui-semibold.ttf", "ui-bold.ttf", "ui-italic.ttf", "mono.ttf", "mono-bold.ttf", "symbols.ttf", "emoji.ttf" }) |f|
+        link.addFileInput(.{ .cwd_relative = b.pathJoin(&.{ fonts_dir, f }) });
+    link.addArg("-o");
+    const js = link.addOutputFileArg("larpercord.js");
+    const out = b.addInstallDirectory(.{ .source_dir = js.dirname(), .install_dir = .prefix, .install_subdir = "web" });
+    web_step.dependOn(&out.step);
+}
+
+/// O módulo da página (raiz src/web_main.zig), igual para o wasm e para o web-sim.
+fn webModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, c_mod: *std.Build.Module, themes_mod: *std.Build.Module, examples_mod: *std.Build.Module) *std.Build.Module {
+    const options = b.addOptions();
+    options.addOption(bool, "qa", false);
+    options.addOption([]const u8, "version", @import("src/core/version.zig").number);
+    const m = b.createModule(.{
+        .root_source_file = b.path("src/web_main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    m.addOptions("build_options", options);
+    m.addImport("c", c_mod);
+    m.addImport("builtin_themes", themes_mod);
+    m.addImport("plugin_examples", examples_mod);
+    m.addAnonymousImport("changelog_en", .{ .root_source_file = b.path("CHANGELOG.md") });
+    m.addAnonymousImport("changelog_pt", .{ .root_source_file = b.path("CHANGELOG.pt-BR.md") });
+    m.addAnonymousImport("icon_64", .{ .root_source_file = b.path("assets/icon-64.png") });
+    m.addAnonymousImport("icon_32", .{ .root_source_file = b.path("assets/icon-32.png") });
+    for ([_][]const u8{ "third_party/imgui", "third_party/imgui/backends", "third_party/dcimgui", "third_party/dcimgui/backends", "third_party/stb", "third_party/libdave/includes" }) |p| m.addIncludePath(b.path(p));
+    m.addCMacro("IMGUI_ENABLE_FREETYPE", "1");
+    m.addCMacro("IMGUI_USE_WCHAR32", "1");
+    return m;
+}
+
+/// FriBidi e RNNoise para o wasm, com os cabeçalhos do sysroot do Emscripten.
+fn addWebC(b: *std.Build, m: *std.Build.Module, c_inc: []const u8) void {
+    m.addIncludePath(b.path("third_party/rnnoise/include"));
+    m.addIncludePath(b.path("third_party/rnnoise/compat"));
+    m.addCSourceFiles(.{
+        .root = b.path("third_party/rnnoise/src"),
+        .files = &.{ "celt_lpc.c", "denoise.c", "kiss_fft.c", "nnet.c", "nnet_default.c", "parse_lpcnet_weights.c", "pitch.c", "rnn.c", "rnnoise_data.c", "rnnoise_tables.c" },
+        .flags = &.{ "-std=gnu99", "-O2", "-fno-sanitize=undefined", "-Wno-cpp", c_inc },
+    });
+    const inc = struct {
+        fn f(bb: *std.Build, sub: []const u8) []const u8 {
+            return bb.fmt("-I{s}", .{bb.root.joinString(bb.allocator, sub) catch @panic("OOM")});
+        }
+    }.f;
+    m.addCSourceFiles(.{
+        .root = b.path("third_party/fribidi/lib"),
+        .files = &fribidi_sources,
+        .flags = &.{ "-std=gnu99", "-O2", "-fno-sanitize=undefined", "-DHAVE_CONFIG_H", "-DFRIBIDI_ENTRY=", inc(b, "third_party/fribidi/config"), inc(b, "third_party/fribidi/lib"), c_inc },
+    });
 }

@@ -12,11 +12,13 @@ Entradas:
   docs/plugins/*.lua        os plugins que vêm com o app (diretório de plugins)
   src/plugins/manifest.zig, src/ui/plugins_page.zig   capacidades e rótulos dos plugins
   themes/community/*.kdl    temas mandados por pull request: conferidos aqui, e o build para no primeiro erro
+  site/try.html             a demonstração no navegador, só quando docs/try/ tem o build dela
 
 Só usa a biblioteca padrão. Rode: python3 tools/gen_site.py
 Só conferir os temas da comunidade (o mesmo que o CI faz):
   python3 tools/gen_site.py --check-community [PASTA]
 """
+import gzip
 import html
 import json
 import re
@@ -1853,6 +1855,131 @@ def build_guide(lang, themes):
     return index
 
 
+# A demonstração no navegador (zig build web, ver tools/web/README.md; no site, o
+# workflow pages.yml). A página e o link da inicial só entram quando o build inteiro
+# dela está em docs/try/: sem ele, nada aparece e as páginas de uma geração anterior saem.
+TRY_SIZE = None
+TRY_PAGES = ["try/index.html", "pt/try/index.html"]
+
+
+def wasm_shared_memory(data):
+    """A memória do wasm é compartilhada? Só com threads, e aí a página precisaria de
+    SharedArrayBuffer, que pede os cabeçalhos COOP/COEP que o GitHub Pages não manda."""
+    pos = 8
+
+    def leb():
+        nonlocal pos
+        n = shift = 0
+        while True:
+            byte = data[pos]
+            pos += 1
+            n |= (byte & 0x7F) << shift
+            shift += 7
+            if byte < 0x80:
+                return n
+
+    def limits():
+        nonlocal pos
+        flags = data[pos]
+        pos += 1
+        leb()
+        if flags & 1:
+            leb()
+        if flags & 8:
+            leb()
+        return bool(flags & 2)
+
+    if data[:4] != b"\0asm":
+        raise ValueError("não é um wasm")
+    while pos < len(data):
+        section = data[pos]
+        pos += 1
+        size = leb()
+        end = pos + size
+        if section == 2:  # importações: módulo, nome e o tipo do que vem de fora
+            for _ in range(leb()):
+                for _ in range(2):
+                    n = leb()
+                    pos += n
+                kind = data[pos]
+                pos += 1
+                if kind == 0:  # função
+                    leb()
+                elif kind == 1:  # tabela
+                    pos += 1
+                    limits()
+                elif kind == 2:  # memória
+                    if limits():
+                        return True
+                elif kind == 3:  # global
+                    pos += 2
+                elif kind == 4:  # tag
+                    pos += 1
+                    leb()
+                else:
+                    raise ValueError(f"importação de tipo {kind}")
+        elif section == 5:  # memórias do próprio módulo
+            for _ in range(leb()):
+                if limits():
+                    return True
+        pos = end
+    return False
+
+
+def try_size():
+    """O tamanho do download da demonstração, ou None quando o build não serve para o site."""
+    d = OUT / "try"
+    js, wasm, data = (d / f"larpercord.{ext}" for ext in ("js", "wasm", "data"))
+    if not js.exists() and not wasm.exists():
+        return None
+    missing = [f.name for f in (js, wasm) if not f.exists()]
+    # As fontes vão no .data (--preload-file): o .js pede por ele ao abrir.
+    if js.exists() and "larpercord.data" in js.read_text(encoding="utf-8", errors="replace") and not data.exists():
+        missing.append(data.name)
+    if missing:
+        print(f"try/: falta {', '.join(missing)} em {d}; a página da demonstração fica de fora")
+        return None
+    try:
+        shared = wasm_shared_memory(wasm.read_bytes())
+    except (ValueError, IndexError) as e:
+        print(f"try/: não deu para ler {wasm.name} ({e}); a página da demonstração fica de fora")
+        return None
+    if shared:
+        print("try/: o wasm usa memória compartilhada (threads), que precisa de SharedArrayBuffer e de"
+              " cabeçalhos COOP/COEP que o GitHub Pages não manda; a página da demonstração fica de fora")
+        return None
+    # Uma estimativa do download: o .js e o .wasm com gzip, e o .data (as fontes, servido
+    # como application/octet-stream) contado sem compressão.
+    total = sum(len(gzip.compress(f.read_bytes(), 9)) for f in (js, wasm))
+    total += data.stat().st_size if data.exists() else 0
+    return f"{total / 1e6:.1f} MB"
+
+
+def drop_try_pages():
+    for p in TRY_PAGES:
+        f = OUT / p
+        f.unlink(missing_ok=True)
+        if f.parent.is_dir() and not any(f.parent.iterdir()):
+            f.parent.rmdir()
+
+
+def build_try(lang):
+    src = (SITE / "try.html").read_text(encoding="utf-8")
+    src = re.sub(r"\{\{(.*?)\|\|(.*?)\}\}", lambda m: m.group(1 if lang == "en" else 2), src, flags=re.S)
+    path = "try/index.html" if lang == "en" else "pt/try/index.html"
+    alt = "pt/try/index.html" if lang == "en" else "try/index.html"
+    home = rel(path, page_url(lang) if lang == "pt" else "") or "./"
+    size = TRY_SIZE if lang == "en" else TRY_SIZE.replace(".", ",")
+    src = (src.replace("%TRY_SIZE%", size).replace("%TRY_THEMES%", json.dumps(THEMES)).replace("%HOME%", home)
+           .replace("%ROOT%", root_of(path)).replace("%LANG%", lang)
+           .replace("%GUIDE%", rel(path, page_url(lang, "x")).removesuffix("x.html")))
+    title = t(lang, "Try larperCord in your browser", "Experimente o larperCord no navegador")
+    desc = t(lang, "The real larperCord app compiled to WebAssembly, running its demo mode with fake data. No network, no account.",
+             "O app larperCord de verdade compilado para WebAssembly, rodando o modo demonstração com dados falsos. Sem rede, sem conta.")
+    write(path, shell(lang, path, alt, title, desc, src, "try"))
+    return [{"t": title, "s": "larperCord", "u": path}]
+
+
 def write(path, text):
     f = OUT / path
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -1883,6 +2010,8 @@ def build_landing(lang, themes):
   <figcaption><span class="tnum">{i + 1:02d}</span><strong>{name}</strong><span class="tdesc">{html.escape(th['descEn'] if lang == 'en' else th['desc'])}</span></figcaption>
 </figure>''')
     src = src.replace("%THEME_CARDS%", "\n".join(cards)).replace("%MASCOT%", mascot("h"))
+    try_cta = f'<a class="btn" href="try/">{t(lang, "Try it in your browser", "Testar no navegador")}</a>'
+    src = re.sub(r"([ \t]*)%TRY_CTA%\n", lambda m: f"{m.group(1)}{try_cta}\n" if TRY_SIZE else "", src)
     tabs = [f'<button type="button" role="tab" data-apply="larper" class="tab"><i>0</i>larper</button>']
     tabs += [f'<button type="button" role="tab" data-apply="{n}" class="tab"><i>{i + 1}</i>{n}</button>' for i, n in enumerate(THEMES)]
     src = src.replace("%THEME_TABS%", "".join(tabs))
@@ -2011,6 +2140,7 @@ def report_community(problems):
 
 
 def main():
+    global TRY_SIZE
     if len(sys.argv) > 1 and sys.argv[1] == "--check-community":
         folder = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else COMMUNITY_DIR
         if len(sys.argv) > 2 and not folder.is_dir():
@@ -2027,6 +2157,9 @@ def main():
     if problems:
         report_community(problems)
         raise SystemExit(1)
+    TRY_SIZE = try_size()
+    if not TRY_SIZE:
+        drop_try_pages()
     themes = load_themes()
     data = {"order": THEMES, "themes": {**{k: {x: v[x] for x in v if x not in ("preset", "options", "desc", "descEn", "nodes")} for k, v in themes.items()},
                                         "larper": {k: BRAND[k] for k in ("radius", "display", "fx", "dark", "light")}}}
@@ -2040,8 +2173,11 @@ def main():
         index += build_builder(lang, themes, community)
         index += build_community(lang, community)
         index += build_guide(lang, themes)
+        if TRY_SIZE:
+            index += build_try(lang)
         write(f"assets/site/search-{lang}.js", "window.LC_SEARCH=" + json.dumps(index, ensure_ascii=False, separators=(",", ":")) + ";\n")
-    urls = ["", "pt/"] + [builder_url(la) for la in LANGS] + [community_url(la) for la in LANGS] + [page_url(la, s) for la in LANGS for s, _, _ in FLAT]
+    urls = (["", "pt/"] + [builder_url(la) for la in LANGS] + [community_url(la) for la in LANGS] + [page_url(la, s) for la in LANGS for s, _, _ in FLAT]
+            + (["try/", "pt/try/"] if TRY_SIZE else []))
     write_community_files(community)
     write("sitemap.xml", '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
           + "".join(f"  <url><loc>{BASE_URL}{u}</loc></url>\n" for u in urls) + "</urlset>\n")
@@ -2057,6 +2193,7 @@ def main():
     page = re.sub(r'(href|src)="(?!https?:|/|#)(?:\./)?([^"]*)"', r'\1="/larperCord/\2"', page)
     write("404.html", page)
     print(f"site gerado em {OUT} ({len(urls)} páginas no sitemap)")
+    print(f"demonstração no navegador: {f'try/, cerca de {TRY_SIZE}' if TRY_SIZE else 'fora (sem um build que sirva em docs/try/)'}")
 
 
 if __name__ == "__main__":

@@ -78,7 +78,7 @@ pub const Voice = struct {
     sink: Sink,
     guild: Id = 0,
     /// Muda quando alguém nos move de canal (o grupo do DAVE é o canal).
-    channel: std.atomic.Value(Id) = .init(0),
+    channel: sys.Atomic(Id) = .init(0),
     user: Id = 0,
     endpoint: [256]u8 = @splat(0),
     endpoint_len: usize = 0,

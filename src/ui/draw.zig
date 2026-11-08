@@ -353,7 +353,7 @@ pub fn hitUnder(ctx: *Ctx, id: usize, r: Rect) Hit {
 
 fn hitEx(ctx: *Ctx, id: usize, r: Rect, under: bool) Hit {
     c.ImGui_SetCursorScreenPos(v(r.x, r.y));
-    c.ImGui_PushIDInt(@truncate(@as(i64, @bitCast(id))));
+    c.ImGui_PushIDInt(@truncate(@as(isize, @bitCast(id))));
     if (under) c.ImGui_SetNextItemAllowOverlap();
     const clicked = c.ImGui_InvisibleButton("##h", v(@max(r.w, 1), @max(r.h, 1)), c.ImGuiButtonFlags_MouseButtonLeft | c.ImGuiButtonFlags_MouseButtonMiddle | c.ImGuiButtonFlags_MouseButtonRight);
     const hovered = c.ImGui_IsItemHovered(0);

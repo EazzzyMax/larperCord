@@ -391,6 +391,8 @@ pub const Fonts = struct {
 
     /// O arquivo de fonte para a escrita `sc`, ou null se o sistema não tem um que sirva.
     fn resolveScript(f: *Fonts, sc: Script) ?Match {
+        // Navegador: só as fontes que a página traz (latim); as outras escritas ficam de fora.
+        if (sys.web) return null;
         if (!sys.windows) return matchScript(sc, false) orelse matchScript(sc, true);
         return f.windowsFile(sc.windows, sc.probes);
     }
@@ -658,6 +660,43 @@ fn resolveWindows(name: []const u8, weight: c_int, slant: c_int) ?Match {
     return null;
 }
 
+/// Navegador: as poucas fontes que a página traz (tools/web/fonts.py), na pasta que a
+/// raiz diz (src/web_main.zig). Toda família vira a do texto ou a monoespaçada, no peso
+/// mais perto que existir; emoji e símbolos só se a pasta tiver.
+fn resolveWeb(name: []const u8, weight: c_int, slant: c_int) ?Match {
+    var lower: [64]u8 = undefined;
+    const low = std.ascii.lowerString(lower[0..@min(name.len, lower.len)], name[0..@min(name.len, lower.len)]);
+    const has = struct {
+        fn f(s: []const u8, words: []const []const u8) bool {
+            for (words) |w| if (std.mem.indexOf(u8, s, w) != null) return true;
+            return false;
+        }
+    }.f;
+    const files: []const []const u8 = if (std.mem.eql(u8, low, "emoji"))
+        &.{"emoji.ttf"}
+    else if (has(low, &.{"dejavu"}))
+        &.{"symbols.ttf"}
+    else if (has(low, &.{ "mono", "code", "consol", "courier", "term" }))
+        (if (weight >= 180) &.{ "mono-bold.ttf", "mono.ttf" } else &.{"mono.ttf"})
+    else if (slant != 0)
+        &.{ "ui-italic.ttf", "ui-regular.ttf" }
+    else if (weight >= 200)
+        &.{ "ui-bold.ttf", "ui-semibold.ttf", "ui-regular.ttf" }
+    else if (weight >= 180)
+        &.{ "ui-semibold.ttf", "ui-bold.ttf", "ui-regular.ttf" }
+    else if (weight >= 100)
+        &.{ "ui-medium.ttf", "ui-regular.ttf" }
+    else
+        &.{"ui-regular.ttf"};
+    const dir = @import("root").fonts_dir;
+    var pb: [300]u8 = undefined;
+    for (files) |file| {
+        const p = std.fmt.bufPrintSentinel(&pb, "{s}/{s}", .{ dir, file }, 0) catch continue;
+        if (sys.exists(p.ptr)) return .{ .path = std.heap.c_allocator.dupeSentinel(u8, p, 0) catch return null, .index = 0 };
+    }
+    return null;
+}
+
 /// As escritas que as fontes dos temas não cobrem. Uma linha nova basta para somar outra (e,
 /// se for de um grupo novo, as faixas dele em `rangesOf`): `probes` são letras que a fonte
 /// precisa ter, e `windows`, os arquivos a procurar.
@@ -784,6 +823,7 @@ fn matchChar(cp: u32) ?Match {
 
 /// Pergunta ao fontconfig qual arquivo atende família + peso + inclinação.
 fn resolve(name: []const u8, weight: c_int, slant: c_int) ?Match {
+    if (sys.web) return resolveWeb(name, weight, slant);
     if (sys.windows) return resolveWindows(name, weight, slant);
     var buf: [128]u8 = undefined;
     const zname = std.fmt.bufPrintSentinel(&buf, "{s}", .{name}, 0) catch return null;

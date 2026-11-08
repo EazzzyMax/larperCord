@@ -6,6 +6,55 @@ const builtin = @import("builtin");
 const c = @import("c");
 
 pub const windows = builtin.os.tag == .windows;
+/// A demonstração no navegador (src/web_main.zig): sem threads, sem rede e sem as
+/// fontes do sistema. Quem decide é a raiz do build; o app de sempre nunca liga isto.
+pub const web = @hasDecl(@import("root"), "larper_web");
+
+/// `std.atomic.Value`, menos no wasm32 (a página): lá o Zig não faz atômico de 64 bits, e
+/// não há threads, então um valor comum com a mesma interface basta. Nos outros, é o mesmo tipo.
+pub fn Atomic(comptime T: type) type {
+    if (builtin.cpu.arch != .wasm32 or @bitSizeOf(T) <= 32) return std.atomic.Value(T);
+    return struct {
+        raw: T,
+        const Self = @This();
+        const Order = std.builtin.AtomicOrder;
+        pub fn init(v: T) Self {
+            return .{ .raw = v };
+        }
+        pub fn load(s: *const Self, comptime _: Order) T {
+            return s.raw;
+        }
+        pub fn store(s: *Self, v: T, comptime _: Order) void {
+            s.raw = v;
+        }
+        pub fn swap(s: *Self, v: T, comptime _: Order) T {
+            defer s.raw = v;
+            return s.raw;
+        }
+        pub fn fetchAdd(s: *Self, v: T, comptime _: Order) T {
+            defer s.raw +%= v;
+            return s.raw;
+        }
+        pub fn fetchSub(s: *Self, v: T, comptime _: Order) T {
+            defer s.raw -%= v;
+            return s.raw;
+        }
+        pub fn fetchMax(s: *Self, v: T, comptime _: Order) T {
+            defer s.raw = @max(s.raw, v);
+            return s.raw;
+        }
+        pub fn fetchMin(s: *Self, v: T, comptime _: Order) T {
+            defer s.raw = @min(s.raw, v);
+            return s.raw;
+        }
+        pub fn cmpxchgStrong(s: *Self, expected: T, new: T, comptime _: Order, comptime _: Order) ?T {
+            if (s.raw != expected) return s.raw;
+            s.raw = new;
+            return null;
+        }
+        pub const cmpxchgWeak = cmpxchgStrong;
+    };
+}
 
 pub const Socket = c.curl_socket_t;
 pub const no_socket: Socket = if (windows) std.math.maxInt(Socket) else -1;
@@ -409,7 +458,8 @@ pub fn exists(path: [*:0]const u8) bool {
 
 /// O arquivo só é legível pelo dono? (No Windows, a pasta do perfil já é.)
 pub fn ownerOnly(path: [*:0]const u8) bool {
-    if (windows) return exists(path);
+    // Navegador: o struct stat do musl tem campo de bits e o Zig não o traduz; lá nada é de outro dono.
+    if (windows or web) return exists(path);
     var st: c.struct_stat = undefined;
     return c.stat(path, &st) == 0 and st.st_mode & 0o077 == 0;
 }
