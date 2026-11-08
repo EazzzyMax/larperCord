@@ -397,6 +397,14 @@ pub fn endRegion(ctx: *Ctx, content_bottom: f32, x: f32) void {
     c.ImGui_EndChild();
 }
 
+extern fn larper_window_to_front() void;
+
+/// Põe a janela atual (entre Begin e End) por cima das outras sem tirar o foco do
+/// teclado de quem tem (o SetNextWindowFocus solta a caixa de texto que está ativa).
+pub fn windowToFront() void {
+    larper_window_to_front();
+}
+
 /// Anima o que já foi desenhado em `dl` desde o vértice `start`: escala a
 /// partir de `origin`, desloca `dy` na vertical e multiplica a opacidade.
 /// Barato (só mexe nos vértices do quadro) e vale para qualquer coisa

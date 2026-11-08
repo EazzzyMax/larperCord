@@ -38,3 +38,10 @@ extern "C" void larper_font_source_to(ImFont* font, const void* data, int font_n
 extern "C" int larper_font_index_size(ImFont* font, float size) {
     return font->GetFontBaked(size)->IndexLookup.Size;
 }
+
+// Põe a janela atual (entre Begin e End) na frente das outras sem pegar o foco do
+// teclado: quem está digitando em outra janela continua digitando. As bindings em C
+// não expõem a função interna.
+extern "C" void larper_window_to_front(void) {
+    ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+}

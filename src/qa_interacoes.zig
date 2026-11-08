@@ -131,6 +131,16 @@ fn suggestions(_: *App) bool {
 fn fruitSent(app: *App) bool {
     return qa.find("ix-form") == null and has("\"name\":\"fruta\"") and has("\"value\":\"banana\"") and lastText(app, "banana");
 }
+/// O ImGui diz que o mouse está sobre a lista de sugestões: ela é a janela da frente.
+fn acOnTop(_: *App) bool {
+    return qa.find("ix-ac:0") != null and interact.qa_ac_hovered;
+}
+fn suggestionsAgain(_: *App) bool {
+    return has("\"value\":\"uva\",\"focused\":true") and qa.find("ix-ac:0") != null and qa.find("ix-ac:1") == null;
+}
+fn formClosed(_: *App) bool {
+    return qa.find("ix-form") == null and !interact.anyOpen();
+}
 fn subsShown(_: *App) bool {
     return qa.find("ix-form") != null and qa.find("ix-sub:0") != null and qa.find("ix-sub:1") != null;
 }
@@ -206,9 +216,23 @@ pub const ops = [_]Op{
     click("ix-opt:nome"),
     text("ban"),
     expect("o bot sugere enquanto digita (tipo 4)", suggestions),
+    .{ .hover = .{ .mark = "ix-ac:0" } },
+    expect("a lista de sugestões fica por cima do formulário", acOnTop),
     click("ix-ac:0"),
     click("ix-form-send"),
     expect("a sugestão escolhida vai como valor", fruitSent),
+    click("composer"),
+    text("/fruta"),
+    expect("a lista mostra o comando de novo", listShown),
+    key(c.ImGuiKey_Enter),
+    expect("abre o formulário da fruta outra vez", fruitForm),
+    click("ix-opt:nome"),
+    text("uva"),
+    expect("o bot sugere de novo", suggestionsAgain),
+    .{ .hover = .{ .mark = "ix-ac:0" } },
+    expect("na segunda vez a lista também fica por cima", acOnTop),
+    key(c.ImGuiKey_Escape),
+    expect("Esc fecha o formulário", formClosed),
     click("composer"),
     text("/ticket"),
     expect("a lista mostra o comando com subcomandos", listShown),

@@ -1384,9 +1384,13 @@ fn entityBox(ctx: *d.Ctx, dl: *c.ImDrawList, fs: *FormState, i: usize, r: d.Rect
     }
 }
 
+/// Para o QA: o ImGui diz que o mouse está sobre a lista (ela é a janela da frente ali).
+pub var qa_ac_hovered = false;
+
 /// Lista do autocompletar embaixo do campo, numa janela por cima do
 /// formulário (recebe o mouse antes dos campos que ficam embaixo dela).
 fn acWindow(ctx: *d.Ctx, fs: *FormState) void {
+    qa_ac_hovered = false;
     const field = fs.ac_rect orelse return;
     const list = fs.ac_list orelse return;
     const k = fs.ac_shown orelse return;
@@ -1400,6 +1404,10 @@ fn acWindow(ctx: *d.Ctx, fs: *FormState) void {
     // Sem pegar o foco ao aparecer: o campo continua sendo digitado.
     _ = c.ImGui_Begin("##ix-ac", null, c.ImGuiWindowFlags_NoDecoration | c.ImGuiWindowFlags_NoBackground | c.ImGuiWindowFlags_NoSavedSettings | c.ImGuiWindowFlags_NoMove | c.ImGuiWindowFlags_NoFocusOnAppearing | c.ImGuiWindowFlags_NoNav);
     defer c.ImGui_End();
+    // Sem o foco, o ImGui não a traz para a frente quando ela volta: a partir da
+    // segunda vez ficava embaixo do formulário (que pega o foco ao abrir).
+    d.windowToFront();
+    if (qa.on()) qa_ac_hovered = c.ImGui_IsWindowHovered(0);
     const dl = c.ImGui_GetWindowDrawList();
     d.shadow(dl, r, radius(ctx), 10, ctx.col(.shadow));
     d.rect(dl, r, ctx.col(.elevated), radius(ctx));
