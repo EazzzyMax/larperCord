@@ -5,6 +5,7 @@ Entradas:
   site/landing.html         a página inicial, com os textos como {{inglês||português}}
   site/guide/{en,pt}/*.md   os guias
   docs/plugins*.md, themes/README*.md   guias que também vivem fora do site
+  site/theme-builder.html   o criador de temas (o código fica em docs/assets/site/theme-builder*.js)
   themes/*.kdl              paletas, opções e layouts dos temas (a fonte de verdade)
 
 Só usa a biblioteca padrão. Rode: python3 tools/gen_site.py
@@ -676,6 +677,10 @@ def page_url(lang, slug=None):
     return f"{prefix}guide/{slug}.html" if slug else (prefix or "./")
 
 
+def builder_url(lang):
+    return "theme-builder.html" if lang == "en" else "pt/theme-builder.html"
+
+
 def root_of(path):
     return "../" * path.count("/")
 
@@ -684,7 +689,7 @@ def rel(path_from, target):
     return root_of(path_from) + target
 
 
-def shell(lang, path, alt_path, title, desc, body, kind):
+def shell(lang, path, alt_path, title, desc, body, kind, head=""):
     root = root_of(path)
     other = "pt" if lang == "en" else "en"
     other_label = "Português" if lang == "en" else "English"
@@ -712,7 +717,7 @@ def shell(lang, path, alt_path, title, desc, body, kind):
 <link rel="apple-touch-icon" href="{root}assets/icon-180.png">
 <link rel="preload" href="{root}assets/fonts/departure-mono.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="{root}assets/fonts/jetbrains-mono-400.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="{root}assets/site/site.css">
+<link rel="stylesheet" href="{root}assets/site/site.css">{head}
 <script src="{root}assets/site/data.js"></script>
 <script src="{root}assets/site/boot.js"></script>
 </head>
@@ -723,6 +728,7 @@ def shell(lang, path, alt_path, title, desc, body, kind):
   <nav aria-label="{t(lang, 'Main', 'Principal')}">
     <a href="{anchor_home}#themes">{t(lang, 'Themes', 'Temas')}</a>
     <a href="{anchor_home}#playground">Playground</a>
+    <a href="{rel(path, builder_url(lang))}"{' aria-current="page"' if kind == 'builder' else ''}>{t(lang, 'Theme builder', 'Criar tema')}</a>
     <a href="{anchor_home}#features">{t(lang, 'Features', 'Recursos')}</a>
     <a href="{guide}"{' aria-current="page"' if kind == 'guide' else ''}>{t(lang, 'Guide', 'Guia')}</a>
     <a href="{REPO}" rel="noopener">★ {t(lang, 'Star on GitHub', 'Dar estrela no GitHub')}</a>
@@ -764,6 +770,9 @@ def external_sources(slug, lang):
 
 def rewriter(lang, slug, path):
     def rewrite(url):
+        # Link para o próprio site (os .md também são lidos no GitHub): vira relativo aqui.
+        if url.startswith(BASE_URL):
+            return rel(path, url[len(BASE_URL):])
         if re.match(r"(?:https?:|mailto:|#)", url):
             return url
         target, _, frag = url.partition("#")
@@ -796,7 +805,8 @@ def gallery_md(lang, themes):
                 state = t(lang, "on" if o["default"] else "off", "ligada" if o["default"] else "desligada")
                 out.append(f"| {label} (`{o['name']}`) | {state} | {desc} |")
             out.append("")
-        out += [t(lang, f"Source: [`{name}.kdl`]({REPO}/blob/main/themes/{name}.kdl)", f"Fonte: [`{name}.kdl`]({REPO}/blob/main/themes/{name}.kdl)"), ""]
+        out += [t(lang, f"Source: [`{name}.kdl`]({REPO}/blob/main/themes/{name}.kdl) · [open it in the theme builder](builder:{name})",
+                  f"Fonte: [`{name}.kdl`]({REPO}/blob/main/themes/{name}.kdl) · [abrir no criador de temas](builder:{name})"), ""]
     return "\n".join(out)
 
 
@@ -825,6 +835,8 @@ def build_guide(lang, themes):
                 return rel(path, f"assets/shots/{lang}/{url[5:]}.webp")
             if url.startswith("home:"):
                 return rel(path, "pt/index.html" if lang == "pt" else "index.html") + "#" + url[5:]
+            if url.startswith("builder:"):
+                return rel(path, builder_url(lang)) + "#base=" + url[8:]
             if url.startswith("page:"):
                 name, _, frag = url[5:].partition("#")
                 return rel(path, page_url(lang, name)) + (f"#{frag}" if frag else "")
@@ -893,7 +905,7 @@ def build_landing(lang, themes):
     path = "index.html" if lang == "en" else "pt/index.html"
     alt = "pt/index.html" if lang == "en" else "index.html"
     root = root_of(path)
-    src = src.replace("%ROOT%", root).replace("%LANG%", lang).replace("%REPO%", REPO).replace("%VERSION%", VERSION).replace("%GUIDE%", rel(path, page_url(lang, "x")).removesuffix("x.html"))
+    src = src.replace("%BUILDER%", rel(path, builder_url(lang))).replace("%ROOT%", root).replace("%LANG%", lang).replace("%REPO%", REPO).replace("%VERSION%", VERSION).replace("%GUIDE%", rel(path, page_url(lang, "x")).removesuffix("x.html"))
 
     def code(m):
         return code_block(html.unescape(m.group(2)).strip("\n"), m.group(1))
@@ -932,6 +944,28 @@ def build_landing(lang, themes):
     ]
 
 
+def build_builder(lang, themes):
+    """O criador de temas: os .kdl embutidos vão junto, dentro da página, sem buscar nada depois."""
+    src = (SITE / "theme-builder.html").read_text(encoding="utf-8")
+    src = re.sub(r"\{\{(.*?)\|\|(.*?)\}\}", lambda m: m.group(1 if lang == "en" else 2), src, flags=re.S)
+    path = builder_url(lang)
+    alt = builder_url("pt" if lang == "en" else "en")
+    root = root_of(path)
+    data = {"order": THEMES, "url": BASE_URL + path,
+            "themes": {n: {"src": (ROOT / "themes" / f"{n}.kdl").read_text(encoding="utf-8"), "desc": themes[n]["desc"], "descEn": themes[n]["descEn"]} for n in THEMES}}
+    blob = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    options = "".join(f'<option value="{n}">{n}</option>' for n in THEMES)
+    src = (src.replace("%ROOT%", root).replace("%REPO%", REPO).replace("%GUIDE%", rel(path, page_url(lang, "x")).removesuffix("x.html"))
+           .replace("%START_OPTIONS%", options).replace("%LAYOUT_OPTIONS%", options).replace("%BUILDER_DATA%", blob))
+    title = t(lang, "Theme builder · larperCord", "Criador de temas · larperCord")
+    desc = t(lang, "Build a larperCord theme in the browser: colors for dark and light, fonts, layout and options, a live preview, a contrast check and a .kdl file to download.",
+             "Monte um tema do larperCord no navegador: cores do claro e do escuro, fontes, layout e opções, prévia ao vivo, checagem de contraste e um .kdl para baixar.")
+    head = f'\n<link rel="stylesheet" href="{root}assets/site/theme-builder.css">'
+    write(path, shell(lang, path, alt, title, desc, src, "builder", head))
+    return [{"t": t(lang, "Theme builder", "Criador de temas"), "s": "larperCord", "u": path,
+             "x": t(lang, "Colors, fonts, layout, contrast check and a .kdl to download.", "Cores, fontes, layout, checagem de contraste e um .kdl para baixar.")}]
+
+
 def main():
     themes = load_themes()
     data = {"order": THEMES, "themes": {**{k: {x: v[x] for x in v if x not in ("preset", "options", "desc", "descEn", "nodes")} for k, v in themes.items()},
@@ -941,9 +975,10 @@ def main():
     write("assets/site/presets.js", "window.LC_PRESETS=" + json.dumps({k: v["preset"] for k, v in themes.items()}, ensure_ascii=False) + ";\n")
     for lang in LANGS:
         index = build_landing(lang, themes)
+        index += build_builder(lang, themes)
         index += build_guide(lang, themes)
         write(f"assets/site/search-{lang}.js", "window.LC_SEARCH=" + json.dumps(index, ensure_ascii=False, separators=(",", ":")) + ";\n")
-    urls = ["", "pt/"] + [page_url(la, s) for la in LANGS for s, _, _ in FLAT]
+    urls = ["", "pt/"] + [builder_url(la) for la in LANGS] + [page_url(la, s) for la in LANGS for s, _, _ in FLAT]
     write("sitemap.xml", '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
           + "".join(f"  <url><loc>{BASE_URL}{u}</loc></url>\n" for u in urls) + "</urlset>\n")
     write("robots.txt", f"User-agent: *\nAllow: /\nSitemap: {BASE_URL}sitemap.xml\n")

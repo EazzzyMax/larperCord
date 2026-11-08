@@ -12,6 +12,9 @@ notice shows `file:line:column` and the previous theme stays in effect.
 
 Switch themes with `F2`, from the palette (`Ctrl+K` → "theme: …") or in Settings → Appearance.
 
+Prefer clicking to typing? The [theme builder](https://rshacudevidro.github.io/larperCord/theme-builder.html) on the site
+starts from any built-in theme, edits colors, fonts and layout with a live preview, checks contrast and gives you the `.kdl`.
+
 ## Minimal example
 
 ```kdl

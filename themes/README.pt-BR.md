@@ -12,6 +12,9 @@ um aviso com `arquivo:linha:coluna` e o tema anterior continua valendo.
 
 Troque de tema com `F2`, pela paleta (`Ctrl+K` → "tema: …") ou em Configurações → Aparência.
 
+Prefere clicar a digitar? O [criador de temas](https://rshacudevidro.github.io/larperCord/pt/theme-builder.html) do site
+parte de qualquer tema embutido, edita cores, fontes e layout com prévia ao vivo, confere o contraste e entrega o `.kdl`.
+
 ## Exemplo mínimo
 
 ```kdl

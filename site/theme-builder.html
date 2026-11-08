@@ -1,0 +1,163 @@
+<main id="main" class="tb" data-builder>
+
+<section class="tb-head">
+  <span class="tag"><b>theme</b> <i>"<span data-tname>my-theme</span>" {</i> &nbsp;// {{theme builder||criador de temas}}</span>
+  <h1 class="h">{{Build a theme. <em>Keep the file.</em>||Monte um tema. <em>Leve o arquivo.</em>}}</h1>
+  <p class="lede">{{Start from one of the 11 themes, change the colors, fonts and layout, and a sketch of the app follows along. Everything happens in this page: nothing is uploaded. When it looks right, download the <code>.kdl</code> and put it in your themes folder.||Comece de um dos 11 temas, mude as cores, as fontes e o layout, e um esboço do app acompanha. Tudo acontece nesta página: nada é enviado. Quando estiver do seu jeito, baixe o <code>.kdl</code> e coloque na pasta de temas.}}</p>
+</section>
+
+<div class="tb-bar" role="toolbar" aria-label="{{Theme actions||Ações do tema}}">
+  <label class="tb-field"><span>{{Start from||Começar de}}</span><select data-start>%START_OPTIONS%</select></label>
+  <button type="button" class="tb-b" data-random>{{Random colors||Cores aleatórias}}</button>
+  <button type="button" class="tb-b" data-image>{{Colors from an image||Cores de uma imagem}}</button>
+  <input type="file" accept="image/*" data-image-file hidden>
+  <button type="button" class="tb-b" data-import>{{Import .kdl||Importar .kdl}}</button>
+  <span class="tb-sep" aria-hidden="true"></span>
+  <button type="button" class="tb-b" data-undo aria-keyshortcuts="Control+Z" title="Ctrl+Z">{{Undo||Desfazer}}</button>
+  <button type="button" class="tb-b" data-redo aria-keyshortcuts="Control+Shift+Z" title="Ctrl+Shift+Z">{{Redo||Refazer}}</button>
+  <span class="tb-spacer"></span>
+  <button type="button" class="tb-b" data-share>{{Copy link||Copiar link}}</button>
+  <button type="button" class="tb-b" data-copy-kdl>{{Copy .kdl||Copiar .kdl}}</button>
+  <button type="button" class="tb-b primary" data-download>{{Download .kdl||Baixar .kdl}}</button>
+</div>
+
+<div class="tb-grid">
+  <div class="tb-panel">
+    <div class="tb-tabs" role="tablist" aria-label="{{What to edit||O que editar}}">
+      <button type="button" role="tab" id="tb-t-colors" aria-controls="tb-p-colors" aria-selected="true">{{Colors||Cores}}</button>
+      <button type="button" role="tab" id="tb-t-type" aria-controls="tb-p-type" aria-selected="false" tabindex="-1">{{Type and shape||Letra e forma}}</button>
+      <button type="button" role="tab" id="tb-t-layout" aria-controls="tb-p-layout" aria-selected="false" tabindex="-1">Layout</button>
+      <button type="button" role="tab" id="tb-t-file" aria-controls="tb-p-file" aria-selected="false" tabindex="-1">{{File info||Arquivo}}</button>
+    </div>
+
+    <div class="tb-pane" role="tabpanel" id="tb-p-colors" aria-labelledby="tb-t-colors" tabindex="0"></div>
+
+    <div class="tb-pane" role="tabpanel" id="tb-p-type" aria-labelledby="tb-t-type" tabindex="0" hidden>
+      <fieldset class="tb-group">
+        <legend>{{Fonts||Fontes}}</legend>
+        <label class="tb-line" for="tb-f-ui"><span>{{Interface||Interface}} <code>ui</code></span><input id="tb-f-ui" type="text" list="tb-fonts-ui" spellcheck="false" autocomplete="off" data-f-ui></label>
+        <label class="tb-line" for="tb-f-mono"><span>{{Monospace||Monoespaçada}} <code>mono</code></span><input id="tb-f-mono" type="text" list="tb-fonts-mono" spellcheck="false" autocomplete="off" data-f-mono></label>
+        <div class="tb-line"><label for="tb-f-size"><span>{{Size||Tamanho}} <code>size</code></span></label><span class="tb-pair-in"><input id="tb-f-size" type="range" min="10" max="24" step="0.5" data-f-size><input type="number" min="6" max="72" step="0.5" aria-label="{{Size, in pixels||Tamanho, em pixels}}" data-f-size-n></span></div>
+        <p class="tb-hint">{{Linux: any family fontconfig knows (<code>fc-list</code> lists them). Windows: a file with that name in <code>C:\Windows\Fonts</code>, otherwise Segoe UI, Consolas or Georgia. The preview uses the font if your browser has it.||Linux: qualquer família que o fontconfig conheça (<code>fc-list</code> mostra). Windows: um arquivo com esse nome em <code>C:\Windows\Fonts</code>, senão Segoe UI, Consolas ou Georgia. A prévia usa a fonte se o seu navegador tiver.}}</p>
+        <datalist id="tb-fonts-ui"><option value="Inter"><option value="Inter Display"><option value="Noto Sans"><option value="DejaVu Sans"><option value="Liberation Sans"><option value="IBM Plex Sans"><option value="Fira Sans"><option value="Segoe UI"><option value="Liberation Serif"><option value="Georgia"><option value="JetBrains Mono"></datalist>
+        <datalist id="tb-fonts-mono"><option value="JetBrains Mono"><option value="Monaspace Argon"><option value="Fira Code"><option value="Iosevka"><option value="DejaVu Sans Mono"><option value="Liberation Mono"><option value="Cascadia Code"><option value="Consolas"></datalist>
+      </fieldset>
+      <fieldset class="tb-group">
+        <legend>{{Shape||Forma}}</legend>
+        <div class="tb-line"><label for="tb-f-radius"><span>{{Corner radius||Arredondamento}} <code>metrics radius</code></span></label><span class="tb-pair-in"><input id="tb-f-radius" type="range" min="0" max="24" step="1" data-f-radius><input type="number" min="0" max="64" step="1" aria-label="{{Corner radius, in pixels||Arredondamento, em pixels}}" data-f-radius-n></span></div>
+        <div class="tb-opt"><input id="tb-f-transparent" type="checkbox" data-f-transparent><label for="tb-f-transparent"><strong>{{Transparent window||Janela transparente}}</strong> <code>window transparent</code><small>{{The window background lets the desktop through, and the compositor applies the blur (Hyprland, KDE…). A translucent <code>bg</code> turns this on by itself.||O fundo da janela deixa a área de trabalho aparecer, e o compositor aplica o blur (Hyprland, KDE…). Um <code>bg</code> translúcido já liga isto sozinho.}}</small></label></div>
+        <label class="tb-line" for="tb-f-preview"><span>{{Thumbnail in Settings||Miniatura nas Configurações}} <code>preview</code></span><select id="tb-f-preview" data-f-preview><option value="classic">classic</option><option value="glass">glass</option><option value="terminal">terminal</option><option value="bubbles">bubbles</option><option value="zen">zen</option><option value="mirror">mirror</option><option value="office">office</option><option value="desktop">desktop</option></select></label>
+      </fieldset>
+    </div>
+
+    <div class="tb-pane" role="tabpanel" id="tb-p-layout" aria-labelledby="tb-t-layout" tabindex="0" hidden>
+      <fieldset class="tb-group">
+        <legend>{{Layout||Layout}}</legend>
+        <p class="tb-hint" data-layout-now></p>
+        <div class="tb-row"><label class="tb-field"><span>{{Use the layout of||Usar o layout de}}</span><select data-layout-from>%LAYOUT_OPTIONS%</select></label><button type="button" class="tb-b" data-layout-apply>{{Apply||Aplicar}}</button></div>
+        <p class="tb-hint">{{Keeps your colors, fonts and file info. Brings that theme's options, styles and layout tree.||Mantém as suas cores, fontes e dados do arquivo. Traz as opções, os estilos e a árvore de layout daquele tema.}}</p>
+      </fieldset>
+      <fieldset class="tb-group">
+        <legend>{{Theme options||Opções do tema}}</legend>
+        <p class="tb-hint">{{What starts switched on. People can still change them in Settings → Appearance.||O que já vem ligado. Quem usar o tema ainda muda em Configurações → Aparência.}}</p>
+        <div data-options></div>
+      </fieldset>
+      <fieldset class="tb-group">
+        <legend>{{Components||Componentes}}</legend>
+        <p class="tb-hint">{{Only properties the app reads, from the <a href="%GUIDE%themes.html#components">theme reference</a>. Empty means the component's own default.||Só propriedades que o app lê, da <a href="%GUIDE%themes.html#componentes">referência de temas</a>. Vazio é o padrão do próprio componente.}}</p>
+        <div data-tweaks></div>
+      </fieldset>
+      <details class="tb-group tb-details tb-adv-box">
+        <summary>{{Advanced: edit the layout as text||Avançado: editar o layout como texto}}</summary>
+        <p class="tb-hint">{{Options, styles, the layout tree and any blocks that depend on an option. The colors, fonts and file info above are written before this.||Opções, estilos, a árvore de layout e os blocos que dependem de uma opção. As cores, fontes e dados do arquivo vêm antes disto.}}</p>
+        <div class="tb-adv"><pre aria-hidden="true"><code data-adv-hl></code></pre><textarea data-adv spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="{{Layout source||Texto do layout}}"></textarea></div>
+        <p class="tb-adv-status" data-adv-status role="status"></p>
+      </details>
+    </div>
+
+    <div class="tb-pane" role="tabpanel" id="tb-p-file" aria-labelledby="tb-t-file" tabindex="0" hidden>
+      <fieldset class="tb-group">
+        <legend>{{File info||Dados do arquivo}}</legend>
+        <label class="tb-line" for="tb-m-name"><span>{{Name||Nome}}</span><input id="tb-m-name" type="text" spellcheck="false" autocomplete="off" data-m-name aria-describedby="tb-m-name-d"></label>
+        <p class="tb-hint" id="tb-m-name-d">{{The app lists themes by file name: this one is saved as <code data-fname>my-theme.kdl</code>.||O app lista os temas pelo nome do arquivo: este vai como <code data-fname>my-theme.kdl</code>.}}</p>
+        <label class="tb-line" for="tb-m-author"><span>{{Author||Autor}}</span><input id="tb-m-author" type="text" autocomplete="off" data-m-author></label>
+        <label class="tb-line" for="tb-m-desc-en"><span>{{Description (English)||Descrição (inglês)}} <code>description-en</code></span><input id="tb-m-desc-en" type="text" data-m-desc-en></label>
+        <label class="tb-line" for="tb-m-desc"><span>{{Description (Portuguese)||Descrição (português)}} <code>description</code></span><input id="tb-m-desc" type="text" data-m-desc></label>
+        <p class="tb-hint">{{The app shows the one in its language. With only one filled in, it shows that one in both.||O app mostra a do idioma dele. Com só uma preenchida, ela aparece nos dois.}}</p>
+      </fieldset>
+    </div>
+  </div>
+
+  <div class="tb-view">
+    <div class="tb-view-bar">
+      <div class="tb-seg" role="radiogroup" aria-label="{{Preview mode||Modo da prévia}}">
+        <button type="button" role="radio" data-mode="dark" aria-checked="true">{{Dark||Escuro}}</button><button type="button" role="radio" data-mode="light" aria-checked="false" tabindex="-1">{{Light||Claro}}</button>
+      </div>
+      <span class="tb-view-file" data-fname>my-theme.kdl</span>
+    </div>
+    <p class="tb-error" data-error role="alert" hidden></p>
+    <div class="tb-screen" data-screen role="img" aria-label="{{Theme preview||Prévia do tema}}"><div class="tb-frame" data-frame aria-hidden="true"></div></div>
+    <p class="tb-note">{{A sketch in HTML of the app at 1280×800, with placeholder content. The app draws with Dear ImGui, so details differ, but the colors, sizes and layout tree are the ones in your file.||Um esboço em HTML do app a 1280×800, com conteúdo de mentira. O app desenha com Dear ImGui, então os detalhes mudam, mas as cores, os tamanhos e a árvore de layout são os do seu arquivo.}}</p>
+    <section class="tb-contrast" aria-labelledby="tb-contrast-h">
+      <div class="tb-contrast-head"><h2 id="tb-contrast-h">{{Contrast||Contraste}}</h2><button type="button" class="tb-b" data-fixall hidden>{{Fix all||Consertar tudo}}</button></div>
+      <p class="tb-hint" data-contrast-sum role="status"></p>
+      <ul class="tb-checks" data-contrast></ul>
+      <p class="tb-hint">{{The first two lines are the app's own rule: when <code>muted</code> or <code>faint</code> falls below it against <code>bg</code>, <code>surface</code>, <code>sidebar</code> or <code>elevated</code>, the app lifts it toward <code>text</code> on load. For these two, translucent colors are measured without their transparency, the same way the app does. The other lines are the WCAG AA minimum for text, measured as the colors show on the background.||As duas primeiras linhas são a regra do próprio app: quando <code>muted</code> ou <code>faint</code> fica abaixo dela contra <code>bg</code>, <code>surface</code>, <code>sidebar</code> ou <code>elevated</code>, o app clareia em direção ao <code>text</code> ao carregar. Nessas duas, cores translúcidas são medidas sem a transparência, do mesmo jeito que o app faz. As outras linhas são o mínimo da WCAG (AA) para texto, medido como as cores aparecem sobre o fundo.}}</p>
+    </section>
+  </div>
+</div>
+
+<section class="tb-out" id="install" aria-labelledby="tb-out-h">
+  <span class="tag"><b>themes</b> <i>{</i> // {{where the file goes||onde o arquivo vai}}</span>
+  <h2 class="h" id="tb-out-h">{{Your file, <em>and where it goes.</em>||O seu arquivo, <em>e onde ele vai.</em>}}</h2>
+  <div class="tb-out-grid">
+    <div class="tb-install">
+      <div class="tb-ostabs" data-ostabs role="tablist" aria-label="{{Operating system||Sistema operacional}}">
+        <button type="button" role="tab" id="tb-os-linux" aria-controls="tb-os-p-linux" aria-selected="true">Linux</button>
+        <button type="button" role="tab" id="tb-os-win" aria-controls="tb-os-p-win" aria-selected="false" tabindex="-1">Windows</button>
+      </div>
+      <div role="tabpanel" id="tb-os-p-linux" aria-labelledby="tb-os-linux">
+        <ol class="tb-steps">
+          <li>{{Put <code data-fname>my-theme.kdl</code> in <code>~/.config/larpercord/themes/</code> (or <code>$XDG_CONFIG_HOME/larpercord/themes/</code> when that variable is set):||Coloque <code data-fname>my-theme.kdl</code> em <code>~/.config/larpercord/themes/</code> (ou em <code>$XDG_CONFIG_HOME/larpercord/themes/</code> quando essa variável existir):}}
+            <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">mkdir</span> <span class="t-p">-p</span> ~/.config/larpercord/themes
+<span class="t-k">mv</span> ~/Downloads/<span data-fname>my-theme.kdl</span> ~/.config/larpercord/themes/</code></pre></div>
+          </li>
+          <li>{{If the folder didn't exist before, restart larperCord once: the app watches the theme folders that exist when it opens. From then on, saving the file reloads the window.||Se a pasta não existia antes, reinicie o larperCord uma vez: o app vigia as pastas de tema que existem quando ele abre. Daí em diante, salvar o arquivo recarrega a janela.}}</li>
+          <li>{{Pick it with <kbd>F2</kbd>, in the palette (<kbd>Ctrl</kbd><kbd>K</kbd> → "theme: <span data-tname>my-theme</span>") or in Settings → Appearance. Or open the app with it:||Escolha com <kbd>F2</kbd>, pela paleta (<kbd>Ctrl</kbd><kbd>K</kbd> → "tema: <span data-tname>my-theme</span>") ou em Configurações → Aparência. Ou abra o app com ele:}}
+            <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">larpercord</span> <span class="t-p">--theme</span> <span data-tname>my-theme</span></code></pre></div>
+          </li>
+        </ol>
+      </div>
+      <div role="tabpanel" id="tb-os-p-win" aria-labelledby="tb-os-win" hidden>
+        <ol class="tb-steps">
+          <li>{{Put <code data-fname>my-theme.kdl</code> in <code>%APPDATA%\larpercord\themes\</code>. In PowerShell:||Coloque <code data-fname>my-theme.kdl</code> em <code>%APPDATA%\larpercord\themes\</code>. No PowerShell:}}
+            <div class="code" data-lang="powershell"><span class="code-lang">powershell</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">New-Item</span> <span class="t-p">-ItemType</span> Directory <span class="t-p">-Force</span> <span class="t-s">"$env:APPDATA\larpercord\themes"</span> | <span class="t-k">Out-Null</span>
+<span class="t-k">Move-Item</span> <span class="t-s">"$HOME\Downloads\<span data-fname>my-theme.kdl</span>"</span> <span class="t-s">"$env:APPDATA\larpercord\themes\"</span></code></pre></div>
+          </li>
+          <li>{{If the folder didn't exist before, close and open larperCord once: the app watches the theme folders that exist when it opens. From then on, saving the file reloads the window.||Se a pasta não existia antes, feche e abra o larperCord uma vez: o app vigia as pastas de tema que existem quando ele abre. Daí em diante, salvar o arquivo recarrega a janela.}}</li>
+          <li>{{Pick it with <kbd>F2</kbd>, in the palette (<kbd>Ctrl</kbd><kbd>K</kbd> → "theme: <span data-tname>my-theme</span>") or in Settings → Appearance. Or start it from a terminal with <code>larpercord.exe --theme <span data-tname>my-theme</span></code>.||Escolha com <kbd>F2</kbd>, pela paleta (<kbd>Ctrl</kbd><kbd>K</kbd> → "tema: <span data-tname>my-theme</span>") ou em Configurações → Aparência. Ou abra pelo terminal com <code>larpercord.exe --theme <span data-tname>my-theme</span></code>.}}</li>
+        </ol>
+      </div>
+      <ul class="tb-facts">
+        <li>{{The app lists a theme by its <strong>file name</strong>. A file with the name of a built-in theme (say <code>orbital.kdl</code>) takes its place.||O app lista um tema pelo <strong>nome do arquivo</strong>. Um arquivo com o nome de um tema embutido (por exemplo <code>orbital.kdl</code>) fica no lugar dele.}}</li>
+        <li>{{If the file has an error, a notice shows <code>file:line:column</code> and the previous theme stays on screen.||Se o arquivo tiver um erro, um aviso mostra <code>arquivo:linha:coluna</code> e o tema anterior continua na tela.}}</li>
+        <li>{{The colors are written out in full for both modes, so the file doesn't depend on pywal. To follow your wallpaper, edit it by hand with <code>palette "wal"</code> (<a href="%GUIDE%themes.html">theme reference</a>).||As cores vão escritas por inteiro nos dois modos, então o arquivo não depende do pywal. Para seguir o wallpaper, edite à mão com <code>palette "wal"</code> (<a href="%GUIDE%themes.html">referência de temas</a>).}}</li>
+      </ul>
+    </div>
+    <div class="code tb-code" data-lang="kdl"><span class="code-lang">kdl</span><button class="copy" type="button" data-copy>copy</button><pre tabindex="0" aria-label="{{The generated theme file||O arquivo de tema gerado}}"><code data-code></code></pre></div>
+  </div>
+</section>
+
+<dialog class="tb-dialog" data-import-dialog aria-labelledby="tb-import-h">
+  <h2 id="tb-import-h">{{Import a theme||Importar um tema}}</h2>
+  <p class="tb-hint">{{Paste a <code>.kdl</code> or pick a file. Colors become fixed values (a theme that uses <code>palette "wal"</code> starts from the default palette); options, styles and layout come along as they are.||Cole um <code>.kdl</code> ou escolha um arquivo. As cores viram valores fixos (um tema com <code>palette "wal"</code> começa da paleta padrão); opções, estilos e layout vêm como estão.}}</p>
+  <label class="tb-line" for="tb-import-file"><span>{{File||Arquivo}}</span><input id="tb-import-file" type="file" accept=".kdl,text/plain" data-import-file></label>
+  <label class="tb-line tb-import-area" for="tb-import-text"><span>{{Or paste it here||Ou cole aqui}}</span><textarea id="tb-import-text" rows="10" spellcheck="false" autocapitalize="off" data-import-text></textarea></label>
+  <p class="tb-error" data-import-error role="alert"></p>
+  <div class="tb-row tb-dialog-foot"><button type="button" class="tb-b" data-import-cancel>{{Cancel||Cancelar}}</button><button type="button" class="tb-b primary" data-import-load>{{Load||Carregar}}</button></div>
+</dialog>
+
+<script type="application/json" id="tb-data">%BUILDER_DATA%</script>
+</main>
+<script src="%ROOT%assets/site/theme-builder-core.js" defer></script>
+<script src="%ROOT%assets/site/theme-builder.js" defer></script>
