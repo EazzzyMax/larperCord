@@ -88,6 +88,20 @@ fn listsFake(_: *App) bool {
 fn micChosen(app: *App) bool {
     return app.st.popup == .none and std.mem.eql(u8, app.st.settings.voice_mic.slice(), "Microfone de teste 2");
 }
+/// Saída escolhida que não está ligada agora: aparece no fim da lista, marcada.
+const lost_out = "Fone que sumiu";
+fn setLostOut(app: *App) void {
+    app.st.settings.voice_out.set(lost_out);
+}
+fn lostListed(app: *App) bool {
+    return switch (app.st.popup) {
+        .devices => |dv| dv.which == .out and qa.find("device-opt:out:4") != null and qa.find("device-sel:out:4") != null,
+        else => false,
+    };
+}
+fn lostKept(app: *App) bool {
+    return app.st.popup == .none and std.mem.eql(u8, app.st.settings.voice_out.slice(), lost_out);
+}
 fn outMenu(app: *App) bool {
     return switch (app.st.popup) {
         .devices => |dv| dv.which == .out and qa.find("device-opt:out:3") != null and qa.find("device-opt:mic:0") == null,
@@ -157,6 +171,11 @@ pub const ops_theme = [_]Op{
     .{ .shot = "tema-dispositivos" },
     click("device-opt:mic:2"),
     expect("escolher um microfone grava na hora nas configurações", micChosen),
+    .{ .run = setLostOut },
+    .{ .click = .{ .dyn = tDeafMenu } },
+    expect("a saída que sumiu aparece marcada no fim da lista", lostListed),
+    click("device-opt:out:4"),
+    expect("clicar nela fecha o menu e o nome continua guardado", lostKept),
     .{ .click = .{ .dyn = tDeafMenu } },
     expect("a setinha do fone abre as saídas", outMenu),
     .{ .drag = .{ .from = .{ .at = .{ .key = "device-vol:out", .fx = 0.5, .fy = 0.5 } }, .to = .{ .at = .{ .key = "device-vol:out", .fx = 0.04, .fy = 0.5 } } } },

@@ -163,6 +163,11 @@ fn section(ctx: *d.Ctx, dl: *c.ImDrawList, r: d.Rect, y: *f32, side: Side, cap: 
             d.line(dl, cx - 1.5, cy + 3.5, cx + 5, cy - 4, ck, 2);
         }
         if (hb.clicked) {
+            // O que sumiu já é o escolhido: o nome fica guardado para quando ele voltar.
+            if (is_lost) {
+                popup.close(ctx);
+                return true;
+            }
             if (i == 0) value.* = .{} else value.set(name);
             ctx.act(.save_settings);
             popup.close(ctx);
