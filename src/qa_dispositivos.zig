@@ -73,6 +73,13 @@ fn tZenMe(app: *App, _: []u8) []const u8 {
     return if (isZen(app)) "status-me" else "";
 }
 
+/// O nome (e o status) no painel do usuário tem espaço ao lado dos botões (nos temas
+/// de terminal, os rótulos [mic] [fone] encurtam quando o painel é estreito).
+fn nameRoom(app: *App) bool {
+    if (!hasPanel(app)) return true;
+    const r = qa.find("me") orelse return false;
+    return r.w >= 100;
+}
 fn micMenu(app: *App) bool {
     return switch (app.st.popup) {
         .devices => |dv| dv.which == .mic and qa.find("device-menu") != null,
@@ -164,6 +171,7 @@ fn unmute(app: *App) void {
 
 pub const ops_theme = [_]Op{
     .{ .section = "dispositivos" },
+    expect("o nome no painel do usuário tem espaço ao lado dos botões", nameRoom),
     .{ .run = fake },
     .{ .rclick = .{ .dyn = tMic } },
     expect("botão direito no microfone abre o menu de dispositivos", micMenu),
