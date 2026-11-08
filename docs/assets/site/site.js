@@ -155,15 +155,19 @@
   setInterval(tick, 20000);
 
   // Posição na página, como a régua do vim, e o fio de progresso da barra.
-  var pos = document.querySelector("[data-scroll-pos]"), queued = false, shownPos = "", maxScroll = 1, barW = 0;
+  var pos = document.querySelector("[data-scroll-pos]"), queued = false, shownPos = "", barW = 0;
   var prog = document.querySelector(".sb-prog"), buddyEl = document.querySelector(".buddy");
   function measure() {
-    maxScroll = Math.max(html.scrollHeight - innerHeight, 1);
     barW = innerWidth - (buddyEl ? buddyEl.offsetWidth : 0);
     place();
   }
+  // Seções fora da tela só têm tamanho estimado (content-visibility): a altura muda enquanto se
+  // rola, então ela é lida aqui, a cada quadro de rolagem. Um ResizeObserver no body fazia isso,
+  // mas o body muda de tamanho dentro do próprio ciclo do observador quando uma seção chega perto
+  // da tela, e o navegador registrava "ResizeObserver loop completed with undelivered notifications".
   function place() {
     queued = false;
+    var maxScroll = Math.max(html.scrollHeight - innerHeight, 1);
     var p = Math.min(scrollY / maxScroll, 1);
     prog.style.transform = "scaleX(" + p.toFixed(4) + ")";
     if (buddyEl) buddyEl.style.transform = "translateX(" + (p * barW).toFixed(1) + "px)";
@@ -175,10 +179,6 @@
   }, { passive: true });
   addEventListener("resize", measure);
   addEventListener("load", measure);
-  // Seções fora da tela só têm tamanho estimado: a altura muda enquanto se rola.
-  if (window.ResizeObserver) new ResizeObserver(function () {
-    maxScroll = Math.max(html.scrollHeight - innerHeight, 1);
-  }).observe(document.body);
   measure();
 
   // ------------------------------------------------------------ Paleta ----
@@ -410,21 +410,136 @@
     });
   }
 
-  // Indicador que desliza entre os links da barra.
-  var navEl = document.querySelector(".topnav nav");
-  if (navEl) {
-    var ind = document.createElement("i");
-    ind.className = "nav-ind";
-    navEl.appendChild(ind);
-    navEl.addEventListener("pointerover", function (e) {
-      var a = e.target.closest("a");
-      if (!a) return;
-      ind.style.width = a.offsetWidth + "px";
-      ind.style.transform = "translateX(" + a.offsetLeft + "px)";
-      ind.style.opacity = "1";
+  // ------------------------------------------------------------ O topo ----
+  // Cada grupo vira um botão com aria-expanded (sem JavaScript ele é um link e o menu abre
+  // pelo CSS). Abre no clique, no Enter/Espaço e na seta para baixo; com o mouse, ao passar.
+  // Esc fecha e devolve o foco; clicar fora ou sair com o Tab também fecha. Abaixo de 1100 px
+  // os links vão para uma gaveta, que o botão de menu abre.
+  var topnav = document.querySelector("[data-topnav]");
+  var drawerMQ = matchMedia("(max-width: 1099.98px)");
+  if (topnav) (function () {
+    var groups = [], hoverTimer = 0;
+    var navBox = topnav.querySelector("[data-nav]"), burger = topnav.querySelector("[data-nav-burger]"), scrim = document.querySelector("[data-nav-scrim]");
+    topnav.querySelectorAll("[data-nav-group]").forEach(function (g) {
+      var a = g.querySelector("[data-nav-trig]"), menu = g.querySelector(".nav-menu");
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = a.className;
+      if (a.hasAttribute("data-current")) b.setAttribute("data-current", "");
+      while (a.firstChild) b.appendChild(a.firstChild);
+      b.setAttribute("aria-expanded", "false");
+      b.setAttribute("aria-controls", menu.id);
+      a.replaceWith(b);
+      var item = { g: g, b: b, menu: menu, pinned: false };
+      groups.push(item);
+      b.addEventListener("click", function () {
+        var open = g.classList.contains("open");
+        if (open && !item.pinned) { item.pinned = true; return; }
+        setOpen(item, !open, true);
+      });
+      b.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowDown") { e.preventDefault(); setOpen(item, true, true); focusItem(item, 0); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); setOpen(item, true, true); focusItem(item, -1); }
+      });
+      menu.addEventListener("keydown", function (e) {
+        var links = [].slice.call(menu.querySelectorAll("a")), i = links.indexOf(document.activeElement);
+        if (e.key === "ArrowDown") { e.preventDefault(); links[(i + 1) % links.length].focus(); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); links[(i - 1 + links.length) % links.length].focus(); }
+        else if (e.key === "Home") { e.preventDefault(); links[0].focus(); }
+        else if (e.key === "End") { e.preventDefault(); links[links.length - 1].focus(); }
+      });
+      g.addEventListener("pointerenter", function (e) {
+        if (e.pointerType !== "mouse" || drawerMQ.matches) return;
+        clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(function () { setOpen(item, true, false); }, 70);
+      });
+      g.addEventListener("pointerleave", function (e) {
+        if (e.pointerType !== "mouse" || drawerMQ.matches) return;
+        clearTimeout(hoverTimer);
+        if (!item.pinned) hoverTimer = setTimeout(function () { setOpen(item, false, false); }, 220);
+      });
+      g.addEventListener("focusout", function (e) {
+        if (!g.contains(e.relatedTarget)) setOpen(item, false, false);
+      });
     });
-    navEl.addEventListener("pointerleave", function () { ind.style.opacity = "0"; });
-  }
+    function focusItem(item, i) {
+      var links = item.menu.querySelectorAll("a");
+      if (links.length) links[i < 0 ? links.length - 1 : i].focus();
+    }
+    function setOpen(item, open, pin) {
+      if (drawerMQ.matches) return;
+      groups.forEach(function (o) { if (o !== item && open) { o.g.classList.remove("open"); o.b.setAttribute("aria-expanded", "false"); o.pinned = false; } });
+      item.g.classList.toggle("open", open);
+      item.b.setAttribute("aria-expanded", open ? "true" : "false");
+      item.pinned = open && pin;
+      if (open) keepIn(item.menu);
+    }
+    // O menu tem a largura do texto (site.css): numa janela estreita, ou com um texto mais longo
+    // noutra língua, ele anda para a esquerda até caber, em vez de passar da borda da janela.
+    // Conta sem o transform da animação de abrir (offsetWidth e a posição do item).
+    function keepIn(menu) {
+      menu.style.left = "";
+      var left = parseFloat(getComputedStyle(menu).left) || 0;
+      var over = menu.parentElement.getBoundingClientRect().left + left + menu.offsetWidth - (document.documentElement.clientWidth - 12);
+      if (over > 0) menu.style.left = (left - over) + "px";
+    }
+    function closeAll(focusBack) {
+      groups.forEach(function (o) {
+        if (!o.g.classList.contains("open")) return;
+        if (focusBack && o.g.contains(document.activeElement)) o.b.focus();
+        o.g.classList.remove("open");
+        o.b.setAttribute("aria-expanded", "false");
+        o.pinned = false;
+      });
+    }
+    document.addEventListener("pointerdown", function (e) {
+      if (!e.target.closest("[data-nav-group]")) closeAll(false);
+    });
+
+    // A gaveta das telas estreitas.
+    function drawerOpen() { return html.classList.contains("nav-open"); }
+    // Com a gaveta aberta, o resto da página fica inerte: nem o Tab nem um leitor de tela entram nele.
+    function setInert(on) {
+      [].forEach.call(document.body.children, function (el) {
+        if (el === topnav || el === scrim || el.tagName === "SCRIPT") return;
+        if (on) el.setAttribute("inert", ""); else el.removeAttribute("inert");
+      });
+    }
+    function setDrawer(open, focusBack) {
+      html.classList.toggle("nav-open", open);
+      burger.setAttribute("aria-expanded", open ? "true" : "false");
+      if (scrim) scrim.hidden = !open;
+      setInert(open);
+      if (open) {
+        var first = navBox.querySelector("a");
+        if (first) first.focus({ preventScroll: true });
+      } else if (focusBack) burger.focus();
+    }
+    burger.addEventListener("click", function () { setDrawer(!drawerOpen(), true); });
+    if (scrim) scrim.addEventListener("click", function () { setDrawer(false, true); });
+    navBox.addEventListener("click", function (e) {
+      if (drawerOpen() && e.target.closest("a")) setDrawer(false, false);
+    });
+    // O Tab fica dentro da gaveta (e do botão que a fecha) enquanto ela está aberta.
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        if (drawerOpen()) { e.preventDefault(); setDrawer(false, true); }
+        else if (groups.some(function (o) { return o.g.classList.contains("open"); })) { e.preventDefault(); closeAll(true); }
+        return;
+      }
+      // A ordem da gaveta é botão → links → botão, seja qual for a ordem no HTML (o botão vem
+      // depois dos links): o Tab é todo daqui, e nunca sai para a página de trás.
+      if (e.key !== "Tab" || !drawerOpen()) return;
+      var f = [burger].concat([].slice.call(navBox.querySelectorAll("a"))).filter(function (x) { return x.offsetParent !== null; });
+      if (!f.length) return;
+      e.preventDefault();
+      var i = f.indexOf(document.activeElement);
+      if (i < 0) f[e.shiftKey ? f.length - 1 : 0].focus();
+      else f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
+    });
+    var onMQ = function () { if (!drawerMQ.matches && drawerOpen()) setDrawer(false, false); closeAll(false); };
+    if (drawerMQ.addEventListener) drawerMQ.addEventListener("change", onMQ); else drawerMQ.addListener(onMQ);
+  })();
 
   // Enquanto ninguém escolheu um tema, o topo e a janela passam pelos 10.
   var heroShot = document.querySelector("[data-hero-shot]");
@@ -650,7 +765,8 @@
     });
   }
 
-  var fine = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  // No criador de temas, nada segue o ponteiro por cima da prévia (a luz e o anel).
+  var fine = matchMedia("(hover: hover) and (pointer: fine)").matches && html.dataset.page !== "builder";
 
   // Luz que segue o ponteiro.
   if (fine && !calm) {
@@ -761,7 +877,7 @@
   })();
 
   // ------------------------------------------------- Movimento na página ----
-  var pointerFine = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  var pointerFine = fine;
   if (!calm) {
     // Cada item de lista e tabela entra em cascata ao aparecer.
     var riseIO = new IntersectionObserver(function (es) {
@@ -797,7 +913,7 @@
         });
       });
       // Botões atraídos pelo ponteiro.
-      document.querySelectorAll(".btn, .lang").forEach(function (el) {
+      document.querySelectorAll(".btn").forEach(function (el) {
         el.addEventListener("pointermove", function (e) {
           var r = el.getBoundingClientRect();
           el.style.translate = ((e.clientX - r.left - r.width / 2) * 0.22).toFixed(1) + "px " + ((e.clientY - r.top - r.height / 2) * 0.32).toFixed(1) + "px";

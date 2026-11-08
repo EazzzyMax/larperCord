@@ -363,7 +363,50 @@ tasks.push(test("damaged or hostile share links are refused with a reason", () =
     TB.decode("j.@@@", builtinStructure).then(() => { throw new Error("accepted j.@@@"); }, (e) => assert.strictEqual(e.code, "link-broken")),
     TB.decode("d.AAAA", builtinStructure).then(() => { throw new Error("accepted d.AAAA"); }, (e) => assert.strictEqual(e.code, "link-broken")),
     TB.decode("x.", builtinStructure).then(() => { throw new Error("accepted x."); }, (e) => assert.strictEqual(e.code, "link-broken")),
+    // Um % estragado (link cortado por um app de conversa, "%%") é um link danificado, não uma exceção
+    // que deixaria a página sem tema nenhum.
+    ...["d.%%%%", "j.%E0%A4%A", "d.abc%", "j.%ZZ"].map((tk) => TB.decode(tk, builtinStructure).then(() => { throw new Error("accepted " + tk); }, (e) => assert.strictEqual(e.code, "link-broken", tk))),
   ]);
+}));
+// Um link de 4 KB descomprimia para 36 mil nós (pouco abaixo do limite de 1 MiB) e travava a página
+// por uns 10 s. O layout que chega de fora (link, arquivo aberto, tema da comunidade) tem limite
+// de nós e de tamanho; os temas de verdade ficam muito longe dele.
+tasks.push(test("share links and files with a huge layout are refused before anything is drawn", () => {
+  for (const t of THEMES) assert.doesNotThrow(() => TB.layoutCheck(structureOf[t]), t);
+  const huge = "layout {\n  column {\n" + 'label height=1 text="x"\n'.repeat(36000) + "  }\n}";
+  const atLimit = "layout {\n" + "  label\n".repeat(TB.LAYOUT_NODES - 1) + "}";
+  const overLimit = "layout {\n" + "  label\n".repeat(TB.LAYOUT_NODES) + "}";
+  const spans = "layout {\n  label {\n" + '    span "x"\n'.repeat(TB.LAYOUT_NODES) + "  }\n}";
+  const longText = "layout {\n  // " + "x".repeat(TB.LAYOUT_BYTES) + "\n  messages\n}";
+  assert.doesNotThrow(() => TB.layoutCheck(atLimit));
+  for (const s of [huge, overLimit, spans, longText]) assert.throws(() => TB.layoutCheck(s), (e) => e.code === "layout-big", s.slice(0, 40));
+  // Um layout que nem lê não é "grande demais": ele abre e o editor aponta o erro, como antes.
+  assert.doesNotThrow(() => TB.layoutCheck("layout {\n" + "  label\n".repeat(20)));
+  assert.strictEqual(TB.expand(Object.assign(TB.compact(TB.fromSource(sources.zen)), { s: "layout {\n  row {" }), builtinStructure).structure, "layout {\n  row {");
+  // O arquivo aberto no criador.
+  assert.throws(() => TB.fromSource('theme "grande"\n' + overLimit), (e) => e.code === "layout-big");
+  assert.ok(TB.errorText({ code: "layout-big" }, "en").includes(TB.LAYOUT_NODES + " nodes") && TB.errorText({ code: "layout-big" }, "pt").includes(TB.LAYOUT_NODES + " nós"));
+  // O link: comprimido, com poucos KB, recusado com o motivo e sem demora.
+  const state = TB.fromSource(sources.zen, { base: "zen", name: "z" });
+  state.layoutFrom = null;
+  state.structure = huge;
+  return TB.encode(state, builtinStructure).then((token) => {
+    if (typeof CompressionStream !== "undefined") assert.ok(token.length < 8000, "token " + token.length);
+    const t0 = Date.now();
+    return TB.decode(token, builtinStructure).then(() => { throw new Error("accepted"); }, (e) => {
+      assert.strictEqual(e.code, "layout-big");
+      assert.ok(Date.now() - t0 < 1500, "took " + (Date.now() - t0) + " ms");
+    });
+  });
+}));
+// Um link que algum app codificou com % continua abrindo o mesmo tema.
+tasks.push(test("share links still open after percent-encoding", () => {
+  const state = TB.fromSource(sources.bolhas, { base: "bolhas", name: "b" });
+  return TB.encode(state, builtinStructure).then((token) => {
+    const mangled = token.replace(/[.\-_]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+    assert.notStrictEqual(mangled, token);
+    return Promise.all([TB.decode(token, builtinStructure), TB.decode(mangled, builtinStructure)]).then(([a, b]) => assert.deepStrictEqual(b, a));
+  });
 }));
 
 // 8. Erros: o leitor aponta linha e coluna, como o app.
@@ -398,6 +441,7 @@ tasks.push(test("every error has English and Portuguese text", () => {
     ["css-too-big", () => TB.importDiscordCss("a".repeat(TB.CSS_MAX + 1))], ["css-empty", () => TB.importDiscordCss(":root { --nothing-here: #fff }")],
     ["css-slow", () => { let clock = 0; TB.importDiscordCss(":root{" + "--v: #fff;".repeat(5000) + "}", { now: () => (clock += 100), budget: 1000 }); }],
     ["community-missing", () => TB.communityFromSource("// " + "x".repeat(TB.COMMUNITY_MAX))],
+    ["layout-big", () => TB.expand(Object.assign(TB.compact(TB.fromSource(sources.zen)), { s: "layout {\n" + "  label\n".repeat(TB.LAYOUT_NODES) + "}" }), builtinStructure)],
   ];
   const seen = new Set();
   for (const [code, fn, arg] of cases) {
@@ -549,7 +593,7 @@ function fakeDocument() {
   const made = [];
   function el(tag) {
     const e = {
-      tag, kids: [], className: "", _text: "", _html: "", ownerDocument: doc,
+      tag, kids: [], className: "", _text: "", _html: "", ownerDocument: doc, dataset: {},
       style: { setProperty(k, v) { this[k] = v; } },
       classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, toggle(c, on) { if (on) this.set.add(c); else this.set.delete(c); } },
       appendChild(k) { this.kids.push(k); return k; },
@@ -574,6 +618,15 @@ tasks.push(test("mount draws every built-in layout with the shared renderer", ()
       assert.ok(comps.length >= 3, t + " " + mode + " components " + comps.length);
       for (const c of comps) if (c._html) scanHtml(c._html);
       assert.ok(!doc.made.some((e) => e.className.includes("pv-bad")), t + " has no unknown component");
+      // As caixas levam a camada e os tokens para o clique-para-editar: só números e nomes da lista.
+      const boxes = doc.made.filter((e) => e.className === "pv-b");
+      assert.ok(boxes.length && boxes.every((b) => /^\d+$/.test(b.dataset.start) && /^\d+$/.test(b.dataset.line)), t + " layer data");
+      for (const b of boxes) {
+        for (const k of ["tk", "over"]) if (b.dataset[k]) for (const tok of b.dataset[k].split(" ")) assert.ok(TB.TOKENS.includes(tok), t + " " + k + " " + tok);
+        if (b.dataset.fg) assert.ok(TB.TOKENS.includes(b.dataset.fg), t + " fg " + b.dataset.fg);
+        if (b.dataset.node) assert.ok(/^[a-z][a-z0-9-]*$/.test(b.dataset.node));
+      }
+      assert.ok(boxes.some((b) => b.dataset.tk), t + " has panels with a token background");
     }
   }
 }));
@@ -1085,6 +1138,349 @@ tasks.push(test("community gallery page matches the folder", () => {
     for (const n of builder.community) assert.ok(fs.existsSync(path.join(ROOT, "docs/community", n + ".kdl")), n + ".kdl is published");
   }
   assert.ok(fs.readFileSync(path.join(ROOT, "docs/index.html"), "utf8").includes('href="community-themes.html"'), "nav link");
+}));
+
+
+// 14. O editor novo: gerador de paletas por harmonia, cores travadas, inversão do modo,
+// camadas (esconder e mover) e o mapa do clique-para-editar.
+function hueGap(a, b) { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
+tasks.push(test("harmony generator: every scheme and base gives a theme the app loads, with readable text", () => {
+  const bases = ["#e8590c", "#7aa2f7", "#22c55e", "#d946ef", "#9ca3af", "#000000", "#ffffff"];
+  let n = 0;
+  for (const scheme of Object.keys(TB.HARMONY)) {
+    for (const base of bases) {
+      for (const layout of ["orbital", "classico", "papel"]) {
+        const seed = TB.seedFromBase(base, scheme, {});
+        assert.strictEqual(seed.scheme, scheme);
+        const s0 = TB.fromSource(sources[layout], { base: layout, name: "h" });
+        const s = TB.applyGenerated(s0, TB.generate(seed), {});
+        const kdl = TB.toKdl(s);
+        checkLoads(kdl, scheme + " " + base + " " + layout);
+        for (const m of MODES) {
+          const app = TB.contrastReport(s, m).filter((r) => r.app && r.fails.length && !r.gated);
+          assert.deepStrictEqual(app.map((r) => r.id), [], scheme + " " + base + " " + m);
+          for (const t of TB.TOKENS) assert.ok(/^#[0-9a-f]{6}([0-9a-f]{2})?$/.test(s.colors[m][t]), t);
+        }
+        n++;
+      }
+    }
+    // A menção e o link ficam nos ângulos da harmonia (medidos no escuro, em OKLCH).
+    const seed = TB.seedFromBase("#e8590c", scheme, { chroma: 0.16 }), g = TB.generate(seed), off = TB.HARMONY[scheme];
+    const h = (hex) => TB.toOklch(TB.hexRgba(hex))[2];
+    assert.ok(hueGap(h(g.colors.dark.mention), seed.accentHue + off[0]) < 14, scheme + " mention hue");
+    assert.ok(hueGap(h(g.colors.dark.link), seed.accentHue + off[1]) < 14, scheme + " link hue");
+  }
+  assert.ok(n === Object.keys(TB.HARMONY).length * 21);
+  // Valores fora da faixa ou que não são número caem no padrão.
+  const odd = TB.seedFromBase("#336699", "nope", { neutral: 9, chroma: -1, lightness: "x" });
+  assert.strictEqual(odd.scheme, "analogous");
+  assert.ok(odd.neutral <= 0.06 && odd.accentChroma >= 0 && odd.accentL >= 0.55 && odd.accentL <= 0.9);
+}));
+tasks.push(test("locked colors survive a new palette, and text on a locked fill stays readable", () => {
+  const s0 = TB.fromSource(sources.orbital, { base: "orbital", name: "l" });
+  s0.colors.dark.accent = "#ffd400";
+  s0.colors.light.accent = "#1a1a8c";
+  for (let i = 1; i <= 40; i++) {
+    const g = TB.generate(TB.randomSeed(i * 7919));
+    const locks = { accent: true, bg: i % 2 === 0, muted: i % 3 === 0 };
+    const s = TB.applyGenerated(s0, g, locks);
+    for (const m of MODES) {
+      assert.strictEqual(s.colors[m].accent, s0.colors[m].accent, "accent locked");
+      if (locks.bg) assert.strictEqual(s.colors[m].bg, s0.colors[m].bg, "bg locked");
+      if (locks.muted) assert.strictEqual(s.colors[m].muted, s0.colors[m].muted, "muted locked");
+      else assert.notStrictEqual(s.colors[m].muted, undefined);
+      assert.strictEqual(s.colors[m]["accent-text"], TB.onColor(s.colors[m].accent));
+      assert.strictEqual(s.colors[m]["bubble-self"], s.colors[m].accent);
+      const a = TB.hexRgba(s.colors[m].accent), t = TB.hexRgba(s.colors[m]["accent-text"]);
+      assert.ok(TB.contrast(t, a) >= Math.max(TB.contrast([0, 0, 0, 1], a), TB.contrast([1, 1, 1, 1], a)) - 1e-9);
+    }
+    checkLoads(TB.toKdl(s), "locks " + i);
+  }
+}));
+tasks.push(test("dark to light (and back) with lightness inversion loads and reads", () => {
+  for (const t of THEMES) {
+    const s = TB.fromSource(sources[t], { base: t, name: t });
+    for (const from of MODES) {
+      const to = from === "dark" ? "light" : "dark", n = TB.invertMode(s, from);
+      checkLoads(TB.toKdl(n), t + " " + from + "→" + to);
+      assert.deepStrictEqual(n.colors[from], s.colors[from], "the source mode doesn't change");
+      const bad = TB.contrastReport(n, to).filter((r) => r.fails.length && !r.gated && !r.stuck);
+      assert.deepStrictEqual(bad.map((r) => r.id), [], t + " " + to + " contrast");
+      const bgL = TB.toOklch(TB.hexRgba(n.colors[to].bg))[0], textL = TB.toOklch(TB.hexRgba(n.colors[to].text))[0];
+      assert.ok(to === "light" ? bgL > textL : bgL < textL, t + " " + to + " lightness flipped");
+      // A transparência de cada cor vem junto (o vidro continua vidro).
+      for (const k of ["bg", "surface", "sidebar", "elevated", "overlay", "accent", "border", "hover", "selected"]) assert.ok(Math.abs(TB.hexRgba(n.colors[to][k])[3] - TB.hexRgba(s.colors[from][k])[3]) < 0.01, t + " " + k + " alpha");
+    }
+  }
+  // A curva vai e volta (as duas metades são a mesma linha).
+  for (let L = 0; L <= 1.0001; L += 0.05) assert.ok(Math.abs(TB.flipL(TB.flipL(L, true), false) - L) < 1e-9, "flip " + L);
+}));
+tasks.push(test("layers: outline, hide and reorder edit only the layout tree", () => {
+  for (const t of THEMES) {
+    const s = TB.fromSource(sources[t], { base: t, name: t }), out = TB.outline(s.structure);
+    assert.ok(out.length >= 5, t + " layers");
+    for (const o of out) {
+      assert.ok(o.index >= 0 && o.index < o.count, t + " " + o.name + " index");
+      for (const f of o.fields) if (f.kind === "num") assert.ok(f.range && f.range[0] < f.range[1] && f.range[2] > 0, t + " " + o.name + "." + f.key + " range");
+    }
+    // Mover para baixo e de volta devolve o mesmo texto; o arquivo movido carrega.
+    const movable = out.filter((o) => o.count > 1 && o.index < o.count - 1);
+    for (const o of movable.slice(0, 4)) {
+      const moved = TB.moveNode(s.structure, o.start, 1);
+      assert.notStrictEqual(moved, s.structure, t + " " + o.name + " moved");
+      checkLoads(TB.toKdl(Object.assign({}, s, { structure: moved })), t + " moved " + o.name);
+      const again = TB.outline(moved).find((x) => x.name === o.name && x.parent === o.parent && x.index === o.index + 1 && x.depth === o.depth);
+      assert.ok(again, t + " " + o.name + " is one step down");
+      assert.strictEqual(TB.moveNode(moved, again.start, -1), s.structure, t + " " + o.name + " back");
+    }
+    // O primeiro não sobe e o último não desce.
+    const first = out.find((o) => o.index === 0), last = out.find((o) => o.index === o.count - 1);
+    assert.strictEqual(TB.moveNode(s.structure, first.start, -1), s.structure);
+    assert.strictEqual(TB.moveNode(s.structure, last.start, 1), s.structure);
+    // Esconder: show=#false no nó, o app deixa de desenhar e a prévia também.
+    const comp = out.find((o) => o.component);
+    const hidden = TB.setProp(s.structure, comp.start, "show", false);
+    assert.strictEqual(TB.outline(hidden).find((o) => o.start === comp.start).show, false);
+    const th = TB.loadTheme(TB.toKdl(Object.assign({}, s, { structure: hidden })), { mode: "dark" });
+    const P = PREVIEW(TB, "en");
+    const nd = TB.findNode(th.nodes, comp.start + TB.toKdl(Object.assign({}, s, { structure: hidden })).lastIndexOf(hidden.replace(/\s+$/, "")));
+    assert.ok(nd && !P.visible(th, nd), t + " hidden layer is not drawn");
+    assert.strictEqual(TB.setProp(hidden, comp.start, "show", null), s.structure, t + " show again");
+  }
+}));
+tasks.push(test("every option the builder offers is one the app reads", () => {
+  // Cada propriedade de componente aparece como "nome" no código do app (src/ui, src/theme).
+  const zig = [];
+  for (const dir of ["src/ui", "src/theme"]) for (const f of fs.readdirSync(path.join(ROOT, dir))) if (f.endsWith(".zig")) zig.push(fs.readFileSync(path.join(ROOT, dir, f), "utf8"));
+  const all = zig.join("\n");
+  for (const [comp, spec] of Object.entries(TB.COMPONENTS)) {
+    assert.ok(all.includes('"' + comp + '"'), "component " + comp);
+    for (const [key] of spec) assert.ok(all.includes('"' + key + '"'), comp + "." + key + " is read by the app");
+  }
+  for (const key of ["show", "width", "height", "gap", "padding", "default"]) assert.ok(all.includes('"' + key + '"'), key);
+  for (const top of ["radius", "transparent", "ui", "mono", "size"]) assert.ok(all.includes('"' + top + '"'), top);
+  for (const k of Object.keys(TB.RANGES)) assert.ok(TB.RANGES[k][0] < TB.RANGES[k][1], k);
+}));
+tasks.push(test("click-to-edit map: only real tokens, only the preview's own classes", () => {
+  const P = PREVIEW(TB, "en");
+  const cssText = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder.css"), "utf8");
+  const previewJs = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder-preview.js"), "utf8");
+  assert.ok(P.INSPECT.length > 40);
+  for (const [sel, toks] of P.INSPECT) {
+    assert.ok(toks.length >= 1);
+    for (const t of toks) assert.ok(t === "r" || TB.TOKENS.includes(t), sel + " " + t);
+    for (const cls of sel.match(/\.[a-z][\w-]*/g)) assert.ok(cssText.includes(cls) || previewJs.includes(cls.slice(1)), sel + " uses " + cls);
+  }
+  // Os tokens citados numa expressão de cor: só nomes da lista, nunca o texto do arquivo.
+  assert.deepStrictEqual(P.refTokens("alpha(@surface, 0.9)", false), ["surface"]);
+  assert.deepStrictEqual(P.refTokens("sidebar", true), ["sidebar"]);
+  assert.deepStrictEqual(P.refTokens('@x" onclick="y @constructor @__proto__ #fff', false), []);
+  assert.deepStrictEqual(P.refTokens("mix(@accent, @bg, .2) @accent", false), ["accent", "bg"]);
+  const th = TB.loadTheme(sources.orbital, { mode: "dark" });
+  const box = P.boxTokens(th, TB.parseKdl('column bg="#ff0000"')[0]);
+  assert.deepStrictEqual(box, { toks: [], literal: true });
+  assert.deepStrictEqual(P.boxTokens(th, TB.parseKdl("column bg=rail")[0]).toks, ["rail"]);
+}));
+// O tamanho da prévia: a janela imitada nunca fica menor que 1200×720 nem sai de 1,25:1 a 2:1,
+// e a prévia cabe no espaço dado (nada de barra de rolagem no "ajustar").
+tasks.push(test("preview size: fits the space, never below 1200×720, between 1.25:1 and 2:1", () => {
+  const P = PREVIEW(TB, "en");
+  for (let aw = 120; aw <= 3200; aw += 37) {
+    for (let ah = 90; ah <= 2000; ah += 41) {
+      const g = P.frameFit(aw, ah), tag = aw + "×" + ah + " → " + JSON.stringify(g);
+      assert.ok(g.k > 0 && g.k <= 2, tag);
+      assert.ok(g.w >= P.MIN_W && g.h >= P.MIN_H && g.w <= P.MAX_W && g.h <= P.MAX_H, tag);
+      assert.ok(Math.floor(g.w * g.k) <= aw && Math.floor(g.h * g.k) <= ah, tag + " overflows");
+      assert.ok(g.w / g.h >= 1.25 - 0.01 && g.w / g.h <= 2 + 0.01, tag + " aspect");
+      // Até a janela passar de 1920×1200, a escala não passa de 100%.
+      if (aw / P.MAX_W < 1 || ah / P.MAX_H < 1) assert.ok(g.k <= 1, tag + " upscaled");
+    }
+  }
+  // O espaço do palco num notebook de 1366×768 com o painel aberto: a prévia passa de 80%
+  // (antes, com 1280×800 fixo e as barras do site, ficava em 63%).
+  assert.ok(P.frameFit(989, 603).k >= 0.8, JSON.stringify(P.frameFit(989, 603)));
+  // Com o painel escondido, o espaço a mais vira janela mais larga, não barras vazias.
+  const open = P.frameFit(989, 603), closed = P.frameFit(1273, 603);
+  assert.ok(closed.w > open.w && closed.k >= open.k, JSON.stringify([open, closed]));
+}));
+tasks.push(test("preview follows the simulated window: hide-below uses its size", () => {
+  const P = PREVIEW(TB, "en");
+  // bolhas: member-list hide-below=1150; editorial: a manchete só com 900 ou mais de altura.
+  const has = (src, size, node) => {
+    const doc = fakeDocument(), frame = doc.createElement("div");
+    P.mount(frame, TB.loadTheme(src, { mode: "dark" }), size);
+    return doc.made.some((e) => e.className === "pv-b" && e.dataset.node === node);
+  };
+  assert.ok(!has(sources.bolhas, { w: 1100, h: 800 }, "member-list"), "hidden below 1150");
+  assert.ok(has(sources.bolhas, { w: 1200, h: 800 }, "member-list"), "shown at 1200");
+  assert.ok(has(sources.bolhas, undefined, "member-list"), "default 1280×800");
+  // Sem tamanho, a prévia continua 1280×800 (as miniaturas e a galeria dependem disso).
+  const th = TB.loadTheme(sources.editorial, { mode: "dark" });
+  const lines = (size) => {
+    const doc = fakeDocument(), frame = doc.createElement("div");
+    P.mount(frame, th, size);
+    assert.strictEqual(frame.kids.length, 1, "editorial draws at " + JSON.stringify(size));
+    return doc.made.filter((e) => e.className === "pv-b").map((e) => e.dataset.line).join(",");
+  };
+  // A manchete do editorial troca de forma em 900 px de altura, como no app.
+  assert.notStrictEqual(lines({ w: 1200, h: 720 }), lines({ w: 1600, h: 1000 }), "editorial headline follows the height");
+  assert.strictEqual(lines(undefined), lines({ w: 1280, h: 800 }), "no size is 1280×800");
+  // O minimo da prévia mostra a lista de membros de todos os temas embutidos.
+  for (const t of THEMES) assert.ok(has(sources[t], { w: P.MIN_W, h: P.MIN_H }, "member-list") || !/member-list/.test(sources[t]), t + " member list at the minimum size");
+}));
+// Contraste em níveis: o que o app clareia sozinho não é erro; abaixo de 4,5 e acima de 3 é revisão.
+tasks.push(test("contrast levels: what the app lifts is not an error", () => {
+  for (const t of THEMES) {
+    const s = TB.fromSource(sources[t], { base: t, name: t });
+    for (const m of MODES) {
+      for (const r of TB.contrastReport(s, m)) {
+        assert.ok(["ok", "auto", "low", "bad"].includes(r.level), t + " " + m + " " + r.id);
+        if (!r.fails.length) assert.strictEqual(r.level, "ok", t + " " + m + " " + r.id);
+        else if (r.app) assert.strictEqual(r.level, r.stuck ? "bad" : "auto", t + " " + m + " " + r.id);
+        else assert.strictEqual(r.level, r.ratio >= 3 ? "low" : "bad", t + " " + m + " " + r.id + " " + r.ratio);
+      }
+    }
+  }
+  const lv = (t, m, id) => TB.contrastReport(TB.fromSource(sources[t], { base: t, name: t }), m).find((r) => r.id === id).level;
+  assert.strictEqual(lv("orbital", "dark", "faint"), "auto");
+  assert.strictEqual(lv("cupertino", "dark", "accent-text"), "low");
+  assert.strictEqual(lv("escritorio", "light", "text"), "bad");
+  // orbital no modo escuro (o começo padrão do criador): nada vermelho nem âmbar.
+  assert.ok(!TB.contrastReport(TB.fromSource(sources.orbital, { base: "orbital", name: "o" }), "dark").some((r) => r.level === "bad" || r.level === "low"));
+}));
+tasks.push(test("hiding a layer reports when messages, composer or channels go with it", () => {
+  for (const t of THEMES) {
+    const out = TB.outline(TB.fromSource(sources[t], { base: t, name: t }).structure);
+    const msgs = out.find((o) => o.name === "messages");
+    assert.ok(msgs, t + " has messages");
+    assert.deepStrictEqual(TB.essentialInside(out, msgs.start), ["messages"], t);
+    // Cada ancestral das mensagens leva elas junto.
+    const by = Object.fromEntries(out.map((o) => [o.start, o]));
+    for (let p = msgs.parent; p !== null; p = by[p].parent) assert.ok(TB.essentialInside(out, p).includes("messages"), t + " ancestor " + by[p].name);
+    const members = out.find((o) => o.name === "member-list");
+    if (members) assert.deepStrictEqual(TB.essentialInside(out, members.start), [], t + " member list");
+  }
+  // Um ramo que já está escondido não conta de novo.
+  const s = TB.fromSource(sources.bolhas, { base: "bolhas", name: "b" });
+  const out = TB.outline(s.structure), comp = out.find((o) => o.name === "composer");
+  const hid = TB.outline(TB.setProp(s.structure, comp.start, "show", false));
+  const root = hid.find((o) => o.parent === null && o.container);
+  assert.ok(!TB.essentialInside(hid, root.start).includes("composer"));
+  assert.ok(TB.essentialInside(hid, root.start).includes("messages"));
+  // Nomes do arquivo nunca saem daqui: só os três da lista.
+  assert.deepStrictEqual(TB.essentialInside([{ start: 1, parent: null, name: "__proto__", show: null }], 1), []);
+}));
+// O criador na página: a folha de exportar e o fundo escuro dela na mesma camada (no <body>, o
+// fundo ficava por cima e engolia os cliques), rótulos que somem só da vista, e o zoom à mão.
+tasks.push(test("builder page: export overlay in the sheet's layer, labels stay names, zoom at every width", () => {
+  const js = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder.js"), "utf8");
+  const cssText = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder.css"), "utf8");
+  assert.ok(js.includes("sheet.parentNode.insertBefore(scrim, sheet)") && !/body\.appendChild\(scrim\)/.test(js), "overlay next to the sheet");
+  const z = (sel) => +new RegExp(sel.replace(/[.]/g, "\\.") + "\\{[^}]*z-index:(\\d+)").exec(cssText)[1];
+  assert.ok(z(".tbx-scrim") < z(".tbx-sheet"), "overlay under the sheet");
+  // Os rótulos da barra e das abas nunca levam display:none (sairiam do nome do botão).
+  for (const m of cssText.matchAll(/([^{}]+)\{([^}]*)\}/g)) if (/\.tbx-(bl|tl)\b/.test(m[1])) assert.ok(!/display:none/.test(m[2]), m[1] + " hides a label with display:none");
+  for (const file of ["docs/theme-builder.html", "docs/pt/theme-builder.html"]) {
+    const page = fs.readFileSync(path.join(ROOT, file), "utf8");
+    const bar = page.slice(page.indexOf('<header class="tbx-top"'), page.indexOf("</header>", page.indexOf('<header class="tbx-top"')));
+    for (const b of bar.match(/<button[\s\S]*?<\/button>/g)) {
+      const named = /aria-label="[^"]+"/.test(b) || /class="(sr-only|tbx-bl)">[^<]+</.test(b) || /<span data-fname>/.test(b) || /<b>[^<]+<\/b>/.test(b);
+      assert.ok(named, file + " toolbar button without a name: " + b.slice(0, 90));
+    }
+    for (const b of page.match(/<button type="button" role="tab" id="tbx-t-[\s\S]*?<\/button>/g)) assert.ok(/class="tbx-tl">[^<]+</.test(b), file + " tab label");
+    for (const k of ["data-zoom-in", "data-zoom-out", "data-zoom-toggle"]) assert.ok(page.includes(k), file + " " + k);
+    // O zoom fica na barra de baixo do palco, que não esconde nada em tela estreita.
+    assert.ok(page.indexOf("data-zoom-in") > page.indexOf('class="tbx-status"'), file + " zoom in the stage bar");
+    assert.ok(page.includes("data-next-theme") && page.includes("data-toggle-mode"), file + " page theme still reachable");
+  }
+  assert.ok(!/\.tbx-zoom[^{]*\{[^}]*display:none/.test(cssText), "zoom never hidden");
+}));
+// A prévia é o desenho do app: os ícones do editor (.tbx svg) não podem encolher os SVGs dela
+// (fundos procedurais, formas, ícones) para 18 px, como aconteceu. E o resto do que esta rodada
+// conferiu na página: texto pequeno legível, controles deslizantes largos, o editor de cor num
+// celular sem cobrir a prévia, o aviso fora do editor e o foco que volta para um botão que existe.
+tasks.push(test("builder page: editor icons stay out of the preview, readable small text, phone color editor", () => {
+  const js = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder.js"), "utf8");
+  const cssText = fs.readFileSync(path.join(ROOT, "docs/assets/site/theme-builder.css"), "utf8");
+  const rules = [...cssText.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}@]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), body: m[2] }));
+  const ruleOf = (sel) => rules.find((r) => r.sel.split(",").map((x) => x.trim()).includes(sel));
+  let generic = 0;
+  for (const r of rules) for (const sel of r.sel.split(",").map((x) => x.trim())) {
+    // Um "svg" solto logo depois de .tbx (sem classe própria) alcança qualquer SVG da página, a prévia também.
+    if (/^\.tbx\s+svg(?![.\[#\w-])/.test(sel)) { generic++; assert.ok(sel.includes(":where(:not(.tb-frame svg))"), "reaches the preview: " + sel); }
+  }
+  assert.ok(generic >= 1, "the editor icon rule is still there");
+  assert.ok(/width:100%;height:100%/.test(ruleOf(".pv-bgsvg").body), "backdrops fill the frame");
+  assert.ok(/width:1\.15em;height:1\.15em/.test(ruleOf(".pv-ic").body), "preview icons follow the text");
+  // Texto do editor em --faint ficava abaixo de 4,5:1 nos dois modos da página.
+  for (const r of rules) if (/^\.tbx/.test(r.sel) && !/\.pv-/.test(r.sel)) assert.ok(!/(^|;)color:var\(--faint\)/.test(r.body), r.sel + " uses --faint for text");
+  const fsOf = (sel) => +/font:[^;]*?([\d.]+)px/.exec(ruleOf(sel).body)[1];
+  assert.ok(fsOf(".tbx-rail [role=tab]") >= 11, "tab labels at least 11px");
+  assert.ok(+/font-size:([\d.]+)px/.exec(ruleOf(".tbx-zv small").body)[1] >= 11, "zoom suffix at least 11px");
+  assert.ok(!/outline:none/.test(ruleOf(".tbx-pane:focus-visible").body), "tab panels show focus");
+  // Controle deslizante com a linha toda, embaixo do rótulo e do valor.
+  assert.ok(/grid-template-areas:"l v" "r r"/.test(ruleOf(".tbx-slider").body) && /grid-template-areas:"k n x" "r r r"/.test(ruleOf(".tbx-propnum").body), "sliders on their own row");
+  assert.ok(js.includes('h("div", { "class": "tbx-propnum" }, [h("code", { text: f.key }), number, reset, slider])'), "layer numbers: name, field, reset, then the slider");
+  // Celular: o palco encolhe para o espaço acima do editor (ou à esquerda, deitado) e mostra um modo só.
+  assert.ok(/min-height:0/.test(ruleOf(".tbx-stage").body), "the stage can shrink");
+  const phone = cssText.slice(cssText.indexOf("@media (max-width:899.98px){"));
+  assert.ok(/\.tbx-body\[data-pop\]\{padding-bottom:var\(--pop-h/.test(phone) && /\.tbx-body\[data-pop\] \.tbx-side\{visibility:hidden/.test(phone), "room above the editor sheet");
+  assert.ok(/orientation:landscape\)\{[^]*?\.tbx-body\[data-pop\]\{padding-bottom:0;padding-right:var\(--pop-w/.test(cssText), "room beside the editor when sideways");
+  assert.ok(js.includes('return view === "split" && !popKind ? ["dark", "light"] : [mode];') && js.includes("var two = screenModes().length > 1;"), "one mode while the phone editor is open");
+  assert.ok(js.includes('closest(".tbx-fbox,[data-pop-src],.tbx-status")'), "zooming doesn't close the editor");
+  assert.ok(/function say\([^]*?placeToast\(\);/.test(js) && js.includes("function placeToast()"), "the toast keeps clear of the editor");
+  assert.ok(js.includes('$(".tbx-top [data-export-open]")') && !/sheetOpener = document\.activeElement;/.test(js), "focus returns to a real button");
+  assert.ok(!/TB\.decode\(decodeURIComponent/.test(js), "a bad % never throws in the page");
+  // O topo do criador é o mesmo das outras páginas (só mais baixo): logo e margens iguais.
+  assert.ok(!/html\[data-page=builder\] \.brand/.test(cssText) && !/html\[data-page=builder\] \.topnav\{padding/.test(cssText), "same logo and margins as the other pages");
+}));
+// A inicial não pergunta nada a ninguém: a versão vem do build, como no topo da página.
+tasks.push(test("landing page makes no request to another site", () => {
+  const version = /number = "(.+?)"/.exec(fs.readFileSync(path.join(ROOT, "src/core/version.zig"), "utf8"))[1];
+  for (const file of ["docs/index.html", "docs/pt/index.html"]) {
+    const page = fs.readFileSync(path.join(ROOT, file), "utf8");
+    assert.ok(!page.includes("api.github.com") && !/fetch\(/.test(page), file + " asks another site");
+    assert.ok(page.includes('<span id="dl-version">v' + version + " · </span>"), file + " version");
+  }
+}));
+// O topo do site: grupos com menu, que sem JavaScript são links, e a demonstração só com o build dela.
+tasks.push(test("site header: grouped menus, plain links without JS, try link only with the demo build", () => {
+  for (const [file, lang] of [["docs/index.html", "en"], ["docs/pt/index.html", "pt"], ["docs/guide/shortcuts.html", "en"], ["docs/pt/theme-builder.html", "pt"]]) {
+    const page = fs.readFileSync(path.join(ROOT, file), "utf8");
+    const head = page.slice(page.indexOf('<header class="topnav"'), page.indexOf("</header>"));
+    assert.strictEqual((head.match(/data-nav-group/g) || []).length, 2, file + " groups");
+    for (const m of head.matchAll(/<a class="nav-trig" href="([^"]+)"/g)) assert.ok(/#(themes|features)$/.test(m[1]), file + " trigger links somewhere: " + m[1]);
+    assert.ok(/class="nav-burger"[^>]*aria-controls="site-nav"[^>]*aria-expanded="false"/.test(head), file + " burger");
+    assert.ok(head.includes('id="site-nav"') && head.includes('id="nav-m-themes"') && head.includes('id="nav-m-why"'), file + " ids");
+    assert.ok(head.includes("ko-fi.com") && head.includes("github.com/RshaCuDeVidro/larperCord"), file + " links");
+    assert.ok(/class="nav-lang"[^>]*hreflang="(pt-BR|en)"/.test(head), file + " language");
+    assert.ok(!/<img/.test(head), file + " no images in the header");
+  }
+  const py = ["import sys", "sys.path.insert(0, sys.argv[1])", "import gen_site as g",
+    "a = g.topnav('pt', 'pt/index.html', 'index.html', 'landing', None)", "g.TRY_SIZE = '1.0 MB'",
+    "b = g.topnav('pt', 'pt/index.html', 'index.html', 'landing', None)", "print('nav-try' in a, 'nav-try' in b, 'Testar no navegador' in b)"].join("\n");
+  const r = spawnSync("python3", ["-I", "-B", "-c", py, path.join(ROOT, "tools")], { encoding: "utf8" });
+  assert.strictEqual(r.stdout.trim(), "False True True", r.stdout + r.stderr);
+  // Na gaveta (abaixo de 1100 px) a .nav sai do fluxo: os botões vão para a direita sozinhos.
+  const siteCss = fs.readFileSync(path.join(ROOT, "docs/assets/site/site.css"), "utf8");
+  const drawer = siteCss.slice(siteCss.indexOf("@media (max-width:1099.98px){"));
+  assert.ok(/\.nav-actions\{margin-left:auto\}/.test(drawer.slice(0, drawer.indexOf("\n}"))), "nav actions pushed right in drawer mode");
+  // A gaveta prende o Tab e deixa o resto da página inerte.
+  const siteJs = fs.readFileSync(path.join(ROOT, "docs/assets/site/site.js"), "utf8");
+  assert.ok(siteJs.includes('setAttribute("inert", "")') && siteJs.includes('removeAttribute("inert")'), "drawer makes the page inert");
+}));
+// A página do criador: a mesma CSP estrita, nada de fora, e as instruções de instalar na página.
+tasks.push(test("builder page keeps the strict CSP and the install instructions", () => {
+  for (const [file, lang] of [["docs/theme-builder.html", "en"], ["docs/pt/theme-builder.html", "pt"]]) {
+    const page = fs.readFileSync(path.join(ROOT, file), "utf8");
+    assert.ok(page.includes("Content-Security-Policy\" content=\"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;"), file + " CSP");
+    assert.ok(page.includes("object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'self'; form-action 'none'"), file + " CSP rest");
+    assert.ok(!/<script[^>]+src="https?:/.test(page) && !/<link[^>]+href="https?:\/\/(?!rshacudevidro)/.test(page.replace(/<link rel="(canonical|alternate)"[^>]*>/g, "")), file + " nothing from outside");
+    assert.ok(!/<script(?![^>]*\bsrc=)(?![^>]*application\/json)[^>]*>/.test(page), file + " no inline script");
+    for (const id of ["tbx-os-p-linux", "tbx-os-p-win", "tbx-export", "tbx-p-colors", "tbx-p-gen", "tbx-p-layout", "tbx-p-type", "tbx-p-code", "tbx-p-file"]) assert.ok(page.includes('id="' + id + '"'), file + " " + id);
+    assert.ok(page.includes(".config/larpercord/themes") && page.includes("$env:APPDATA"), file + " both systems");
+    assert.ok(page.includes("data-css-dialog") && page.includes("data-import-dialog"), file + " importers");
+  }
 }));
 
 Promise.all(tasks).then(() => {

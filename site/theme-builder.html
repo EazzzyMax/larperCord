@@ -1,164 +1,365 @@
-<main id="main" class="tb" data-builder>
+<main id="main" class="tbx" data-builder>
+<noscript><p class="tbx-noscript">{{The theme builder needs JavaScript: it draws the preview and writes the file in this page, without sending anything anywhere. Without it, write the theme by hand with the <a href="%GUIDE%themes.html">theme reference</a>; the instructions for installing a theme file are below.||O criador de temas precisa de JavaScript: ele desenha a prévia e escreve o arquivo nesta página, sem mandar nada para lugar nenhum. Sem ele, escreva o tema à mão com a <a href="%GUIDE%themes.html">referência de temas</a>; as instruções para instalar um arquivo de tema estão abaixo.}}</p></noscript>
 
-<section class="tb-head">
-  <span class="tag"><b>theme</b> <i>"<span data-tname>my-theme</span>" {</i> &nbsp;// {{theme builder||criador de temas}}</span>
-  <h1 class="h">{{Build a theme. <em>Keep the file.</em>||Monte um tema. <em>Leve o arquivo.</em>}}</h1>
-  <p class="lede">{{Start from one of the 11 themes (or from one in the <a href="%COMMUNITY%">community gallery</a>), change the colors, fonts and layout, and a sketch of the app follows along. Everything happens in this page: nothing is uploaded. When it looks right, download the <code>.kdl</code> and put it in your themes folder.||Comece de um dos 11 temas (ou de um da <a href="%COMMUNITY%">galeria da comunidade</a>), mude as cores, as fontes e o layout, e um esboço do app acompanha. Tudo acontece nesta página: nada é enviado. Quando estiver do seu jeito, baixe o <code>.kdl</code> e coloque na pasta de temas.}}</p>
-</section>
+<div class="tbx-app" data-app>
 
-<div class="tb-bar" role="toolbar" aria-label="{{Theme actions||Ações do tema}}">
-  <label class="tb-field"><span>{{Start from||Começar de}}</span><select data-start>%START_OPTIONS%</select></label>
-  <button type="button" class="tb-b" data-random>{{Random colors||Cores aleatórias}}</button>
-  <button type="button" class="tb-b" data-image>{{Colors from an image||Cores de uma imagem}}</button>
-  <input type="file" accept="image/*" data-image-file hidden>
-  <button type="button" class="tb-b" data-import>{{Import .kdl||Importar .kdl}}</button>
-  <button type="button" class="tb-b" data-css>{{Import from Discord theme CSS||Importar de um CSS de tema do Discord}}</button>
-  <span class="tb-sep" aria-hidden="true"></span>
-  <button type="button" class="tb-b" data-undo aria-keyshortcuts="Control+Z" title="Ctrl+Z">{{Undo||Desfazer}}</button>
-  <button type="button" class="tb-b" data-redo aria-keyshortcuts="Control+Shift+Z" title="Ctrl+Shift+Z">{{Redo||Refazer}}</button>
-  <span class="tb-spacer"></span>
-  <button type="button" class="tb-b" data-share>{{Copy link||Copiar link}}</button>
-  <button type="button" class="tb-b" data-copy-kdl>{{Copy .kdl||Copiar .kdl}}</button>
-  <button type="button" class="tb-b primary" data-download>{{Download .kdl||Baixar .kdl}}</button>
-</div>
-
-<div class="tb-grid">
-  <div class="tb-panel">
-    <div class="tb-tabs" role="tablist" aria-label="{{What to edit||O que editar}}">
-      <button type="button" role="tab" id="tb-t-colors" aria-controls="tb-p-colors" aria-selected="true">{{Colors||Cores}}</button>
-      <button type="button" role="tab" id="tb-t-type" aria-controls="tb-p-type" aria-selected="false" tabindex="-1">{{Type and shape||Letra e forma}}</button>
-      <button type="button" role="tab" id="tb-t-layout" aria-controls="tb-p-layout" aria-selected="false" tabindex="-1">Layout</button>
-      <button type="button" role="tab" id="tb-t-file" aria-controls="tb-p-file" aria-selected="false" tabindex="-1">{{File info||Arquivo}}</button>
-    </div>
-
-    <div class="tb-pane" role="tabpanel" id="tb-p-colors" aria-labelledby="tb-t-colors" tabindex="0"></div>
-
-    <div class="tb-pane" role="tabpanel" id="tb-p-type" aria-labelledby="tb-t-type" tabindex="0" hidden>
-      <fieldset class="tb-group">
-        <legend>{{Fonts||Fontes}}</legend>
-        <label class="tb-line" for="tb-f-ui"><span>{{Interface||Interface}} <code>ui</code></span><input id="tb-f-ui" type="text" list="tb-fonts-ui" spellcheck="false" autocomplete="off" data-f-ui></label>
-        <label class="tb-line" for="tb-f-mono"><span>{{Monospace||Monoespaçada}} <code>mono</code></span><input id="tb-f-mono" type="text" list="tb-fonts-mono" spellcheck="false" autocomplete="off" data-f-mono></label>
-        <div class="tb-line"><label for="tb-f-size"><span>{{Size||Tamanho}} <code>size</code></span></label><span class="tb-pair-in"><input id="tb-f-size" type="range" min="10" max="24" step="0.5" data-f-size><input type="number" min="6" max="72" step="0.5" aria-label="{{Size, in pixels||Tamanho, em pixels}}" data-f-size-n></span></div>
-        <p class="tb-hint">{{Linux: any family fontconfig knows (<code>fc-list</code> lists them). Windows: a file with that name in <code>C:\Windows\Fonts</code>, otherwise Segoe UI, Consolas or Georgia. The preview uses the font if your browser has it.||Linux: qualquer família que o fontconfig conheça (<code>fc-list</code> mostra). Windows: um arquivo com esse nome em <code>C:\Windows\Fonts</code>, senão Segoe UI, Consolas ou Georgia. A prévia usa a fonte se o seu navegador tiver.}}</p>
-        <datalist id="tb-fonts-ui"><option value="Inter"><option value="Inter Display"><option value="Noto Sans"><option value="DejaVu Sans"><option value="Liberation Sans"><option value="IBM Plex Sans"><option value="Fira Sans"><option value="Segoe UI"><option value="Liberation Serif"><option value="Georgia"><option value="JetBrains Mono"></datalist>
-        <datalist id="tb-fonts-mono"><option value="JetBrains Mono"><option value="Monaspace Argon"><option value="Fira Code"><option value="Iosevka"><option value="DejaVu Sans Mono"><option value="Liberation Mono"><option value="Cascadia Code"><option value="Consolas"></datalist>
-      </fieldset>
-      <fieldset class="tb-group">
-        <legend>{{Shape||Forma}}</legend>
-        <div class="tb-line"><label for="tb-f-radius"><span>{{Corner radius||Arredondamento}} <code>metrics radius</code></span></label><span class="tb-pair-in"><input id="tb-f-radius" type="range" min="0" max="24" step="1" data-f-radius><input type="number" min="0" max="64" step="1" aria-label="{{Corner radius, in pixels||Arredondamento, em pixels}}" data-f-radius-n></span></div>
-        <div class="tb-opt"><input id="tb-f-transparent" type="checkbox" data-f-transparent><label for="tb-f-transparent"><strong>{{Transparent window||Janela transparente}}</strong> <code>window transparent</code><small>{{The window background lets the desktop through, and the compositor applies the blur (Hyprland, KDE…). A translucent <code>bg</code> turns this on by itself.||O fundo da janela deixa a área de trabalho aparecer, e o compositor aplica o blur (Hyprland, KDE…). Um <code>bg</code> translúcido já liga isto sozinho.}}</small></label></div>
-        <label class="tb-line" for="tb-f-preview"><span>{{Thumbnail in Settings||Miniatura nas Configurações}} <code>preview</code></span><select id="tb-f-preview" data-f-preview><option value="classic">classic</option><option value="glass">glass</option><option value="terminal">terminal</option><option value="bubbles">bubbles</option><option value="zen">zen</option><option value="mirror">mirror</option><option value="office">office</option><option value="desktop">desktop</option></select></label>
-      </fieldset>
-    </div>
-
-    <div class="tb-pane" role="tabpanel" id="tb-p-layout" aria-labelledby="tb-t-layout" tabindex="0" hidden>
-      <fieldset class="tb-group">
-        <legend>{{Layout||Layout}}</legend>
-        <p class="tb-hint" data-layout-now></p>
-        <div class="tb-row"><label class="tb-field"><span>{{Use the layout of||Usar o layout de}}</span><select data-layout-from>%LAYOUT_OPTIONS%</select></label><button type="button" class="tb-b" data-layout-apply>{{Apply||Aplicar}}</button></div>
-        <p class="tb-hint">{{Keeps your colors, fonts and file info. Brings that theme's options, styles and layout tree.||Mantém as suas cores, fontes e dados do arquivo. Traz as opções, os estilos e a árvore de layout daquele tema.}}</p>
-      </fieldset>
-      <fieldset class="tb-group">
-        <legend>{{Theme options||Opções do tema}}</legend>
-        <p class="tb-hint">{{What starts switched on. People can still change them in Settings → Appearance.||O que já vem ligado. Quem usar o tema ainda muda em Configurações → Aparência.}}</p>
-        <div data-options></div>
-      </fieldset>
-      <fieldset class="tb-group">
-        <legend>{{Components||Componentes}}</legend>
-        <p class="tb-hint">{{Only properties the app reads, from the <a href="%GUIDE%themes.html#components">theme reference</a>. Empty means the component's own default.||Só propriedades que o app lê, da <a href="%GUIDE%themes.html#componentes">referência de temas</a>. Vazio é o padrão do próprio componente.}}</p>
-        <div data-tweaks></div>
-      </fieldset>
-      <details class="tb-group tb-details tb-adv-box">
-        <summary>{{Advanced: edit the layout as text||Avançado: editar o layout como texto}}</summary>
-        <p class="tb-hint">{{Options, styles, the layout tree and any blocks that depend on an option. The colors, fonts and file info above are written before this.||Opções, estilos, a árvore de layout e os blocos que dependem de uma opção. As cores, fontes e dados do arquivo vêm antes disto.}}</p>
-        <div class="tb-adv"><pre aria-hidden="true"><code data-adv-hl></code></pre><textarea data-adv spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="{{Layout source||Texto do layout}}"></textarea></div>
-        <p class="tb-adv-status" data-adv-status role="status"></p>
-      </details>
-    </div>
-
-    <div class="tb-pane" role="tabpanel" id="tb-p-file" aria-labelledby="tb-t-file" tabindex="0" hidden>
-      <fieldset class="tb-group">
-        <legend>{{File info||Dados do arquivo}}</legend>
-        <label class="tb-line" for="tb-m-name"><span>{{Name||Nome}}</span><input id="tb-m-name" type="text" spellcheck="false" autocomplete="off" data-m-name aria-describedby="tb-m-name-d"></label>
-        <p class="tb-hint" id="tb-m-name-d">{{The app lists themes by file name: this one is saved as <code data-fname>my-theme.kdl</code>.||O app lista os temas pelo nome do arquivo: este vai como <code data-fname>my-theme.kdl</code>.}}</p>
-        <label class="tb-line" for="tb-m-author"><span>{{Author||Autor}} <code>author</code></span><input id="tb-m-author" type="text" autocomplete="off" data-m-author aria-describedby="tb-m-author-d"></label>
-        <p class="tb-hint" id="tb-m-author-d">{{Stored in the file for whoever opens it. The app doesn't show it anywhere.||Fica guardado no arquivo para quem abrir. O app não mostra em lugar nenhum.}}</p>
-        <label class="tb-line" for="tb-m-license"><span>{{License||Licença}} <code>license</code></span><input id="tb-m-license" type="text" list="tb-licenses" spellcheck="false" autocomplete="off" maxlength="64" data-m-license aria-describedby="tb-m-license-d"></label>
-        <datalist id="tb-licenses">%LICENSE_OPTIONS%</datalist>
-        <p class="tb-hint" id="tb-m-license-d">{{Who may use and change the theme: an open license, written as its SPDX identifier (<code>CC0-1.0</code>, <code>CC-BY-4.0</code>, <code>MIT</code>…; the field suggests the others). The app ignores it; the <a href="%COMMUNITY%">community gallery</a> requires one from its list.||Quem pode usar e mudar o tema: uma licença aberta, escrita como o identificador SPDX dela (<code>CC0-1.0</code>, <code>CC-BY-4.0</code>, <code>MIT</code>…; o campo sugere as outras). O app ignora; a <a href="%COMMUNITY%">galeria da comunidade</a> exige uma da lista dela.}}</p>
-        <label class="tb-line" for="tb-m-desc-en"><span>{{Description (English)||Descrição (inglês)}} <code>description-en</code></span><input id="tb-m-desc-en" type="text" data-m-desc-en></label>
-        <label class="tb-line" for="tb-m-desc"><span>{{Description (Portuguese)||Descrição (português)}} <code>description</code></span><input id="tb-m-desc" type="text" data-m-desc></label>
-        <p class="tb-hint">{{The app shows the one in its language. With only one filled in, it shows that one in both.||O app mostra a do idioma dele. Com só uma preenchida, ela aparece nos dois.}}</p>
-      </fieldset>
+<header class="tbx-top" role="toolbar" aria-label="{{Theme builder||Criador de temas}}">
+  <button type="button" class="tbx-ib" data-panel-toggle aria-controls="tbx-side" aria-expanded="true" aria-keyshortcuts="\" title="{{Panel||Painel}} (\)"><i data-ic="panel"></i><span class="sr-only">{{Show or hide the panel||Mostrar ou esconder o painel}}</span></button>
+  <div class="tbx-title">
+    <h1>{{Theme builder||Criador de temas}}</h1>
+    <button type="button" class="tbx-file" data-goto="file" title="{{File name and info||Nome e dados do arquivo}}"><span data-fname>my-theme.kdl</span><i data-ic="pen"></i></button>
+  </div>
+  <span class="tbx-sep" aria-hidden="true"></span>
+  <button type="button" class="tbx-ib" data-undo aria-keyshortcuts="Control+Z" title="{{Undo||Desfazer}} (Ctrl+Z)"><i data-ic="undo"></i><span class="sr-only">{{Undo||Desfazer}}</span></button>
+  <button type="button" class="tbx-ib" data-redo aria-keyshortcuts="Control+Shift+Z" title="{{Redo||Refazer}} (Ctrl+Shift+Z)"><i data-ic="redo"></i><span class="sr-only">{{Redo||Refazer}}</span></button>
+  <span class="tbx-sep" aria-hidden="true"></span>
+  <div class="tbx-seg tbx-views" role="radiogroup" aria-label="{{Preview mode||Modo da prévia}}">
+    <button type="button" role="radio" data-view="dark" aria-checked="true" title="{{Dark mode||Modo escuro}} (M)"><i data-ic="moon"></i><span class="tbx-bl">{{Dark||Escuro}}</span></button>
+    <button type="button" role="radio" data-view="light" aria-checked="false" tabindex="-1" title="{{Light mode||Modo claro}} (M)"><i data-ic="sun"></i><span class="tbx-bl">{{Light||Claro}}</span></button>
+    <button type="button" role="radio" data-view="split" aria-checked="false" tabindex="-1" title="{{Dark and light side by side||Escuro e claro lado a lado}} (B)"><i data-ic="split"></i><span class="tbx-bl">{{Both||Os dois}}</span></button>
+  </div>
+  <span class="tbx-grow"></span>
+  <div class="tbx-mwrap">
+    <button type="button" class="tbx-b" data-menu-btn aria-haspopup="true" aria-expanded="false" aria-controls="tbx-open" title="{{Open a theme, a file, Discord CSS or an image||Abrir um tema, um arquivo, CSS do Discord ou uma imagem}}"><i data-ic="folder"></i><span class="tbx-bl">{{Open||Abrir}}</span><i data-ic="caret"></i></button>
+    <div class="tbx-menu" id="tbx-open" data-menu hidden>
+      <p class="tbx-mh">{{Start from a built-in theme||Começar de um tema embutido}}</p>
+      <div class="tbx-starts" data-starts></div>
+      <p class="tbx-mh">{{From the community gallery||Da galeria da comunidade}}</p>
+      <div class="tbx-comm" data-community-list></div>
+      <div class="tbx-mitems">
+        <button type="button" class="tbx-mi" data-import><i data-ic="file"></i><span><b>{{Import a .kdl file||Importar um arquivo .kdl}}</b><small>{{Paste it or pick it; layout and options come along||Cole ou escolha; layout e opções vêm junto}}</small></span></button>
+        <button type="button" class="tbx-mi" data-css><i data-ic="css"></i><span><b>{{Colors from a Discord theme||Cores de um tema do Discord}}</b><small>{{BetterDiscord or Vencord CSS: read, never run||CSS do BetterDiscord ou do Vencord: lido, nunca executado}}</small></span></button>
+        <button type="button" class="tbx-mi" data-image><i data-ic="image"></i><span><b>{{Colors from an image||Cores de uma imagem}}</b><small>{{Or drop an image on the preview||Ou solte uma imagem na prévia}}</small></span></button>
+      </div>
     </div>
   </div>
+  <button type="button" class="tbx-b" data-share title="{{Copy a link that holds the whole theme||Copiar um link que guarda o tema inteiro}}"><i data-ic="link"></i><span class="tbx-bl">{{Share||Compartilhar}}</span></button>
+  <button type="button" class="tbx-b primary" data-export-open aria-controls="tbx-export" aria-keyshortcuts="E" title="{{Download, copy and install||Baixar, copiar e instalar}} (E)"><i data-ic="download"></i><span class="tbx-bl">{{Export||Exportar}}</span></button>
+</header>
 
-  <div class="tb-view">
-    <div class="tb-view-bar">
-      <div class="tb-seg" role="radiogroup" aria-label="{{Preview mode||Modo da prévia}}">
-        <button type="button" role="radio" data-mode="dark" aria-checked="true">{{Dark||Escuro}}</button><button type="button" role="radio" data-mode="light" aria-checked="false" tabindex="-1">{{Light||Claro}}</button>
+<div class="tbx-body" data-body>
+
+<aside class="tbx-side" id="tbx-side" aria-label="{{Editing panel||Painel de edição}}" data-side data-sheet="peek">
+  <button type="button" class="tbx-handle" data-sheet-handle aria-label="{{Resize the panel||Mudar o tamanho do painel}}" aria-controls="tbx-side"><i></i></button>
+  <div class="tbx-rail" role="tablist" aria-label="{{What to edit||O que editar}}" aria-orientation="vertical">
+    <button type="button" role="tab" id="tbx-t-colors" aria-controls="tbx-p-colors" aria-selected="true"><i data-ic="drop"></i><span class="tbx-tl">{{Colors||Cores}}</span></button>
+    <button type="button" role="tab" id="tbx-t-gen" aria-controls="tbx-p-gen" aria-selected="false" tabindex="-1"><i data-ic="wand"></i><span class="tbx-tl">{{Generate||Gerar}}</span></button>
+    <button type="button" role="tab" id="tbx-t-layout" aria-controls="tbx-p-layout" aria-selected="false" tabindex="-1"><i data-ic="layout"></i><span class="tbx-tl">Layout</span></button>
+    <button type="button" role="tab" id="tbx-t-type" aria-controls="tbx-p-type" aria-selected="false" tabindex="-1"><i data-ic="type"></i><span class="tbx-tl">{{Type||Letra}}</span></button>
+    <button type="button" role="tab" id="tbx-t-code" aria-controls="tbx-p-code" aria-selected="false" tabindex="-1"><i data-ic="code"></i><span class="tbx-tl">{{Code||Código}}</span></button>
+    <button type="button" role="tab" id="tbx-t-file" aria-controls="tbx-p-file" aria-selected="false" tabindex="-1"><i data-ic="tag"></i><span class="tbx-tl">{{File||Arquivo}}</span></button>
+  </div>
+  <div class="tbx-panel" data-panel>
+    <label class="tbx-search"><i data-ic="search"></i><input type="search" data-search spellcheck="false" autocomplete="off" aria-keyshortcuts="/" placeholder="{{Search colors and settings||Buscar cores e ajustes}}"><kbd>/</kbd></label>
+    <p class="tbx-noresult" data-noresult hidden>{{Nothing matches. Try a token name like "accent" or a word like "radius".||Nada encontrado. Tente o nome de um token, como "accent", ou uma palavra como "arredondamento".}}</p>
+
+    <section class="tbx-pane" role="tabpanel" id="tbx-p-colors" aria-labelledby="tbx-t-colors" tabindex="0">
+      <div class="tbx-pane-head"><h2>{{Colors||Cores}}</h2><span class="tbx-mode" data-edit-mode></span></div>
+      <p class="tbx-tip" data-s="click preview edit clique prévia"><i data-ic="drop"></i><span>{{Click any part of the preview to edit the color it uses.||Clique em qualquer parte da prévia para editar a cor que ela usa.}}</span></p>
+      <div class="tbx-sec tbx-contrast" data-contrast-box>
+        <div class="tbx-sec-h" data-s="contrast contraste wcag legible legível"><h3>{{Contrast||Contraste}}</h3><button type="button" class="tbx-b sm" data-fixall hidden>{{Fix all||Consertar tudo}}</button></div>
+        <p class="tbx-csum" data-contrast-sum role="status"></p>
+        <ul class="tbx-checks" data-contrast></ul>
+        <details class="tbx-more"><summary>{{How contrast is checked||Como o contraste é conferido}}</summary><p>{{The first two lines are the app's own rule: when <code>muted</code> or <code>faint</code> falls below it against <code>bg</code>, <code>surface</code>, <code>sidebar</code> or <code>elevated</code>, the app lifts it toward <code>text</code> on load (translucent colors are measured without their transparency, as the app does). The other lines are the WCAG AA minimum for text, measured as the colors show on the background. When a block in the layout replaces a color, the check uses the color the app will show.||As duas primeiras linhas são a regra do próprio app: quando <code>muted</code> ou <code>faint</code> fica abaixo dela contra <code>bg</code>, <code>surface</code>, <code>sidebar</code> ou <code>elevated</code>, o app clareia em direção ao <code>text</code> ao carregar (cores translúcidas são medidas sem a transparência, como o app faz). As outras linhas são o mínimo da WCAG (AA) para texto, medido como as cores aparecem sobre o fundo. Quando um bloco do layout troca uma cor, a checagem usa a cor que o app vai mostrar.}}</p></details>
       </div>
-      <span class="tb-view-file" data-fname>my-theme.kdl</span>
-    </div>
-    <p class="tb-error" data-error role="alert" hidden></p>
-    <div class="tb-screen" data-screen role="img" aria-label="{{Theme preview||Prévia do tema}}"><div class="tb-frame" data-frame aria-hidden="true"></div></div>
-    <p class="tb-note">{{A sketch in HTML of the app at 1280×800, with placeholder content. The app draws with Dear ImGui, so details differ, but the colors, sizes and layout tree are the ones in your file.||Um esboço em HTML do app a 1280×800, com conteúdo de mentira. O app desenha com Dear ImGui, então os detalhes mudam, mas as cores, os tamanhos e a árvore de layout são os do seu arquivo.}}</p>
-    <section class="tb-contrast" aria-labelledby="tb-contrast-h">
-      <div class="tb-contrast-head"><h2 id="tb-contrast-h">{{Contrast||Contraste}}</h2><button type="button" class="tb-b" data-fixall hidden>{{Fix all||Consertar tudo}}</button></div>
-      <p class="tb-hint" data-contrast-sum role="status"></p>
-      <ul class="tb-checks" data-contrast></ul>
-      <p class="tb-hint">{{The first two lines are the app's own rule: when <code>muted</code> or <code>faint</code> falls below it against <code>bg</code>, <code>surface</code>, <code>sidebar</code> or <code>elevated</code>, the app lifts it toward <code>text</code> on load. For these two, translucent colors are measured without their transparency, the same way the app does. The other lines are the WCAG AA minimum for text, measured as the colors show on the background. When a block in the layout replaces a color (an option that brings its own colors, for example), the check uses the color the app will show.||As duas primeiras linhas são a regra do próprio app: quando <code>muted</code> ou <code>faint</code> fica abaixo dela contra <code>bg</code>, <code>surface</code>, <code>sidebar</code> ou <code>elevated</code>, o app clareia em direção ao <code>text</code> ao carregar. Nessas duas, cores translúcidas são medidas sem a transparência, do mesmo jeito que o app faz. As outras linhas são o mínimo da WCAG (AA) para texto, medido como as cores aparecem sobre o fundo. Quando um bloco do layout troca uma cor (uma opção que traz cores próprias, por exemplo), a checagem usa a cor que o app vai mostrar.}}</p>
+      <div class="tbx-gated" data-gated hidden></div>
+      <div data-token-groups></div>
+      <div class="tbx-sec" data-s="roles cargo usernames nomes server icons">
+        <div class="tbx-sec-h"><h3>{{Role colors||Cores de cargo}}</h3></div>
+        <p class="tbx-hint">{{Usernames and server icons.||Nomes de usuário e ícones de servidor.}}</p>
+        <div class="tbx-swrow" data-roles></div>
+      </div>
+      <div class="tbx-sec" data-s="palette paleta wal base">
+        <div class="tbx-sec-h"><h3>{{Base palette||Paleta base}} <code>wal:0–15</code></h3></div>
+        <p class="tbx-hint">{{The 16 colors the file calls wal:0 … wal:15. Some layouts use them directly.||As 16 cores que o arquivo chama de wal:0 … wal:15. Alguns layouts usam elas direto.}}</p>
+        <div class="tbx-swrow tbx-pal" data-pal></div>
+        <button type="button" class="tbx-b sm" data-recolor>{{Recolor this mode from the palette||Recolorir este modo a partir da paleta}}</button>
+      </div>
+      <div class="tbx-sec" data-s="light dark claro escuro invert inverter copy copiar both">
+        <div class="tbx-sec-h"><h3>{{Light and dark||Claro e escuro}}</h3></div>
+        <p class="tbx-hint">{{Every theme has both. Start the other mode from this one, then adjust it.||Todo tema tem os dois. Comece o outro modo a partir deste e depois ajuste.}}</p>
+        <div class="tbx-btns">
+          <button type="button" class="tbx-b" data-invert><i data-ic="flip"></i><span data-invert-label></span></button>
+          <button type="button" class="tbx-b" data-other><i data-ic="wand"></i><span data-other-label></span></button>
+          <button type="button" class="tbx-b" data-view-split><i data-ic="split"></i><span>{{See both side by side||Ver os dois lado a lado}}</span></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="tbx-pane" role="tabpanel" id="tbx-p-gen" aria-labelledby="tbx-t-gen" tabindex="0" hidden>
+      <div class="tbx-pane-head"><h2>{{Palette generator||Gerador de paletas}}</h2></div>
+      <p class="tbx-hint">{{Pick a base color and a harmony: both modes are rebuilt from it, live, with readable text. Locked colors stay as they are.||Escolha uma cor base e uma harmonia: os dois modos são refeitos a partir dela, ao vivo, com texto legível. As cores travadas ficam como estão.}}</p>
+      <div class="tbx-sec" data-s="base color cor base accent destaque">
+        <div class="tbx-gen-base">
+          <button type="button" class="tbx-bigsw" data-gen-base aria-label="{{Base color||Cor base}}"><i></i></button>
+          <div>
+            <label class="tbx-lbl" for="tbx-gen-hex">{{Base color||Cor base}}</label>
+            <input id="tbx-gen-hex" class="tbx-in mono" type="text" maxlength="9" spellcheck="false" autocomplete="off" data-gen-hex>
+            <button type="button" class="tbx-link" data-gen-from-accent>{{Use the current accent||Usar o destaque atual}}</button>
+          </div>
+        </div>
+      </div>
+      <div class="tbx-sec" data-s="harmony harmonia monochrome analogous complementary triadic split monocromática análoga complementar tríade">
+        <div class="tbx-sec-h"><h3>{{Harmony||Harmonia}}</h3></div>
+        <div class="tbx-harm" role="radiogroup" aria-label="{{Harmony||Harmonia}}" data-harmonies></div>
+      </div>
+      <div class="tbx-sec" data-s="tint vivid neutral croma chroma lightness luminosidade">
+        <div class="tbx-slider"><label for="tbx-gen-neutral">{{Tint in the neutrals||Tom nos neutros}}</label><input id="tbx-gen-neutral" type="range" min="0" max="0.06" step="0.002" data-gen-neutral><output data-gen-neutral-out></output></div>
+        <div class="tbx-slider"><label for="tbx-gen-chroma">{{Vividness||Vivacidade}}</label><input id="tbx-gen-chroma" type="range" min="0" max="0.24" step="0.005" data-gen-chroma><output data-gen-chroma-out></output></div>
+        <div class="tbx-slider"><label for="tbx-gen-light">{{Accent lightness||Luz do destaque}}</label><input id="tbx-gen-light" type="range" min="0.55" max="0.9" step="0.01" data-gen-light><output data-gen-light-out></output></div>
+      </div>
+      <div class="tbx-genout" data-gen-strip aria-hidden="true"></div>
+      <div class="tbx-btns">
+        <button type="button" class="tbx-b primary" data-gen-apply><i data-ic="wand"></i>{{Apply to both modes||Aplicar aos dois modos}}</button>
+        <button type="button" class="tbx-b" data-surprise aria-keyshortcuts="R"><i data-ic="dice"></i>{{Surprise me||Me surpreenda}}</button>
+      </div>
+      <label class="tbx-check"><input type="checkbox" data-gen-live checked><span>{{Apply as I change it||Aplicar enquanto eu mudo}}</span></label>
+      <div class="tbx-sec" data-s="lock travar locked travadas">
+        <div class="tbx-sec-h"><h3>{{Locked colors||Cores travadas}}</h3></div>
+        <p class="tbx-hint" data-locks-empty>{{None yet. Use the lock next to a color (in Colors or in the color editor) to keep it.||Nenhuma ainda. Use o cadeado ao lado de uma cor (em Cores ou no editor de cor) para mantê-la.}}</p>
+        <div class="tbx-locks" data-locks></div>
+      </div>
+      <div class="tbx-sec" data-s="image imagem photo foto wallpaper drop">
+        <div class="tbx-sec-h"><h3>{{From an image||De uma imagem}}</h3></div>
+        <button type="button" class="tbx-drop" data-drop><i data-ic="image"></i><span><b>{{Drop an image here or pick one||Solte uma imagem aqui ou escolha uma}}</b><small>{{It's read in this page; nothing is uploaded.||Ela é lida nesta página; nada é enviado.}}</small></span></button>
+        <div class="tbx-imgsw" data-imgs hidden></div>
+      </div>
+    </section>
+
+    <section class="tbx-pane" role="tabpanel" id="tbx-p-layout" aria-labelledby="tbx-t-layout" tabindex="0" hidden>
+      <div class="tbx-pane-head"><h2>Layout</h2><span class="tbx-mode" data-layout-now></span></div>
+      <div class="tbx-sec" data-s="layout preset thumbnail miniatura tema">
+        <p class="tbx-hint">{{Pick a layout. Your colors, fonts and file info stay; the options, styles and layout tree come from that theme.||Escolha um layout. As suas cores, fontes e dados do arquivo ficam; as opções, os estilos e a árvore de layout vêm daquele tema.}}</p>
+        <div class="tbx-thumbs" data-thumbs></div>
+      </div>
+      <div class="tbx-sec" data-s="options opções switch">
+        <div class="tbx-sec-h"><h3>{{Theme options||Opções do tema}}</h3></div>
+        <p class="tbx-hint">{{What starts switched on. People can still change them in Settings → Appearance.||O que já vem ligado. Quem usar o tema ainda muda em Configurações → Aparência.}}</p>
+        <div data-options></div>
+      </div>
+      <div class="tbx-sec" data-s="layers camadas components componentes variant variante order ordem hide esconder">
+        <div class="tbx-sec-h"><h3>{{Layers||Camadas}}</h3></div>
+        <p class="tbx-hint">{{The layout tree, top to bottom. Open a layer for its options; the eye hides it and the arrows move it. Only properties the app reads, from the <a href="%GUIDE%themes.html#components">theme reference</a>.||A árvore do layout, de cima para baixo. Abra uma camada para ver as opções; o olho esconde e as setas mudam de lugar. Só propriedades que o app lê, da <a href="%GUIDE%themes.html#componentes">referência de temas</a>.}}</p>
+        <ul class="tbx-layers" data-layers></ul>
+      </div>
+    </section>
+
+    <section class="tbx-pane" role="tabpanel" id="tbx-p-type" aria-labelledby="tbx-t-type" tabindex="0" hidden>
+      <div class="tbx-pane-head"><h2>{{Type and shape||Letra e forma}}</h2></div>
+      <div class="tbx-sec" data-s="font fonte interface ui family família">
+        <label class="tbx-lbl" for="tbx-f-ui">{{Interface font||Fonte da interface}} <code>fonts ui</code></label>
+        <input id="tbx-f-ui" class="tbx-in" type="text" list="tbx-fonts-ui" spellcheck="false" autocomplete="off" data-f-ui>
+        <div class="tbx-fonts" data-font-chips="ui"></div>
+      </div>
+      <div class="tbx-sec" data-s="mono monospace monoespaçada font fonte code">
+        <label class="tbx-lbl" for="tbx-f-mono">{{Monospace font||Fonte monoespaçada}} <code>fonts mono</code></label>
+        <input id="tbx-f-mono" class="tbx-in" type="text" list="tbx-fonts-mono" spellcheck="false" autocomplete="off" data-f-mono>
+        <div class="tbx-fonts" data-font-chips="mono"></div>
+        <p class="tbx-hint">{{Linux: any family fontconfig knows (<code>fc-list</code> lists them). Windows: only <code>C:\Windows\Fonts</code>. A file named like the family in lowercase, with no spaces (<code>Cascadia Code</code> → <code>cascadiacode.ttf</code>), is used for every weight, so there's no real bold or italic. Otherwise names with mono, code, consol, courier or term get Consolas, names with serif, georgia, times, garamond or playfair (and no sans) get Georgia, DejaVu Sans and DejaVu Sans Mono get Segoe UI Symbol, and the rest get Segoe UI. Fonts installed only for your user aren't seen. The preview uses the font if your browser has it.||Linux: qualquer família que o fontconfig conheça (<code>fc-list</code> mostra). Windows: só <code>C:\Windows\Fonts</code>. Um arquivo com o nome da família em minúsculas, sem espaços (<code>Cascadia Code</code> → <code>cascadiacode.ttf</code>), vale para todos os pesos, então não tem negrito nem itálico de verdade. Senão, nomes com mono, code, consol, courier ou term viram Consolas, nomes com serif, georgia, times, garamond ou playfair (e sem sans) viram Georgia, DejaVu Sans e DejaVu Sans Mono viram Segoe UI Symbol, e o resto vira Segoe UI. Fontes instaladas só para o seu usuário não são vistas. A prévia usa a fonte se o seu navegador tiver.}}</p>
+      </div>
+      <div class="tbx-sec" data-s="size tamanho text texto base">
+        <div class="tbx-slider"><label for="tbx-f-size">{{Text size||Tamanho do texto}} <code>size</code></label><input id="tbx-f-size" type="range" min="10" max="24" step="0.5" data-f-size><input class="tbx-num" type="number" min="6" max="72" step="0.5" aria-label="{{Text size, in pixels||Tamanho do texto, em pixels}}" data-f-size-n></div>
+        <p class="tbx-sample" data-type-sample>{{The quick brown fox · 0123||Zebras caolhas de Java · 0123}}</p>
+      </div>
+      <div class="tbx-sec" data-s="radius arredondamento corner canto round shape forma">
+        <div class="tbx-slider"><label for="tbx-f-radius">{{Corner radius||Arredondamento}} <code>metrics radius</code></label><input id="tbx-f-radius" type="range" min="0" max="24" step="1" data-f-radius><input class="tbx-num" type="number" min="0" max="64" step="1" aria-label="{{Corner radius, in pixels||Arredondamento, em pixels}}" data-f-radius-n></div>
+        <div class="tbx-radii" data-radii></div>
+      </div>
+      <div class="tbx-sec" data-s="transparent transparente window janela blur glass vidro">
+        <label class="tbx-switch"><input type="checkbox" data-f-transparent><span class="tbx-sw-ui" aria-hidden="true"></span><span><b>{{Transparent window||Janela transparente}}</b> <code>window transparent</code><small>{{The window background lets the desktop through. On Linux the compositor applies the blur (Hyprland, KDE…). On Windows the app doesn't ask for blur, so there's none. A translucent <code>bg</code> turns this on by itself.||O fundo da janela deixa a área de trabalho aparecer. No Linux, o compositor aplica o blur (Hyprland, KDE…). No Windows o app não pede desfoque, então não tem. Um <code>bg</code> translúcido já liga isto sozinho.}}</small></span></label>
+        <p class="tbx-hint tbx-clear-note" data-f-clear-note hidden>{{Nothing shows through yet: <code>bg</code> is opaque in both modes, in the app as in the preview. Lower its alpha (A, in the color editor) and the preview draws a stand-in wallpaper behind the window.||Nada aparece por trás ainda: o <code>bg</code> é opaco nos dois modos, no app e na prévia. Baixe o alfa dele (A, no editor de cor) e a prévia desenha um papel de parede de exemplo atrás da janela.}}</p>
+      </div>
+      <div class="tbx-sec" data-s="thumbnail miniatura settings configurações preview">
+        <div class="tbx-sec-h"><h3>{{Thumbnail in Settings||Miniatura nas Configurações}} <code>preview</code></h3></div>
+        <div class="tbx-kinds" role="radiogroup" aria-label="{{Thumbnail in Settings||Miniatura nas Configurações}}" data-kinds></div>
+      </div>
+      <datalist id="tbx-fonts-ui"><option value="Inter"><option value="Inter Display"><option value="Noto Sans"><option value="DejaVu Sans"><option value="Liberation Sans"><option value="IBM Plex Sans"><option value="Fira Sans"><option value="Segoe UI"><option value="Liberation Serif"><option value="Georgia"><option value="JetBrains Mono"></datalist>
+      <datalist id="tbx-fonts-mono"><option value="JetBrains Mono"><option value="Monaspace Argon"><option value="Fira Code"><option value="Iosevka"><option value="DejaVu Sans Mono"><option value="Liberation Mono"><option value="Cascadia Code"><option value="Consolas"></datalist>
+    </section>
+
+    <section class="tbx-pane" role="tabpanel" id="tbx-p-code" aria-labelledby="tbx-t-code" tabindex="0" hidden>
+      <div class="tbx-pane-head"><h2>{{Code||Código}}</h2></div>
+      <div class="tbx-sec" data-s="advanced avançado kdl text texto layout source code código editor">
+        <p class="tbx-hint">{{Options, styles, the layout tree and any blocks that depend on an option, as text. The colors, fonts and file info from the other tabs are written before this.||Opções, estilos, a árvore de layout e os blocos que dependem de uma opção, como texto. As cores, fontes e dados do arquivo das outras abas vêm antes disto.}}</p>
+        <div class="tbx-adv"><pre aria-hidden="true"><code data-adv-hl></code></pre><textarea data-adv spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="{{Layout source||Texto do layout}}"></textarea></div>
+        <p class="tbx-adv-status" data-adv-status role="status"></p>
+      </div>
+      <details class="tbx-sec tbx-more" data-s="file arquivo whole inteiro kdl generated gerado">
+        <summary>{{The whole file||O arquivo inteiro}}</summary>
+        <div class="code tbx-code" data-lang="kdl"><pre tabindex="0" aria-label="{{The generated theme file||O arquivo de tema gerado}}"><code data-code></code></pre></div>
+      </details>
+    </section>
+
+    <section class="tbx-pane" role="tabpanel" id="tbx-p-file" aria-labelledby="tbx-t-file" tabindex="0" hidden>
+      <div class="tbx-pane-head"><h2>{{File info||Dados do arquivo}}</h2></div>
+      <div class="tbx-sec" data-s="name nome file arquivo">
+        <label class="tbx-lbl" for="tbx-m-name">{{Name||Nome}}</label>
+        <input id="tbx-m-name" class="tbx-in" type="text" spellcheck="false" autocomplete="off" data-m-name aria-describedby="tbx-m-name-d">
+        <p class="tbx-hint" id="tbx-m-name-d">{{The app lists themes by file name: this one is saved as <code data-fname>my-theme.kdl</code>.||O app lista os temas pelo nome do arquivo: este vai como <code data-fname>my-theme.kdl</code>.}}</p>
+      </div>
+      <div class="tbx-sec" data-s="author autor">
+        <label class="tbx-lbl" for="tbx-m-author">{{Author||Autor}} <code>author</code></label>
+        <input id="tbx-m-author" class="tbx-in" type="text" autocomplete="off" data-m-author aria-describedby="tbx-m-author-d">
+        <p class="tbx-hint" id="tbx-m-author-d">{{Stored in the file for whoever opens it. The app doesn't show it anywhere.||Fica guardado no arquivo para quem abrir. O app não mostra em lugar nenhum.}}</p>
+      </div>
+      <div class="tbx-sec" data-s="license licença spdx">
+        <label class="tbx-lbl" for="tbx-m-license">{{License||Licença}} <code>license</code></label>
+        <input id="tbx-m-license" class="tbx-in mono" type="text" list="tbx-licenses" spellcheck="false" autocomplete="off" maxlength="64" data-m-license aria-describedby="tbx-m-license-d">
+        <datalist id="tbx-licenses">%LICENSE_OPTIONS%</datalist>
+        <p class="tbx-hint" id="tbx-m-license-d">{{Who may use and change the theme: an open license, written as its SPDX identifier (<code>CC0-1.0</code>, <code>CC-BY-4.0</code>, <code>MIT</code>…; the field suggests the others). The app ignores it; the <a href="%COMMUNITY%">community gallery</a> requires one from its list.||Quem pode usar e mudar o tema: uma licença aberta, escrita como o identificador SPDX dela (<code>CC0-1.0</code>, <code>CC-BY-4.0</code>, <code>MIT</code>…; o campo sugere as outras). O app ignora; a <a href="%COMMUNITY%">galeria da comunidade</a> exige uma da lista dela.}}</p>
+      </div>
+      <div class="tbx-sec" data-s="description descrição english inglês portuguese português">
+        <label class="tbx-lbl" for="tbx-m-desc-en">{{Description (English)||Descrição (inglês)}} <code>description-en</code></label>
+        <input id="tbx-m-desc-en" class="tbx-in" type="text" data-m-desc-en>
+        <label class="tbx-lbl" for="tbx-m-desc">{{Description (Portuguese)||Descrição (português)}} <code>description</code></label>
+        <input id="tbx-m-desc" class="tbx-in" type="text" data-m-desc>
+        <p class="tbx-hint">{{The app shows the one in its language. With only one filled in, it shows that one in both.||O app mostra a do idioma dele. Com só uma preenchida, ela aparece nos dois.}}</p>
+      </div>
+      <div class="tbx-sec tbx-share" data-s="community comunidade gallery galeria share compartilhar pull request ready pronto">
+        <div class="tbx-sec-h"><h3>{{Ready for the community gallery?||Pronto para a galeria da comunidade?}}</h3></div>
+        <p class="tbx-hint">{{The <a href="%COMMUNITY%">community gallery</a> shows themes people sent in a pull request. A theme needs these before it can go in:||A <a href="%COMMUNITY%">galeria da comunidade</a> mostra temas que as pessoas mandaram num pull request. Um tema precisa disto antes de entrar:}}</p>
+        <ul class="tbx-ready" data-ready></ul>
+        <p class="tbx-csum" data-ready-sum role="status"></p>
+        <p class="tbx-hint"><a href="%GUIDE%themes.html#{{sharing-your-theme||compartilhar-seu-tema}}">{{How to send it and what is checked||Como mandar e o que é conferido}}</a></p>
+      </div>
     </section>
   </div>
-</div>
+</aside>
 
-<section class="tb-out" id="install" aria-labelledby="tb-out-h">
-  <span class="tag"><b>themes</b> <i>{</i> // {{where the file goes||onde o arquivo vai}}</span>
-  <h2 class="h" id="tb-out-h">{{Your file, <em>and where it goes.</em>||O seu arquivo, <em>e onde ele vai.</em>}}</h2>
-  <div class="tb-out-grid">
-    <div class="tb-install">
-      <div class="tb-ostabs" data-ostabs role="tablist" aria-label="{{Operating system||Sistema operacional}}">
-        <button type="button" role="tab" id="tb-os-linux" aria-controls="tb-os-p-linux" aria-selected="true">Linux</button>
-        <button type="button" role="tab" id="tb-os-win" aria-controls="tb-os-p-win" aria-selected="false" tabindex="-1">Windows</button>
-      </div>
-      <div role="tabpanel" id="tb-os-p-linux" aria-labelledby="tb-os-linux">
-        <ol class="tb-steps">
-          <li>{{Put <code data-fname>my-theme.kdl</code> in <code>~/.config/larpercord/themes/</code> (or <code>$XDG_CONFIG_HOME/larpercord/themes/</code> when that variable is set):||Coloque <code data-fname>my-theme.kdl</code> em <code>~/.config/larpercord/themes/</code> (ou em <code>$XDG_CONFIG_HOME/larpercord/themes/</code> quando essa variável existir):}}
-            <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">mkdir</span> <span class="t-p">-p</span> ~/.config/larpercord/themes
-<span class="t-k">mv</span> ~/Downloads/<span data-fname>my-theme.kdl</span> ~/.config/larpercord/themes/</code></pre></div>
-          </li>
-          <li>{{If the folder didn't exist before, restart larperCord once: the app watches the theme folders that exist when it opens. From then on, saving the file reloads the window.||Se a pasta não existia antes, reinicie o larperCord uma vez: o app vigia as pastas de tema que existem quando ele abre. Daí em diante, salvar o arquivo recarrega a janela.}}</li>
-          <li>{{Pick it with <kbd>F2</kbd>, in the palette (<kbd>Ctrl</kbd><kbd>K</kbd> → "theme: <span data-tname>my-theme</span>") or in Settings → Appearance. Or open the app with it:||Escolha com <kbd>F2</kbd>, pela paleta (<kbd>Ctrl</kbd><kbd>K</kbd> → "tema: <span data-tname>my-theme</span>") ou em Configurações → Aparência. Ou abra o app com ele:}}
-            <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">larpercord</span> <span class="t-p">--theme</span> <span data-tname>my-theme</span></code></pre></div>
-          </li>
-        </ol>
-      </div>
-      <div role="tabpanel" id="tb-os-p-win" aria-labelledby="tb-os-win" hidden>
-        <ol class="tb-steps">
-          <li>{{Put <code data-fname>my-theme.kdl</code> in <code>%APPDATA%\larpercord\themes\</code>. In PowerShell:||Coloque <code data-fname>my-theme.kdl</code> em <code>%APPDATA%\larpercord\themes\</code>. No PowerShell:}}
-            <div class="code" data-lang="powershell"><span class="code-lang">powershell</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">New-Item</span> <span class="t-p">-ItemType</span> Directory <span class="t-p">-Force</span> <span class="t-s">"$env:APPDATA\larpercord\themes"</span> | <span class="t-k">Out-Null</span>
-<span class="t-k">Move-Item</span> <span class="t-s">"$HOME\Downloads\<span data-fname>my-theme.kdl</span>"</span> <span class="t-s">"$env:APPDATA\larpercord\themes\"</span></code></pre></div>
-          </li>
-          <li>{{If the folder didn't exist before, close and open larperCord once: the app watches the theme folders that exist when it opens. From then on, saving the file reloads the window.||Se a pasta não existia antes, feche e abra o larperCord uma vez: o app vigia as pastas de tema que existem quando ele abre. Daí em diante, salvar o arquivo recarrega a janela.}}</li>
-          <li>{{Pick it with <kbd>F2</kbd>, in the palette (<kbd>Ctrl</kbd><kbd>K</kbd> → "theme: <span data-tname>my-theme</span>") or in Settings → Appearance. Or start it from a terminal with <code>larpercord.exe --theme <span data-tname>my-theme</span></code>.||Escolha com <kbd>F2</kbd>, pela paleta (<kbd>Ctrl</kbd><kbd>K</kbd> → "tema: <span data-tname>my-theme</span>") ou em Configurações → Aparência. Ou abra pelo terminal com <code>larpercord.exe --theme <span data-tname>my-theme</span></code>.}}</li>
-        </ol>
-      </div>
-      <ul class="tb-facts">
-        <li>{{The app lists a theme by its <strong>file name</strong>. A file with the name of a built-in theme (say <code>orbital.kdl</code>) takes its place.||O app lista um tema pelo <strong>nome do arquivo</strong>. Um arquivo com o nome de um tema embutido (por exemplo <code>orbital.kdl</code>) fica no lugar dele.}}</li>
-        <li>{{If the file has an error, a notice shows <code>file:line:column</code> and the previous theme stays on screen.||Se o arquivo tiver um erro, um aviso mostra <code>arquivo:linha:coluna</code> e o tema anterior continua na tela.}}</li>
-        <li>{{The colors are written out in full for both modes, so the file doesn't depend on pywal. To follow your wallpaper, edit it by hand with <code>palette "wal"</code> (<a href="%GUIDE%themes.html">theme reference</a>).||As cores vão escritas por inteiro nos dois modos, então o arquivo não depende do pywal. Para seguir o wallpaper, edite à mão com <code>palette "wal"</code> (<a href="%GUIDE%themes.html">referência de temas</a>).}}</li>
-      </ul>
-      <section class="tb-share" aria-labelledby="tb-share-h">
-        <h3 id="tb-share-h">{{Share it in the community gallery||Mande para a galeria da comunidade}}</h3>
-        <p class="tb-hint">{{The <a href="%COMMUNITY%">community gallery</a> shows themes people sent in a pull request, with a preview, a link back here and the file to download. A theme needs these before it can go in:||A <a href="%COMMUNITY%">galeria da comunidade</a> mostra temas que as pessoas mandaram num pull request, com prévia, um link de volta para cá e o arquivo para baixar. Um tema precisa disto antes de entrar:}}</p>
-        <ul class="tb-ready" data-ready></ul>
-        <p class="tb-hint" data-ready-sum role="status"></p>
-        <p class="tb-hint"><a href="%GUIDE%themes.html#{{sharing-your-theme||compartilhar-seu-tema}}">{{How to send it and what is checked||Como mandar e o que é conferido}}</a></p>
-      </section>
+<section class="tbx-stage" data-stage aria-label="{{Preview||Prévia}}">
+  <div class="tbx-canvas" data-canvas>
+    <div class="tbx-screens" data-screens>
+      <figure class="tbx-screen" data-screen="0"><figcaption class="tbx-cap"><i data-ic="moon"></i><span data-cap></span></figcaption><div class="tbx-fbox" data-fbox><div class="tb-frame" data-frame aria-hidden="true"></div></div></figure>
+      <figure class="tbx-screen" data-screen="1" hidden><figcaption class="tbx-cap"><i data-ic="sun"></i><span data-cap></span></figcaption><div class="tbx-fbox" data-fbox><div class="tb-frame" data-frame aria-hidden="true"></div></div></figure>
     </div>
-    <div class="code tb-code" data-lang="kdl"><span class="code-lang">kdl</span><button class="copy" type="button" data-copy>copy</button><pre tabindex="0" aria-label="{{The generated theme file||O arquivo de tema gerado}}"><code data-code></code></pre></div>
+    <div class="tbx-hl" data-hl hidden><span class="tbx-hl-tag" data-hl-tag></span></div>
+    <div class="tbx-dropzone" data-dropzone hidden><span><i data-ic="image"></i>{{Drop the image to make a palette from it||Solte a imagem para fazer uma paleta dela}}</span></div>
+  </div>
+  <p class="tbx-error" data-error role="alert" hidden></p>
+  <div class="tbx-note" data-empty-note role="status" hidden>
+    <i data-ic="eyeoff"></i>
+    <p>{{This layout draws no messages: in the app, the window would show only the background.||Este layout não desenha as mensagens: no app, a janela mostraria só o fundo.}}</p>
+    <button type="button" class="tbx-b sm" data-empty-undo>{{Undo||Desfazer}}</button>
+    <button type="button" class="tbx-b sm" data-empty-layers>{{Layers||Camadas}}</button>
+  </div>
+  <div class="tbx-status">
+    <button type="button" class="tbx-chip" data-contrast-chip><i class="tbx-dot" aria-hidden="true"></i><span data-contrast-chip-t></span></button>
+    <span class="tbx-hover" data-hover-info aria-live="off"></span>
+    <span class="tbx-grow"></span>
+    <span class="tbx-site" role="group" aria-label="{{This page's theme||Tema desta página}}">
+      <button type="button" class="tbx-sb" data-next-theme title="{{Next theme for this page||Próximo tema desta página}} (F2)"><i class="tbx-sbdot" aria-hidden="true"></i><span data-theme-name>larper</span></button>
+      <button type="button" class="tbx-sb" data-toggle-mode title="{{Light or dark page||Página clara ou escura}}"><span data-mode-name>dark</span></button>
+    </span>
+    <div class="tbx-zoom" role="group" aria-label="Zoom">
+      <button type="button" class="tbx-ib sm" data-zoom-out aria-keyshortcuts="-" title="{{Zoom out||Diminuir}} (−)"><i data-ic="minus"></i><span class="sr-only">{{Zoom out||Diminuir}}</span></button>
+      <button type="button" class="tbx-zv" data-zoom-toggle aria-keyshortcuts="0 1"><span data-zoom-label>100%</span></button>
+      <button type="button" class="tbx-ib sm" data-zoom-in aria-keyshortcuts="+" title="{{Zoom in||Aumentar}} (+)"><i data-ic="plus"></i><span class="sr-only">{{Zoom in||Aumentar}}</span></button>
+    </div>
+    <button type="button" class="tbx-ib sm" data-shortcuts aria-keyshortcuts="Shift+?" title="{{Keyboard shortcuts||Atalhos de teclado}} (?)"><i data-ic="keys"></i><span class="sr-only">{{Keyboard shortcuts||Atalhos de teclado}}</span></button>
+    <button type="button" class="tbx-ib sm" data-fullscreen aria-keyshortcuts="F" title="{{Full screen||Tela cheia}} (F)"><i data-ic="expand"></i><span class="sr-only">{{Full screen||Tela cheia}}</span></button>
+  </div>
+
+  <div class="tbx-cpop" data-cpop role="dialog" aria-labelledby="tbx-cpop-h" hidden>
+    <div class="tbx-cpop-head">
+      <span class="tbx-cpop-sw" data-cp-sw></span>
+      <div class="tbx-cpop-t"><h2 id="tbx-cpop-h" data-cp-title></h2><p data-cp-desc></p></div>
+      <button type="button" class="tbx-ib sm" data-cp-lock aria-pressed="false"><i data-ic="unlock"></i><span class="sr-only">{{Lock this color||Travar esta cor}}</span></button>
+      <button type="button" class="tbx-ib sm" data-cp-close title="{{Close||Fechar}} (Esc)"><i data-ic="close"></i><span class="sr-only">{{Close||Fechar}}</span></button>
+    </div>
+    <div class="tbx-cpop-tabs" data-cp-toks role="tablist" aria-label="{{Colors in this part||Cores nesta parte}}"></div>
+    <p class="tbx-cpop-warn" data-cp-warn hidden></p>
+    <div class="tbx-cpop-row">
+      <label class="sr-only" for="tbx-cp-hex">Hex</label>
+      <input id="tbx-cp-hex" class="tbx-in mono" type="text" maxlength="9" spellcheck="false" autocomplete="off" data-cp-hex>
+      <button type="button" class="tbx-ib sm" data-cp-eye hidden title="{{Pick a color from the screen||Pegar uma cor da tela}}"><i data-ic="eyedrop"></i><span class="sr-only">{{Pick a color from the screen||Pegar uma cor da tela}}</span></button>
+      <button type="button" class="tbx-ib sm" data-cp-copy title="{{Copy||Copiar}}"><i data-ic="copy"></i><span class="sr-only">{{Copy||Copiar}}</span></button>
+      <div class="tbx-seg sm" role="radiogroup" aria-label="{{Sliders||Controles}}">
+        <button type="button" role="radio" data-cp-model="oklch" aria-checked="true">OKLCH</button><button type="button" role="radio" data-cp-model="hsl" aria-checked="false" tabindex="-1">HSL</button>
+      </div>
+    </div>
+    <div class="tbx-cpop-sliders" data-cp-sliders></div>
+    <div class="tbx-cpop-contrast" data-cp-contrast></div>
+    <p class="tbx-cpop-lbl">{{In this theme||Neste tema}}</p>
+    <div class="tbx-swgrid" data-cp-theme></div>
+    <p class="tbx-cpop-lbl" data-cp-recent-lbl>{{Recent||Recentes}}</p>
+    <div class="tbx-swgrid" data-cp-recent></div>
+    <div class="tbx-cpop-foot"><button type="button" class="tbx-link" data-cp-layer hidden></button><span class="tbx-grow"></span><button type="button" class="tbx-link" data-cp-revert>{{Revert||Voltar}}</button></div>
   </div>
 </section>
+</div>
+</div>
+
+<section class="tbx-sheet" id="tbx-export" data-export role="dialog" aria-modal="true" aria-labelledby="tbx-export-h">
+  <div class="tbx-sheet-in">
+    <div class="tbx-sheet-head">
+      <h2 id="tbx-export-h">{{Your file, and where it goes||O seu arquivo, e onde ele vai}}</h2>
+      <button type="button" class="tbx-ib" data-export-close title="{{Close||Fechar}} (Esc)"><i data-ic="close"></i><span class="sr-only">{{Close||Fechar}}</span></button>
+    </div>
+    <div class="tbx-xfile"><i data-ic="file"></i><span><b data-fname>my-theme.kdl</b><small data-export-size></small></span></div>
+    <div class="tbx-btns">
+      <button type="button" class="tbx-b primary" data-download><i data-ic="download"></i>{{Download .kdl||Baixar .kdl}}</button>
+      <button type="button" class="tbx-b" data-copy-kdl><i data-ic="copy"></i>{{Copy .kdl||Copiar .kdl}}</button>
+      <button type="button" class="tbx-b" data-share><i data-ic="link"></i>{{Copy share link||Copiar link}}</button>
+    </div>
+    <div class="tbx-ostabs" data-ostabs role="tablist" aria-label="{{Operating system||Sistema operacional}}">
+      <button type="button" role="tab" id="tbx-os-linux" aria-controls="tbx-os-p-linux" aria-selected="true">Linux</button>
+      <button type="button" role="tab" id="tbx-os-win" aria-controls="tbx-os-p-win" aria-selected="false" tabindex="-1">Windows</button>
+    </div>
+    <div role="tabpanel" id="tbx-os-p-linux" aria-labelledby="tbx-os-linux">
+      <ol class="tbx-steps">
+        <li>{{Put <code data-fname>my-theme.kdl</code> in <code>~/.config/larpercord/themes/</code> (or <code>$XDG_CONFIG_HOME/larpercord/themes/</code> when that variable is set):||Coloque <code data-fname>my-theme.kdl</code> em <code>~/.config/larpercord/themes/</code> (ou em <code>$XDG_CONFIG_HOME/larpercord/themes/</code> quando essa variável existir):}}
+          <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">mkdir</span> <span class="t-p">-p</span> ~/.config/larpercord/themes
+<span class="t-k">mv</span> ~/Downloads/<span data-fname>my-theme.kdl</span> ~/.config/larpercord/themes/</code></pre></div>
+        </li>
+        <li>{{If the folder didn't exist before, restart larperCord once: Settings → Updates → Restart larperCord, or Quit from the tray icon's menu and open it again (with a tray, closing the window only sends the app there). The app watches the theme folders that exist when it opens. From then on, saving the file reloads the window.||Se a pasta não existia antes, reinicie o larperCord uma vez: Configurações → Atualizações → Reiniciar o larperCord, ou Sair no menu do ícone da bandeja e abrir de novo (com bandeja, fechar a janela só manda o app para lá). O app vigia as pastas de tema que existem quando ele abre. Daí em diante, salvar o arquivo recarrega a janela.}}</li>
+        <li>{{Pick it with <kbd>F2</kbd>, in the palette (<kbd>Ctrl</kbd><kbd>K</kbd> → "theme: <span data-tname>my-theme</span>") or in Settings → Appearance. Or open the app with it:||Escolha com <kbd>F2</kbd>, pela paleta (<kbd>Ctrl</kbd><kbd>K</kbd> → "tema: <span data-tname>my-theme</span>") ou em Configurações → Aparência. Ou abra o app com ele:}}
+          <div class="code" data-lang="bash"><span class="code-lang">bash</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">larpercord</span> <span class="t-p">--theme</span> <span data-tname>my-theme</span></code></pre></div>
+          <p>{{This only works when larperCord isn't running yet. If it's in the tray, a second start just brings the window back, so quit it first.||Isso só funciona com o larperCord fechado. Se ele estiver na bandeja, abrir de novo só traz a janela de volta, então saia dele antes.}}</p>
+        </li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="tbx-os-p-win" aria-labelledby="tbx-os-win" hidden>
+      <ol class="tbx-steps">
+        <li>{{Put <code data-fname>my-theme.kdl</code> in <code>%APPDATA%\larpercord\themes\</code>. In PowerShell:||Coloque <code data-fname>my-theme.kdl</code> em <code>%APPDATA%\larpercord\themes\</code>. No PowerShell:}}
+          <div class="code" data-lang="powershell"><span class="code-lang">powershell</span><button class="copy" type="button" data-copy>copy</button><pre><code><span class="t-k">New-Item</span> <span class="t-p">-ItemType</span> Directory <span class="t-p">-Force</span> <span class="t-s">"$env:APPDATA\larpercord\themes"</span> | <span class="t-k">Out-Null</span>
+<span class="t-k">Move-Item</span> <span class="t-s">"$HOME\Downloads\<span data-fname>my-theme.kdl</span>"</span> <span class="t-s">"$env:APPDATA\larpercord\themes\"</span></code></pre></div>
+        </li>
+        <li>{{If the folder didn't exist before, restart larperCord once: Settings → Updates → Restart larperCord. Closing the window isn't enough, because by default it only hides the app in the tray (to quit from there, right-click the tray icon, choose Quit and open it again). The app watches the theme folders that exist when it opens. From then on, saving the file reloads the window. Tip: paste <code>%APPDATA%\larpercord\themes</code> in File Explorer's address bar to open the folder.||Se a pasta não existia antes, reinicie o larperCord uma vez: Configurações → Atualizações → Reiniciar o larperCord. Fechar a janela não basta, porque por padrão ela só esconde o app na bandeja (para sair por lá, clique com o botão direito no ícone da bandeja, escolha Sair e abra de novo). O app vigia as pastas de tema que existem quando ele abre. Daí em diante, salvar o arquivo recarrega a janela. Dica: cole <code>%APPDATA%\larpercord\themes</code> na barra de endereço do Explorador de Arquivos para abrir a pasta.}}</li>
+        <li>{{Pick it with <kbd>F2</kbd>, in the palette (<kbd>Ctrl</kbd><kbd>K</kbd> → "theme: <span data-tname>my-theme</span>") or in Settings → Appearance. Or open the app with it from PowerShell (that's where the install script puts it; from the zip, run <code>.\larpercord.exe --theme <span data-tname>my-theme</span></code> in its folder):||Escolha com <kbd>F2</kbd>, pela paleta (<kbd>Ctrl</kbd><kbd>K</kbd> → "tema: <span data-tname>my-theme</span>") ou em Configurações → Aparência. Ou abra o app com ele pelo PowerShell (é onde o script de instalação coloca o app; pelo zip, rode <code>.\larpercord.exe --theme <span data-tname>my-theme</span></code> na pasta dele):}}
+          <div class="code" data-lang="powershell"><span class="code-lang">powershell</span><button class="copy" type="button" data-copy>copy</button><pre><code>&amp; <span class="t-s">"$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe"</span> <span class="t-p">--theme</span> <span data-tname>my-theme</span></code></pre></div>
+          <p>{{This only works when larperCord isn't running yet. If it's in the tray, a second start just brings the window back, so quit it first.||Isso só funciona com o larperCord fechado. Se ele estiver na bandeja, abrir de novo só traz a janela de volta, então saia dele antes.}}</p>
+        </li>
+      </ol>
+    </div>
+    <ul class="tbx-facts">
+      <li>{{The app lists a theme by its <strong>file name</strong>. A file with the name of a built-in theme (say <code>orbital.kdl</code>) takes its place.||O app lista um tema pelo <strong>nome do arquivo</strong>. Um arquivo com o nome de um tema embutido (por exemplo <code>orbital.kdl</code>) fica no lugar dele.}}</li>
+      <li>{{If the file has an error, a notice shows <code>file:line:column</code> and the previous theme stays on screen.||Se o arquivo tiver um erro, um aviso mostra <code>arquivo:linha:coluna</code> e o tema anterior continua na tela.}}</li>
+      <li>{{The colors are written out in full for both modes, so the file doesn't depend on pywal. To follow your wallpaper on Linux, edit it by hand with <code>palette "wal"</code> (<a href="%GUIDE%themes.html">theme reference</a>). On Windows the app only reads pywal's colors when the <code>HOME</code> variable is set, and doesn't follow changes live.||As cores vão escritas por inteiro nos dois modos, então o arquivo não depende do pywal. Para seguir o wallpaper no Linux, edite à mão com <code>palette "wal"</code> (<a href="%GUIDE%themes.html">referência de temas</a>). No Windows o app só lê as cores do pywal quando a variável <code>HOME</code> existe, e não acompanha as mudanças ao vivo.}}</li>
+    </ul>
+    <div class="tbx-xshare"><button type="button" class="tbx-link" data-goto="file"><i data-ic="users"></i><span data-export-ready></span></button></div>
+  </div>
+</section>
+
+<div class="tbx-keys" data-keys role="dialog" aria-modal="true" aria-labelledby="tbx-keys-h" hidden>
+  <div class="tbx-keys-in">
+    <div class="tbx-sheet-head"><h2 id="tbx-keys-h">{{Keyboard shortcuts||Atalhos de teclado}}</h2><button type="button" class="tbx-ib" data-keys-close title="{{Close||Fechar}} (Esc)"><i data-ic="close"></i><span class="sr-only">{{Close||Fechar}}</span></button></div>
+    <dl class="tbx-keylist">
+      <div><dt><kbd>Ctrl</kbd><kbd>Z</kbd></dt><dd>{{Undo||Desfazer}}</dd></div>
+      <div><dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Z</kbd></dt><dd>{{Redo||Refazer}}</dd></div>
+      <div><dt><kbd>M</kbd></dt><dd>{{Switch between dark and light||Trocar entre escuro e claro}}</dd></div>
+      <div><dt><kbd>B</kbd></dt><dd>{{Both modes side by side||Os dois modos lado a lado}}</dd></div>
+      <div><dt><kbd>0</kbd> <kbd>1</kbd> <kbd>2</kbd></dt><dd>{{Zoom: fit, 100%, 150%||Zoom: ajustar, 100%, 150%}}</dd></div>
+      <div><dt><kbd>+</kbd> <kbd>−</kbd></dt><dd>{{Zoom in and out (also Ctrl + wheel, or pinch on a touch screen)||Aumentar e diminuir (também Ctrl + roda, ou pinça numa tela de toque)}}</dd></div>
+      <div><dt><kbd>F</kbd></dt><dd>{{Full screen preview||Prévia em tela cheia}}</dd></div>
+      <div><dt><kbd>\</kbd></dt><dd>{{Show or hide the panel||Mostrar ou esconder o painel}}</dd></div>
+      <div><dt><kbd>/</kbd></dt><dd>{{Search colors and settings||Buscar cores e ajustes}}</dd></div>
+      <div><dt><kbd>R</kbd></dt><dd>{{Surprise me: a new palette||Me surpreenda: uma paleta nova}}</dd></div>
+      <div><dt><kbd>E</kbd></dt><dd>{{Export||Exportar}}</dd></div>
+      <div><dt><kbd>Esc</kbd></dt><dd>{{Close the color editor or a panel||Fechar o editor de cor ou um painel}}</dd></div>
+      <div><dt><kbd>?</kbd></dt><dd>{{This list||Esta lista}}</dd></div>
+    </dl>
+  </div>
+</div>
 
 <dialog class="tb-dialog" data-import-dialog aria-labelledby="tb-import-h">
   <h2 id="tb-import-h">{{Import a theme||Importar um tema}}</h2>
@@ -180,6 +381,7 @@
   <div class="tb-row tb-dialog-foot"><button type="button" class="tb-b" data-css-cancel>{{Close||Fechar}}</button><button type="button" class="tb-b primary" data-css-load>{{Import colors||Importar cores}}</button></div>
 </dialog>
 
+<input type="file" accept="image/*" data-image-file hidden>
 <script type="application/json" id="tb-data">%BUILDER_DATA%</script>
 </main>
 <script src="%ROOT%assets/site/theme-builder-core.js" defer></script>

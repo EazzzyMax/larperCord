@@ -453,9 +453,9 @@ onde qualquer pessoa vê a prévia ao vivo, abre no criador de temas ou baixa o 
 `themes/community/` neste repositório.
 
 1. Faça o tema no [criador de temas](https://rshacudevidro.github.io/larperCord/pt/theme-builder.html), ou à mão. Na aba
-   **Arquivo** do criador, preencha o nome, o autor, uma descrição e a licença. O painel embaixo da prévia,
-   "Mande para a galeria da comunidade", mostra o que ainda falta.
-2. Baixe o `.kdl`. O arquivo leva o nome do tema: "Neon Dusk" vira `neon-dusk.kdl`.
+   **Arquivo** do criador (ou clicando no nome do arquivo no topo), preencha o nome, o autor, uma descrição e a licença.
+   "Pronto para a galeria da comunidade?", no fim dessa aba, mostra o que ainda falta.
+2. Baixe o `.kdl` em **Exportar** → **Baixar .kdl**. O arquivo leva o nome do tema: "Neon Dusk" vira `neon-dusk.kdl`.
 3. Faça um fork do repositório, coloque o arquivo em `themes/community/` e abra um pull request. Um tema por pull request.
 
 O nó `theme` leva os metadados:
@@ -496,7 +496,7 @@ O que é conferido:
   família, via fontconfig. No Windows, por um arquivo em `C:\Windows\Fonts` com o nome da família, ou senão Segoe UI,
   Consolas ou Georgia ([Fontes no Windows](#fontes-no-windows)), então confira se o seu tema continua bonito com elas.
 - **Uma licença aberta** da lista acima. Ela diz que as pessoas podem usar e mudar o tema. Se as cores vieram do tema
-  de outra pessoa (pelo "Importar de um CSS de tema do Discord" do criador, por exemplo), a licença daquele tema tem de
+  de outra pessoa (pelo **Abrir** → "Cores de um tema do Discord" do criador, por exemplo), a licença daquele tema tem de
   deixar, e a descrição deve dar o crédito a quem fez.
 
 ## Dicas de design

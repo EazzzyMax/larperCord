@@ -1624,13 +1624,99 @@ def rel(path_from, target):
     return root_of(path_from) + target
 
 
+# O topo do site: a marca, dois grupos com menu (Temas, Por que larperCord), o guia, a
+# demonstração (quando o build dela existe) e, à direita, GitHub, Ko-fi e idioma em botões
+# pequenos. Sem JavaScript cada grupo é um link e o menu abre com o mouse ou o Tab; com ele,
+# vira um botão com aria-expanded (site.js). Abaixo de 1100 px tudo vai para uma gaveta.
+KOFI = "https://ko-fi.com/M7E72A1EGZ"
+NAV_IC = {
+    "caret": '<path d="m7 10 5 5 5-5"/>',
+    "star": '<path d="m12 3.6 2.5 5.2 5.7.8-4.1 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.1-4 5.7-.8z"/>',
+    "gh": '<path class="fill" d="M12 2.2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.4 1.1 3 .8.1-.7.4-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2.2"/>',
+    "cup": '<path d="M5 9h12v4.5A5.5 5.5 0 0 1 11.5 19h-1A5.5 5.5 0 0 1 5 13.5zM17 10.5h1.2a2.6 2.6 0 0 1 0 5.2H16.6M9 3.8c-.8.9.8 1.6 0 2.6M12.6 3.8c-.8.9.8 1.6 0 2.6"/>',
+    "globe": '<path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.5 9h17M3.5 15h17M12 3c-2.6 2.6-3.6 5.6-3.6 9s1 6.4 3.6 9M12 3c2.6 2.6 3.6 5.6 3.6 9s-1 6.4-3.6 9"/>',
+    "menu": '<path d="M4 7h16M4 12h16M4 17h10"/>',
+    "close": '<path d="M6 6l12 12M18 6 6 18"/>',
+    "play": '<path class="fill" d="M8 5.5v13l10.5-6.5z"/>',
+    "swatch": '<path d="M12 21a9 9 0 1 1 9-9c0 2.5-2 3-3.5 3H15a2 2 0 0 0-1.4 3.4c.6.6.4 2.6-1.6 2.6z"/><circle class="fill" cx="7.5" cy="11" r="1.4"/><circle class="fill" cx="10.5" cy="7" r="1.4"/><circle class="fill" cx="15.5" cy="7.5" r="1.4"/>',
+    "brush": '<path d="M14.5 4.5 19.5 9.5 11 18l-5-5zM6 13l-2.5 6.5L10 17M16.5 2.5l5 5"/>',
+    "users": '<path d="M16 20v-1.5a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4V20M9.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM21 20v-1.5a4 4 0 0 0-3-3.8M15.5 4.2a3.5 3.5 0 0 1 0 6.6"/>',
+    "layout": '<path d="M4 4h16v16H4zM9.5 4v16M9.5 10H20"/>',
+    "spark": '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/>',
+    "versus": '<path d="M5 5l4 14 4-14M14.5 17.5c.8.9 2 1.5 3.2 1.5 1.8 0 3-1 3-2.5 0-3.6-6-2.4-6-6 0-1.4 1.2-2.5 3-2.5 1.1 0 2.1.4 2.8 1.2"/>',
+    "gauge": '<path d="M4.5 18a9 9 0 1 1 15 0M12 13l4-5"/><circle class="fill" cx="12" cy="13" r="1.6"/>',
+    "book": '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20M8 7.5h8"/>',
+}
+
+
+def nav_icon(name, cls="nav-svg"):
+    return f'<svg class="{cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{NAV_IC[name]}</svg>'
+
+
+def topnav(lang, path, alt_path, kind, slug):
+    """O cabeçalho de todas as páginas."""
+    e = html.escape
+    home = rel(path, page_url(lang) if lang == "pt" else "") or "./"
+    anchor_home = home if kind != "landing" else ""
+    other = "pt" if lang == "en" else "en"
+    groups = [
+        ("themes", t(lang, "Themes", "Temas"), f"{anchor_home}#themes", [
+            ("swatch", t(lang, "Built-in themes", "Temas embutidos"), t(lang, "11 themes, each in light and dark", "11 temas, cada um em claro e escuro"), f"{anchor_home}#themes", False),
+            ("brush", t(lang, "Theme builder", "Criador de temas"), t(lang, "Colors, layout and fonts, live", "Cores, layout e fontes, ao vivo"), rel(path, builder_url(lang)), kind == "builder"),
+            ("users", t(lang, "Community themes", "Temas da comunidade"), t(lang, "Made and sent by people who use it", "Feitos e mandados por quem usa"), rel(path, community_url(lang)), kind == "community"),
+            ("layout", t(lang, "Layout playground", "Playground de layout"), t(lang, "Edit a layout and watch it move", "Edite um layout e veja mudar"), f"{anchor_home}#playground", False),
+        ]),
+        ("why", t(lang, "Why larperCord", "Por que larperCord"), f"{anchor_home}#features", [
+            ("spark", t(lang, "Features", "Recursos"), t(lang, "Voice, plugins, offline search…", "Voz, plugins, busca offline…"), f"{anchor_home}#features", False),
+            ("versus", "vs. Discord", t(lang, "What it does that the official app doesn't", "O que ele faz e o app oficial não"), rel(path, page_url(lang, "vs-discord")), slug == "vs-discord"),
+            ("gauge", t(lang, "The numbers", "Os números"), t(lang, "About 130 MB of RAM, 0% CPU at idle", "Cerca de 130 MB de RAM, 0% de CPU parado"), f"{anchor_home}#numbers", False),
+        ]),
+    ]
+    items = []
+    for gid, label, href, links in groups:
+        current = any(c for *_, c in links)
+        menu = []
+        for icon, name, desc, url, cur in links:
+            menu.append(f'<li><a class="nav-mi" href="{url}"{" aria-current=page" if cur else ""}>{nav_icon(icon, "nav-mi-ic")}'
+                        f'<span class="nav-mi-t"><b>{e(name)}</b><small>{e(desc)}</small></span></a></li>')
+        items.append(f'<li class="nav-item nav-group" data-nav-group>'
+                     f'<a class="nav-trig" href="{href}" data-nav-trig{" data-current" if current else ""}>{e(label)}{nav_icon("caret", "nav-caret")}</a>'
+                     f'<div class="nav-menu" id="nav-m-{gid}"><p class="nav-sect">{e(label)}</p><ul>{"".join(menu)}</ul></div></li>')
+    guide_cur = kind == "guide" and slug != "vs-discord"
+    items.append(f'<li class="nav-item"><a class="nav-link" href="{rel(path, page_url(lang, "getting-started"))}"{" aria-current=page" if guide_cur else ""}>'
+                 f'{nav_icon("book", "nav-svg nav-only-drawer")}{t(lang, "Guide", "Guia")}</a></li>')
+    if TRY_SIZE:
+        try_url = rel(path, "try/" if lang == "en" else "pt/try/")
+        items.append(f'<li class="nav-item"><a class="nav-try" href="{try_url}"{" aria-current=page" if kind == "try" else ""}>'
+                     f'<i class="nav-try-dot" aria-hidden="true"></i>{nav_icon("play")}{t(lang, "Try in browser", "Testar no navegador")}</a></li>')
+    lang_href = rel(path, alt_path.removesuffix("index.html")) or "./"
+    lang_attrs = f'hreflang="{"pt-BR" if other == "pt" else "en"}" lang="{"pt-BR" if other == "pt" else "en"}"'
+    other_label = "Português" if lang == "en" else "English"
+    star = t(lang, "Star on GitHub", "Dar estrela no GitHub")
+    coffee = t(lang, "Buy me a coffee on Ko-fi", "Me pague um café no Ko-fi")
+    # Na gaveta (telas estreitas), os mesmos três com o nome por extenso.
+    extra = (f'<div class="nav-extra">'
+             f'<a class="nav-xl" href="{REPO}" rel="noopener">{nav_icon("gh")}<span>{star}</span>{nav_icon("star", "nav-svg nav-star")}</a>'
+             f'<a class="nav-xl nav-xl-kofi" href="{KOFI}" target="_blank" rel="noopener">{nav_icon("cup")}<span>{coffee}</span></a>'
+             f'<a class="nav-xl" href="{lang_href}" {lang_attrs}>{nav_icon("globe")}<span>{other_label}</span></a></div>')
+    return f'''<header class="topnav" data-topnav>
+  <a class="brand" href="{home}" aria-label="larperCord">{mascot("n")}<span data-brand>larperCord</span></a>
+  <nav class="nav" id="site-nav" aria-label="{t(lang, 'Main', 'Principal')}" data-nav>
+    <ul class="nav-list">{"".join(items)}</ul>
+    {extra}
+  </nav>
+  <div class="nav-actions">
+    <a class="nav-ic nav-gh" href="{REPO}" rel="noopener" aria-label="{star}" title="{star}">{nav_icon("gh")}{nav_icon("star", "nav-svg nav-star")}</a>
+    <a class="nav-ic nav-kofi" href="{KOFI}" target="_blank" rel="noopener" aria-label="{coffee}" title="{coffee}">{nav_icon("cup")}</a>
+    <a class="nav-lang" href="{lang_href}" {lang_attrs} title="{other_label}">{nav_icon("globe")}<span aria-hidden="true">{other.upper()}</span><span class="sr-only">{other_label}</span></a>
+    <button type="button" class="nav-burger" data-nav-burger aria-controls="site-nav" aria-expanded="false" aria-label="{t(lang, 'Menu', 'Menu')}">{nav_icon("menu", "nav-svg nav-open-ic")}{nav_icon("close", "nav-svg nav-close-ic")}</button>
+  </div>
+</header>
+<div class="nav-scrim" data-nav-scrim hidden></div>'''
+
+
 def shell(lang, path, alt_path, title, desc, body, kind, slug=None, head=""):
     root = root_of(path)
-    other = "pt" if lang == "en" else "en"
-    other_label = "Português" if lang == "en" else "English"
-    home = rel(path, page_url(lang) if lang == "pt" else "") or "./"
-    guide = rel(path, page_url(lang, "getting-started"))
-    anchor_home = home if kind != "landing" else ""
     return f'''<!doctype html>
 <html lang="{'en' if lang == 'en' else 'pt-BR'}" data-lang="{lang}" data-root="{root}" data-page="{kind}">
 <head>
@@ -1658,21 +1744,7 @@ def shell(lang, path, alt_path, title, desc, body, kind, slug=None, head=""):
 </head>
 <body>
 <a class="skip" href="#main">{t(lang, 'Skip to content', 'Pular para o conteúdo')}</a>
-<header class="topnav">
-  <a class="brand" href="{home}" aria-label="larperCord">{mascot("n")}<span data-brand>larperCord</span></a>
-  <nav aria-label="{t(lang, 'Main', 'Principal')}">
-    <a href="{anchor_home}#themes">{t(lang, 'Themes', 'Temas')}</a>
-    <a href="{anchor_home}#playground">Playground</a>
-    <a href="{rel(path, builder_url(lang))}"{' aria-current="page"' if kind == 'builder' else ''}>{t(lang, 'Theme builder', 'Criar tema')}</a>
-    <a href="{rel(path, community_url(lang))}"{' aria-current="page"' if kind == 'community' else ''}>{t(lang, 'Community', 'Comunidade')}</a>
-    <a href="{anchor_home}#features">{t(lang, 'Features', 'Recursos')}</a>
-    <a href="{rel(path, page_url(lang, 'vs-discord'))}"{' aria-current="page"' if slug == 'vs-discord' else ''}>vs. Discord</a>
-    <a href="{guide}"{' aria-current="page"' if kind == 'guide' and slug != 'vs-discord' else ''}>{t(lang, 'Guide', 'Guia')}</a>
-    <a href="{REPO}" rel="noopener">★ {t(lang, 'Star on GitHub', 'Dar estrela no GitHub')}</a>
-  </nav>
-  <a class="kofi-mini" href="https://ko-fi.com/M7E72A1EGZ" target="_blank" rel="noopener"><img src="{root}assets/kofi6.png" alt="{t(lang, 'Buy Me a Coffee at ko-fi.com', 'Me pague um café no ko-fi.com')}" width="580" height="146"></a>
-  <a class="lang" href="{rel(path, alt_path.removesuffix('index.html')) or './'}" hreflang="{'pt-BR' if other == 'pt' else 'en'}" lang="{'pt-BR' if other == 'pt' else 'en'}">{other_label}</a>
-</header>
+{topnav(lang, path, alt_path, kind, slug)}
 {body}
 <footer class="statusbar" aria-label="{t(lang, 'Page theme', 'Tema da página')}">
   <button type="button" class="buddy" data-next-theme aria-label="{t(lang, 'Next theme', 'Próximo tema')}">{mascot("b")}</button>
@@ -1683,7 +1755,7 @@ def shell(lang, path, alt_path, title, desc, body, kind, slug=None, head=""):
   <span class="sb-spacer"></span>
   <button type="button" class="sb-btn sb-keys" data-open-palette><kbd>Ctrl</kbd><kbd>K</kbd> {t(lang, 'palette', 'paleta')}</button>
   <span class="sb-keys sb-hint"><kbd>F2</kbd> {t(lang, 'next theme', 'próximo tema')}</span>
-  <a class="sb-btn sb-kofi" href="https://ko-fi.com/M7E72A1EGZ" target="_blank" rel="noopener">&#9829; ko-fi</a>
+  <a class="sb-btn sb-kofi" href="{KOFI}" target="_blank" rel="noopener">&#9829; ko-fi</a>
   <span class="sb-pos" data-scroll-pos></span>
   <time class="sb-clock" data-clock></time>
 </footer>
@@ -2059,16 +2131,14 @@ def build_builder(lang, themes, community):
     root = root_of(path)
     data = {"order": THEMES, "url": BASE_URL + path,
             "themes": {n: {"src": (ROOT / "themes" / f"{n}.kdl").read_text(encoding="utf-8"), "desc": themes[n]["desc"], "descEn": themes[n]["descEn"]} for n in THEMES},
-            "community": [c["name"] for c in community], "communityBase": rel(path, "community/")}
+            "community": [c["name"] for c in community], "communityBase": rel(path, "community/"), "gallery": rel(path, community_url(lang))}
     blob = script_json(data)
-    options = "".join(f'<option value="{n}">{n}</option>' for n in THEMES)
     licenses = "".join(f'<option value="{x}">' for x in LICENSES)
     src = (src.replace("%ROOT%", root).replace("%REPO%", REPO).replace("%GUIDE%", rel(path, page_url(lang, "x")).removesuffix("x.html"))
-           .replace("%COMMUNITY%", rel(path, community_url(lang))).replace("%START_OPTIONS%", options).replace("%LAYOUT_OPTIONS%", options)
-           .replace("%LICENSE_OPTIONS%", licenses).replace("%BUILDER_DATA%", blob))
+           .replace("%COMMUNITY%", rel(path, community_url(lang))).replace("%LICENSE_OPTIONS%", licenses).replace("%BUILDER_DATA%", blob))
     title = t(lang, "Theme builder · larperCord", "Criador de temas · larperCord")
-    desc = t(lang, "Build a larperCord theme in the browser: colors for dark and light, fonts, layout and options, a live preview, a contrast check and a .kdl file to download.",
-             "Monte um tema do larperCord no navegador: cores do claro e do escuro, fontes, layout e opções, prévia ao vivo, checagem de contraste e um .kdl para baixar.")
+    desc = t(lang, "Build a larperCord theme in the browser: click any part of the live preview to change its color, generate palettes, pick a layout, and download the .kdl.",
+             "Monte um tema do larperCord no navegador: clique em qualquer parte da prévia ao vivo para mudar a cor, gere paletas, escolha um layout e baixe o .kdl.")
     head = f'\n<meta http-equiv="Content-Security-Policy" content="{BUILDER_CSP}">\n<link rel="stylesheet" href="{root}assets/site/theme-builder.css">'
     write(path, shell(lang, path, alt, title, desc, src, "builder", head=head))
     return [{"t": t(lang, "Theme builder", "Criador de temas"), "s": "larperCord", "u": path,
