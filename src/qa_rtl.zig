@@ -70,14 +70,20 @@ fn shaped(_: *App) bool {
 
 /// Toda letra RTL que vai para a tela existe em todas as fontes do atlas (a do tema mais as
 /// reservas), e nenhuma ficou na lista das sem fonte: nada de "?". Como no CJK: um sistema
-/// sem fonte nenhuma da escrita (procurou e não achou) não tem o que mesclar.
+/// sem fonte nenhuma da escrita (procurou e não achou) não tem o que mesclar. Uma face que
+/// nenhum texto da tela usou e que não tem a letra (no Windows, o itálico do Segoe UI sem o
+/// árabe que o normal tem) pede as reservas como o desenho pediria, e a conferência espera
+/// o próximo quadro: depois disso, ou a letra está lá, ou a escrita já foi procurada e falha.
 fn noQuestionMarks(app: *App) bool {
     for ([_][]const u8{ gw.rtl_arabic, gw.rtl_hebrew, mixed_rtl }) |t| {
         const v = bidi.visual(t) orelse return false;
         var it = (std.unicode.Utf8View.init(v) catch return false).iterator();
         while (it.nextCodepoint()) |cp| {
             if (!bidi.isRtl(cp) or noSystemFont(app, cp)) continue;
-            for (app.fonts.faces.items) |e| if (!c.ImFont_IsGlyphInFont(e.font, cp)) return false;
+            for (app.fonts.faces.items) |e| if (!c.ImFont_IsGlyphInFont(e.font, cp)) {
+                fonts.request(cp);
+                return false;
+            };
         }
     }
     for (fonts.missingLetters()) |cp| if (bidi.isRtl(cp) and !noSystemFont(app, cp)) return false;

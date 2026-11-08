@@ -62,6 +62,15 @@ fn onGlyphPlain(cp: c_uint) callconv(.c) c_uint {
     return plain_letters.of(cp) orelse 0;
 }
 
+/// Pede as fontes reserva da escrita de `cp` como o desenho pede quando nenhuma fonte tem a
+/// letra (ver `onGlyphMissing`): entram antes do próximo quadro. Para conferir uma face que
+/// nenhum texto usou ainda (no Windows, o itálico do Segoe UI não tem árabe e o normal tem:
+/// desenhando só no normal, as reservas nunca são procuradas). Escrita já procurada: nada.
+pub fn request(cp: u32) void {
+    const g = groupOf(cp) orelse return;
+    if (!tried_once[@intFromEnum(g)]) wanted[@intFromEnum(g)] = true;
+}
+
 /// As letras que continuam sem fonte, para as Configurações dizerem quais escritas são.
 pub fn missingLetters() []const u32 {
     return missing_buf[0..missing_n];
