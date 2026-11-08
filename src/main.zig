@@ -44,9 +44,8 @@ const usage =
     \\
     \\atalhos: Ctrl+K paleta · Ctrl+, configurações · F2 próximo tema
     \\         Ctrl+Tab abas · Alt+1..9 · Ctrl+W fecha aba
-    \\         no macOS, use Command no lugar de Ctrl, exceto Ctrl+Tab
     \\
-;
+++ (if (sys.macos) "         no macOS, use Command no lugar de Ctrl, exceto Ctrl+Tab\n" else "");
 
 pub fn main(init: std.process.Init.Minimal) !void {
     sys.init();
