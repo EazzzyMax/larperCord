@@ -131,7 +131,13 @@ fn fullMenu(app: *App) bool {
     return app.st.popup == .menu and has("menu:Editar thread…") and has("menu:Arquivar thread") and has("menu:Trancar thread");
 }
 fn editOpen(app: *App) bool {
-    return app.st.popup == .edit_thread and has("thread-edit-name") and has("thread-edit-dur:4320") and has("thread-edit-save");
+    return app.st.popup == .edit_thread and has("thread-edit-name") and has("thread-edit-dur:4320") and has("thread-edit-save") and
+        noOverlap();
+}
+/// Salvar e Cancelar ficam embaixo das seções (o nome, as tags e o auto-arquivar), sem
+/// cobrir nenhuma delas.
+fn noOverlap() bool {
+    return qa.overlapping(&.{"thread-edit-"}) == null;
 }
 fn renamed(app: *App) bool {
     const cs = app.store.channel(bench) orelse return false;

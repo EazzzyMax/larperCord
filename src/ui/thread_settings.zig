@@ -113,6 +113,12 @@ pub fn open(ctx: *d.Ctx, id: Id) void {
 const pad: f32 = 18;
 const chip_h: f32 = 25;
 const chip_row: f32 = 31;
+/// Onde o conteúdo começa (embaixo do título e do nome da thread).
+const head_h: f32 = 76;
+/// O topo dos botões, contado de baixo (34 deles e 16 de margem).
+const foot_btn: f32 = 50;
+/// O rodapé inteiro: os botões e um respiro entre eles e a última seção.
+const foot_h: f32 = foot_btn + 6;
 
 fn chipWidth(fam: *d.Family, tag: types.ForumTag) f32 {
     return d.width(fam.get(.medium), 12.5, tag.name) + (if (tag.emoji.len > 0) @as(f32, 18) else 0) + 18;
@@ -149,7 +155,9 @@ pub fn dialog(ctx: *d.Ctx, id: Id) void {
     const wd: f32 = @min(500, ctx.win.w - 24);
     const inner = wd - 2 * pad;
     const rows = tagRows(fam, offered, inner);
-    var h: f32 = 16 + 30 + 24 + 34;
+    // O título e a linha de baixo dele (o conteúdo começa em `head_h`), as seções e o
+    // rodapé com Salvar e Cancelar (`foot_h`, contado de baixo) logo depois delas.
+    var h: f32 = head_h + foot_h;
     if (rights.rename) h += 20 + 36 + 14 + 20 + 30 + 14;
     if (rows > 0) h += 20 + @as(f32, @floatFromInt(rows)) * chip_row + 8;
     if (t.archived) h += 24;
@@ -163,7 +171,7 @@ pub fn dialog(ctx: *d.Ctx, id: Id) void {
     var pb: [160]u8 = undefined;
     const sub = if (cs.info.parent) |p| (if (ctx.store.channel(p)) |pcs| i18n.fmt(&pb, "{s} em {s}{s}", "{s} in {s}{s}", .{ d.utf8Prefix(cs.info.name, 60), sigil(&pcs.info), pcs.info.name }) else cs.info.name) else cs.info.name;
     _ = d.textClipped(dl, fam.get(.regular), 13, r.x + pad, r.y + 46, ctx.col(.muted), sub, inner);
-    var y = r.y + 76;
+    var y = r.y + head_h;
 
     // Nome.
     var enter = false;
@@ -246,7 +254,7 @@ pub fn dialog(ctx: *d.Ctx, id: Id) void {
     const ok = name_ok and !e.empty();
     const lbl = i18n.tr("Salvar", "Save");
     const bw = d.width(fam.get(.semibold), 13.5, lbl) + 36;
-    const br: d.Rect = .{ .x = r.right() - pad - bw, .y = r.bottom() - 50, .w = bw, .h = 34 };
+    const br: d.Rect = .{ .x = r.right() - pad - bw, .y = r.bottom() - foot_btn, .w = bw, .h = 34 };
     qa.mark(br, "thread-edit-save", .{});
     const clicked = forum.primary(ctx, dl, fam, 140, br, lbl, ok);
     const cancel = i18n.tr("Cancelar", "Cancel");
