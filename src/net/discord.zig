@@ -36,6 +36,7 @@ const status_proto = @import("status_proto.zig");
 const leitura = @import("../core/leitura.zig");
 const read_json = @import("read_state_json.zig");
 const voice_mod = @import("voice.zig");
+const voz_movido = @import("voz_movido.zig");
 const call_json = @import("call_json.zig");
 const thread_json = @import("thread_json.zig");
 const user_json = @import("user_json.zig");
@@ -113,6 +114,8 @@ pub const Gateway = struct {
     /// A thread de voz parou com 4014 (movido / servidor trocado): até
     /// quando espera o VOICE_SERVER_UPDATE novo antes de desistir.
     voice_wait_until: i64 = 0,
+    /// Alguém nos moveu de canal há pouco: uma queda agora pede o canal de novo.
+    voice_moved: voz_movido.Movido = .{},
     /// Status escolhido (também vai no IDENTIFY de uma sessão nova).
     status: types.Status = .online,
     /// Status personalizado e o resto da conta (net/conta_net.zig).
@@ -1478,8 +1481,10 @@ pub const Gateway = struct {
                 }
                 if (chan) |ch| {
                     // Alguém nos moveu: a conexão segue (o servidor de voz
-                    // manda o grupo novo do DAVE) ou cai com 4014 e volta
-                    // pelo VOICE_SERVER_UPDATE.
+                    // manda o grupo novo do DAVE) ou cai com 4014/4022 e
+                    // volta pelo VOICE_SERVER_UPDATE. Trocar de canal por
+                    // aqui já mudou `voice_channel` antes do op 4.
+                    if (g.voice_channel != 0 and ch != g.voice_channel) g.voice_moved.moved(nowMs());
                     if (g.voice) |vc| vc.channel.store(ch, .release);
                     g.voice_channel = ch;
                     if (j.get(d, "self_mute")) |m| g.voice_mute = m == .bool and m.bool;
@@ -3660,7 +3665,12 @@ pub const Gateway = struct {
                 g.killVoice();
                 if (g.voice_wait_until == 0) g.voice_wait_until = nowMs() + 5000;
             },
-            .fatal, .stopped => {
+            .fatal => {
+                g.killVoice();
+                g.voice_wait_until = 0;
+                g.voiceLost();
+            },
+            .stopped => {
                 g.killVoice();
                 g.voice_wait_until = 0;
             },
@@ -3670,14 +3680,32 @@ pub const Gateway = struct {
             if (g.voice == null and g.voice_channel != 0) {
                 if (g.voice_endpoint_len > 0 and g.voice_token_len > 0) {
                     g.tryStartVoice();
-                } else g.emit(.{ .voice_status = .{ .status = .disconnected, .channel = g.voice_channel } });
+                } else g.voiceLost();
             }
         }
+    }
+
+    /// A voz terminou de vez. Logo depois de alguém nos mover, pede o canal
+    /// novo de novo (op 4) e espera o VOICE_SERVER_UPDATE que vem em resposta;
+    /// senão avisa o app, que sai da call.
+    fn voiceLost(g: *Gateway) void {
+        if (g.voice_channel != 0 and g.me != 0 and g.voice_moved.takeRejoin(nowMs())) {
+            std.log.info("voz: caiu logo depois de sermos movidos; pedindo o canal de novo", .{});
+            g.voice_endpoint_len = 0;
+            std.crypto.secureZero(u8, &g.voice_token);
+            g.voice_token_len = 0;
+            g.sendVoiceState(g.voice_channel);
+            g.voice_wait_until = nowMs() + 8000;
+            g.emit(.{ .voice_status = .{ .status = .connecting, .channel = g.voice_channel } });
+            return;
+        }
+        g.emit(.{ .voice_status = .{ .status = .disconnected, .channel = g.voice_channel } });
     }
 
     fn stopVoice(g: *Gateway) void {
         g.killVoice();
         g.voice_wait_until = 0;
+        g.voice_moved.clear();
         std.crypto.secureZero(u8, &g.voice_token);
         std.crypto.secureZero(u8, &g.voice_session);
         g.voice_token_len = 0;
@@ -4311,6 +4339,7 @@ pub const Gateway = struct {
             },
             .join_voice => |v| {
                 if (g.voice != null) g.stopVoice();
+                g.voice_moved.clear();
                 g.voice_guild = v.guild;
                 g.voice_mute = v.mute;
                 g.voice_deaf = v.deaf;

@@ -67,9 +67,10 @@ pub const Ended = enum(u8) {
     running,
     /// Pedido nosso (saiu da call, trocou de canal).
     stopped,
-    /// O Discord encerrou de vez (sessão inválida, recusou…): já avisou o app.
+    /// O Discord encerrou de vez (sessão inválida, recusou…). O gateway
+    /// principal avisa o app, ou pede o canal de novo se acabamos de ser movidos.
     fatal,
-    /// 4014: o servidor de voz mudou ou alguém nos moveu. Espera um
+    /// 4014/4022: o servidor de voz mudou ou alguém nos moveu. Espera um
     /// VOICE_SERVER_UPDATE novo para recomeçar.
     moved,
 };
@@ -181,17 +182,17 @@ pub const Voice = struct {
         voz_audio.in_call.store(true, .release);
         defer voz_audio.in_call.store(false, .release);
         if (!v.local) v.status(.connecting);
+        // `.fatal` não avisa o app daqui: quem decide é o gateway (net/discord.zig,
+        // voiceLost). Só a demonstração, cujo gateway falso não confere `ended`.
         // O Worker tem buffers grandes: no heap, não na pilha da thread.
         const worker = alloc.create(Worker) catch {
+            if (v.local) v.status(.disconnected);
             v.ended.store(.fatal, .release);
-            v.status(.disconnected);
             return 0;
         };
         defer alloc.destroy(worker);
         worker.* = .{ .v = v };
-        const how = if (v.local) worker.runLocal() else worker.run();
-        v.ended.store(how, .release);
-        if (how == .fatal) v.status(.disconnected);
+        v.ended.store(if (v.local) worker.runLocal() else worker.run(), .release);
         return 0;
     }
 };
@@ -596,8 +597,9 @@ const Worker = struct {
             // Queda de rede / servidor reiniciou: retoma a mesma sessão.
             0, 1000, 1001, 1006, 4015 => .resume_ws,
             // Movido de canal, servidor de voz trocado ou desconectado por
-            // alguém: o gateway principal manda (ou não) o servidor novo.
-            4014 => .moved,
+            // alguém (4022: a call inteira acabou ali, servidor trocado ou canal
+            // apagado): o gateway principal manda (ou não) o servidor novo.
+            4014, 4022 => .moved,
             4004 => blk: {
                 w.v.notice("o Discord recusou a sessão de voz (4004).", "Discord refused the voice session (4004).", .{});
                 break :blk .fatal;
