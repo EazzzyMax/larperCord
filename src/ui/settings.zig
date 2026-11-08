@@ -733,7 +733,7 @@ fn network(p: *Page) void {
             ctx.st.showToast(ctx.now_ms, true, "proxy inválido", "invalid proxy", .{});
         }
     }
-    p.toggle(i18n.tr("Usar o proxy em tudo", "Use the proxy for everything"), i18n.tr("Também o Discord: API, imagens, vídeos e o gateway (este a partir da próxima conexão).", "Discord too: API, images, videos and the gateway (from the next connection)."), &s.proxy_all);
+    p.toggle(i18n.tr("Usar o proxy em tudo", "Use the proxy for everything"), i18n.tr("Também o Discord: API, imagens, vídeos e o gateway (este a partir da próxima conexão). As calls de voz sempre conectam direto.", "Discord too: API, images, videos and the gateway (from the next connection). Voice calls always connect directly."), &s.proxy_all);
 }
 
 fn page(p: *Page, previews: []const Preview) void {
