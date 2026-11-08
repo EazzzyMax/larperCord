@@ -10,8 +10,10 @@
 //   node tools/theme_builder_test.js --out DIR  também grava os .kdl gerados em DIR
 "use strict";
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const assert = require("assert");
+const { spawnSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..");
 const TB = require(path.join(ROOT, "docs/assets/site/theme-builder-core.js"));
@@ -395,6 +397,7 @@ tasks.push(test("every error has English and Portuguese text", () => {
     ["link-version", () => TB.expand({ v: 9 })], ["link-broken", () => TB.expand(null)], ["link-layout", () => TB.expand(Object.assign(TB.compact(TB.fromSource(sources.zen)), { l: "nada" }), builtinStructure)],
     ["css-too-big", () => TB.importDiscordCss("a".repeat(TB.CSS_MAX + 1))], ["css-empty", () => TB.importDiscordCss(":root { --nothing-here: #fff }")],
     ["css-slow", () => { let clock = 0; TB.importDiscordCss(":root{" + "--v: #fff;".repeat(5000) + "}", { now: () => (clock += 100), budget: 1000 }); }],
+    ["community-missing", () => TB.communityFromSource("// " + "x".repeat(TB.COMMUNITY_MAX))],
   ];
   const seen = new Set();
   for (const [code, fn, arg] of cases) {
@@ -598,7 +601,14 @@ tasks.push(test("community checklist", () => {
   assert.deepStrictEqual(bad(s), ["author", "description", "license"]);
   Object.assign(s.meta, { author: "Ana", descEn: "Mint on graphite.", license: "CC0-1.0" });
   assert.deepStrictEqual(bad(s), []);
-  for (const lic of ["my license", "CC0-1.0 OR", "", "x".repeat(70), "MIT\nGPL"]) { s.meta.license = lic; assert.deepStrictEqual(bad(s), ["license"], lic); }
+  // Só licenças abertas da lista, com AND / OR; um nome inventado com cara de SPDX não passa.
+  for (const lic of ["my license", "CC0-1.0 OR", "", "x".repeat(70), "MIT\nGPL", "NOT-A-LICENSE", "Proprietary", "All-Rights-Reserved",
+    "mit", "CC-BY-NC-4.0", "CC-BY-ND-4.0", "MIT WITH Classpath-exception-2.0", "MIT  OR ISC", "OR MIT", "MIT OR"]) { s.meta.license = lic; assert.deepStrictEqual(bad(s), ["license"], lic); }
+  for (const lic of ["MIT", "CC-BY-SA-4.0", "GPL-3.0-or-later OR MIT", "CC-BY-4.0 AND MIT", "0BSD"]) { s.meta.license = lic; assert.deepStrictEqual(bad(s), [], lic); }
+  // A lista do criador é a mesma do gerador do site.
+  const py = spawnSync("python3", ["-I", "-B", "-c", "import sys, json; sys.path.insert(0, sys.argv[1]); import gen_site; print(json.dumps(gen_site.LICENSES))", path.join(ROOT, "tools")], { encoding: "utf8" });
+  assert.strictEqual(py.status, 0, py.stderr);
+  assert.deepStrictEqual(JSON.parse(py.stdout), TB.LICENSES);
   // Partiu do orbital e não mudou a descrição: a lista pede uma própria.
   const descs = THEMES.flatMap((t) => { const m = TB.fromSource(sources[t]).meta; return [m.desc, m.descEn]; });
   s.meta.license = "MIT";
@@ -685,7 +695,7 @@ const CSS_HOSTILE = `@import url(javascript:alert(1));
 @import "</style><script>alert(2)</script>";
 :root{--background-primary:#202225;--text-normal:</style><script>alert(3)</script>;--brand-experiment:expression(alert(4));--text-link:url("javascript:alert(5)")}
 .chat-3bRxxu .messages { --background-primary: #ff0000 !important; }
-.theme-dark { --background-secondary: transparent; --background-tertiary: color-mix(in srgb, red 50%, blue); --background-floating: #18191c }
+.theme-dark { --background-secondary: transparent; --background-tertiary: color-mix(in lab, red 50%, blue); --background-floating: #18191c }
 --x</style>: red;
 </style><script>alert(6)</script> { --background-secondary-alt: #000 }
 .weird { content: "}"; --text-muted: #72767d; }
@@ -807,13 +817,101 @@ tasks.push(test("Discord CSS limits: size, time and pathological input", () => {
   const C = (s) => { const c = TB.parseCssColor(s); return c && TB.toHex(c); };
   assert.deepStrictEqual(["#abc", "#AABBCC80", "rgb(255 0 0 / 50%)", "rgba(0,0,255,.25)", "hsl(120deg 100% 25%)", "hsl(0.5turn, 100%, 50%)", "white", "transparent", "rgb(100%, 50%, 0%)"].map(C),
     ["#aabbcc", "#aabbcc80", "#ff000080", "#0000ff40", "#008000", "#00ffff", "#ffffff", "#00000000", "#ff8000"]);
-  for (const s of ["", "#ggg", "rgb(1,2)", "rgb(1,2,3,4,5)", "hsl(x 1% 1%)", "color-mix(in srgb, red, blue)", "oklch(0.7 0.1 200)", "url(x)", "var(--x)", "rgb(1 2 3) x", "linear-gradient(red, blue)"]) assert.strictEqual(C(s), null, s);
+  // oklch()/oklab() (OKLab de referência: vermelho puro é L 0.62796, C 0.25768, h 29.234) e color-mix()
+  // com as contas do CSS Color 5: porcentagens que somam menos de 100 baixam o alfa, `transparent` não puxa o matiz.
+  assert.deepStrictEqual(["oklch(62.796% 0.25768 29.234)", "oklab(0.62796 0.22486 0.12585)", "oklch(70% 0.1 215)", "oklch(0.7 25% 215 / 50%)", "oklch(100% 0.4 30)", "oklch(0 0 none)"].map(C),
+    ["#ff0000", "#ff0000", "#46aec5", "#46aec580", "#ffffff", "#000000"]);
+  assert.deepStrictEqual(["color-mix(in srgb, red 50%, blue)", "color-mix(in srgb, red, blue)", "color-mix(in srgb, 25% red, blue)", "color-mix(in srgb, red 30%, blue 30%)",
+    "color-mix(in hsl, #ff0000, transparent 80%)", "color-mix(in hsl, white, black)", "color-mix(in oklch, red, transparent)", "color-mix(in srgb-linear, black, white)",
+    "color-mix(in hsl, color-mix(in hsl, hsl(220, 20%, 60%), transparent 95%) 40%, transparent)"].map(C),
+    ["#800080", "#800080", "#4000bf", "#80008099", "#ff000033", "#808080", "#ff000080", "#bcbcbc", "#8592ad05"]);
+  for (const s of ["", "#ggg", "rgb(1,2)", "rgb(1,2,3,4,5)", "hsl(x 1% 1%)", "url(x)", "var(--x)", "rgb(1 2 3) x", "linear-gradient(red, blue)",
+    "color-mix(in lab, red, blue)", "color-mix(in srgb, red 120%, blue)", "color-mix(in srgb, red 0%, blue 0%)", "color-mix(in srgb, red)", "color-mix(srgb, red, blue)",
+    "color-mix(in hsl longer hue, red, blue)", "rgb(from red r g b)", "oklch(x 0.1 200)", "oklch(0.5 0.1)",
+    "color-mix(in srgb, " + "color-mix(in srgb, ".repeat(8) + "red, blue" + ", blue)".repeat(8) + ", blue)"]) assert.strictEqual(C(s), null, s);
+}));
+tasks.push(test("Discord CSS: a url( that never closes doesn't freeze the page", () => {
+  // Uma expressão regular com \s* dos dois lados de [^)]* levava minutos com poucos KB disto.
+  const fills = [" ", "\t", "(", "'", "\\", "/*", "url(", "a"];
+  for (const head of ["@import url(", "@import url(\"", "@import url('", "@import ", "@media (", ":root{--background-primary:#111;--x:url(", ":root{--background-primary:#111;--x:var("]) {
+    for (const fill of fills) {
+      const css = ":root{--background-primary:#111}" + head + fill.repeat(Math.floor(200000 / fill.length)) + "x";
+      const t0 = Date.now();
+      let r = null;
+      try { r = TB.importDiscordCss(css); } catch (e) { assert.ok(["css-empty", "css-slow"].includes(e.code), e.message); }
+      const ms = Date.now() - t0;
+      assert.ok(ms < 1000, JSON.stringify(head) + " + " + JSON.stringify(fill) + " took " + ms + " ms");
+      if (r) for (const u of r.imports) assert.ok(u.length <= 200, "import shown in full: " + u.length);
+    }
+  }
+  const t0 = Date.now();
+  const r = TB.importDiscordCss(":root{--background-primary:#222}\n@import url(" + " ".repeat(50000) + "x");
+  assert.ok(Date.now() - t0 < 1000, "took " + (Date.now() - t0) + " ms");
+  assert.strictEqual(r.imports.length, 1, "listed, read only up to 2 KB");
+  assert.strictEqual(mapOf(r.modes.dark).bg, "#222222");
+  assert.deepStrictEqual(TB.importDiscordCss(":root{--background-primary:#222}\n@import url(  x" + " ".repeat(50000)).imports, ["x"]);
+}));
+tasks.push(test("Discord CSS: root rules beat component rules, and light mode needs a real light block", () => {
+  // Uma regra de componente com o modo no seletor não ganha da definição em :root.
+  let r = TB.importDiscordCss(":root{--text-normal:#dddddd;--background-primary:#202020} .theme-dark .mention-pill{--text-normal:#ff0000} .theme-light .popout{--background-primary:#ffffff}");
+  assert.deepStrictEqual([mapOf(r.modes.dark).text, mapOf(r.modes.dark).bg], ["#dddddd", "#202020"]);
+  assert.strictEqual(r.modes.light, null, "a popout's light color is not a light mode");
+  // Uma variável qualquer num bloco claro de componente não faz o claro copiar as cores escuras de :root.
+  r = TB.importDiscordCss(":root{--background-primary:#111111;--text-normal:#eeeeee} .theme-light .tooltip{--tooltip-pad:4px}");
+  assert.strictEqual(r.modes.light, null);
+  r = TB.importDiscordCss(":root{--background-primary:#111111} .theme-light{--tooltip-pad:4px}");
+  assert.strictEqual(r.modes.light, null, "a light root block without color variables");
+  // Entre regras de raiz, a do modo ganha da geral, e um var() que passa pelo bloco claro conta como claro.
+  r = TB.importDiscordCss(":root{--background-primary:var(--base);--base:#111111;--text-normal:#eeeeee} .theme-light{--base:#fafafa}");
+  assert.deepStrictEqual([mapOf(r.modes.dark).bg, mapOf(r.modes.light).bg], ["#111111", "#fafafa"]);
+  assert.strictEqual(mapOf(r.modes.light).text, "#eeeeee", "general values still fill the rest of light mode");
+  r = TB.importDiscordCss(":root{--background-primary:#111111} .theme-dark{--background-primary:#222222} :root{--background-primary:#333333 !important}");
+  assert.strictEqual(mapOf(r.modes.dark).bg, "#222222");
+  // `.theme-dark:not(.custom-user-profile-theme)` ainda é raiz (como no Midnight), e um componente depois não ganha dela.
+  r = TB.importDiscordCss("@container root style(--colors: on) { body, .theme-dark:not(.custom-user-profile-theme), .theme-light:not(.custom-user-profile-theme) { --status-danger: #ff5555; --background-primary: #101010 } } .numberBadge_x { --status-danger: #00aaff }");
+  assert.deepStrictEqual([mapOf(r.modes.dark).dnd, mapOf(r.modes.dark).danger], ["#ff5555", "#ff5555"]);
+  r = TB.importDiscordCss(".theme-dark:not(.theme-light) { --background-primary: #101010 } .theme-light { --background-primary: #fafafa }");
+  assert.deepStrictEqual([mapOf(r.modes.dark).bg, mapOf(r.modes.light).bg], ["#101010", "#fafafa"]);
+}));
+tasks.push(test("Discord CSS: translucent surfaces, newer names, oklch and the muted/faint order", () => {
+  const css = `.visual-refresh.theme-dark {
+    --background-base-low: #101010;
+    --channeltextarea-background: rgba(255, 255, 255, 0.2);
+    --background-surface-highest: hsla(0, 0%, 100%, 0.5);
+    --background-mod-subtle: rgb(255 255 255 / 0.06);
+    --background-mod-strong: rgba(255, 255, 255, 0.18);
+    --border-subtle: #ffffff14;
+    --text-default: #eeeeee;
+    --channels-default: #999999;
+    --text-muted: #bbbbbb;
+    --brand-500: oklch(70% 0.1 215);
+    --status-positive: color-mix(in srgb, #00ff00 80%, black);
+  }
+  .visual-refresh.theme-light { --background-base-low: rgba(255, 255, 255, 0.5); --text-default: #111111; --channeltextarea-background: rgba(0, 0, 0, 0.1) }`;
+  const r = TB.importDiscordCss(css), d = mapOf(r.modes.dark), l = mapOf(r.modes.light);
+  const byTok = (res) => Object.fromEntries(res.mapped.map((m) => [m.tok, m]));
+  const D = byTok(r.modes.dark), Lm = byTok(r.modes.light);
+  // Sobre o fundo: o app desenha a cor como ela é, e o campo de texto não pode deixar ver o que está atrás.
+  assert.deepStrictEqual([d.elevated, d.overlay], ["#404040", "#888888"]);
+  assert.deepStrictEqual([D.elevated.alpha, D.elevated.over, D.overlay.over], [0.2, "bg", "bg"]);
+  assert.ok(!("alpha" in D.bg) && !("alpha" in D.text), "opaque colors carry no note");
+  // hover, selected e border continuam translúcidos.
+  assert.deepStrictEqual([d.hover, d.selected, d.border], ["#ffffff0f", "#ffffff2e", "#ffffff14"]);
+  assert.deepStrictEqual([fromOf(r.modes.dark).hover, fromOf(r.modes.dark).selected], ["--background-mod-subtle", "--background-mod-strong"]);
+  // faint é o mais apagado: aqui --text-muted era mais claro que --channels-default, então trocam.
+  assert.deepStrictEqual([d.muted, d.faint], ["#bbbbbb", "#999999"]);
+  assert.deepStrictEqual([D.muted.from, D.faint.from, D.faint.swapped], ["--text-muted", "--channels-default", true]);
+  assert.strictEqual(d.accent, "#46aec5");
+  assert.strictEqual(d.online, "#00cc00");
+  assert.strictEqual(d["accent-text"], "#000000");
+  // No claro, o fundo translúcido vai sobre branco, e o resto sobre esse fundo.
+  assert.deepStrictEqual([l.bg, l.elevated, Lm.bg.over, Lm.elevated.over], ["#ffffff", "#e6e6e6", "light", "bg"]);
+  // E o tema resultante carrega no app.
+  checkLoads(TB.toKdl(TB.applyCssImport(TB.fromSource(sources.classico, { base: "classico", name: "mix" }), r)), "translucent import");
 }));
 
 // 13. A galeria da comunidade: tools/gen_site.py confere themes/community/ e recusa o que
 // não carrega ou não tem os metadados. Cada caso numa pasta própria, rodando o gerador de verdade.
-const { spawnSync } = require("child_process");
-const os = require("os");
 function communityCheck(files) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lc-community-"));
   try {
@@ -840,6 +938,16 @@ tasks.push(test("community gallery accepts a theme exported by the builder", () 
   assert.strictEqual(r.code, 0, r.out);
   assert.ok(r.out.includes("ok: 1 community theme"), r.out);
   save("tb-community-neon-dusk", kdl);
+  // O que o app aceita, o gerador aceita: espaço antes do parêntese, alpha() de uma cor translúcida.
+  const spaced = kdl.replace(/^(\s+accent\s+)"#[0-9a-f]+"/m, '$1"mix (#3a8bc0, #000000, 0.2)"').replace(/^(\s+hover\s+)"[^"]+"/m, '$1"alpha( @accent , 0.5 )"');
+  assert.notStrictEqual(spaced, kdl);
+  checkLoads(spaced, "spaced colors");
+  const r2 = communityCheck({ "neon-dusk.kdl": spaced });
+  assert.strictEqual(r2.code, 0, r2.out);
+  // Uma pasta que não existe é erro, não "0 temas".
+  const r3 = spawnSync("python3", [path.join(ROOT, "tools/gen_site.py"), "--check-community", path.join(os.tmpdir(), "lc-no-such-folder-" + process.pid)], { encoding: "utf8" });
+  assert.strictEqual(r3.status, 2, r3.stdout + r3.stderr);
+  assert.ok(/no such folder/.test(r3.stderr), r3.stderr);
 }));
 tasks.push(test("community gallery refuses broken themes and missing metadata", () => {
   const good = TB.toKdl(submission());
@@ -850,7 +958,11 @@ tasks.push(test("community gallery refuses broken themes and missing metadata", 
     ["syntax error", { "neon-dusk.kdl": good.replace(/\n}\s*$/, "\n") }, /neon-dusk\.kdl:\d+:\d+: missing '\}'/],
     ["unterminated string", { "neon-dusk.kdl": good + 'label "never closed\n' }, /neon-dusk\.kdl:\d+:\d+: unterminated string/],
     ["no license", { "neon-dusk.kdl": meta((s) => { s.meta.license = ""; }) }, /missing license=/],
-    ["license that isn't SPDX", { "neon-dusk.kdl": meta((s) => { s.meta.license = "do what you want"; }) }, /not an SPDX identifier/],
+    ["license that isn't SPDX", { "neon-dusk.kdl": meta((s) => { s.meta.license = "do what you want"; }) }, /license="do what you want": use one license identifier/],
+    ["license not on the list", { "neon-dusk.kdl": meta((s) => { s.meta.license = "NOT-A-LICENSE"; }) }, /NOT-A-LICENSE isn't one of the open licenses the gallery takes/],
+    ["closed license", { "neon-dusk.kdl": meta((s) => { s.meta.license = "All-Rights-Reserved"; }) }, /All-Rights-Reserved isn't one of the open licenses/],
+    ["license in the wrong case", { "neon-dusk.kdl": meta((s) => { s.meta.license = "cc0-1.0"; }) }, /write cc0-1\.0 as CC0-1\.0/],
+    ["byte order mark", { "neon-dusk.kdl": "\ufeff" + good }, /neon-dusk\.kdl:1:1: the file starts with a byte order mark/],
     ["no author", { "neon-dusk.kdl": meta((s) => { s.meta.author = ""; }) }, /missing author=/],
     ["no description", { "neon-dusk.kdl": meta((s) => { s.meta.desc = s.meta.descEn = ""; }) }, /missing a description/],
     ["description of a built-in", { "neon-dusk.kdl": meta((s) => { s.meta.descEn = ""; s.meta.desc = TB.fromSource(sources.zen).meta.desc; }) }, /still the one from the built-in theme zen/],
@@ -858,6 +970,8 @@ tasks.push(test("community gallery refuses broken themes and missing metadata", 
     ["file named differently", { "dusk.kdl": good }, /must be named neon-dusk\.kdl/],
     ["built-in name", { "orbital.kdl": meta((s) => { s.meta.name = "Orbital"; }) }, /orbital is a built-in theme/],
     ["built-in with another name", { "orbital-copy.kdl": TB.toKdl(copy) }, /built-in theme orbital with another name/],
+    // Comentários, espaços e a ordem das propriedades não fazem um tema novo.
+    ["built-in with another name and a comment", { "orbital-copy.kdl": TB.toKdl(copy).replace(/^layout \{$/m, "layout {\n    // mine\n    /* all mine */").replace(/\n(\s+)(\S)/, "\n$1  $2") }, /built-in theme orbital with another name/],
     ["same theme twice", { "neon-dusk.kdl": good, "neon-dusk-2.kdl": good.replace('theme "Neon Dusk"', 'theme "Neon Dusk 2"') }, /neon-dusk(-2)?\.kdl: same colors and layout as neon-dusk(-2)?\.kdl/],
     ["unknown color token", { "neon-dusk.kdl": good.replace(/^colors mode=dark \{$/m, "colors mode=dark {\n    glitter \"#fff\"") }, /unknown color token: glitter/],
     ["invalid color", { "neon-dusk.kdl": good.replace(/^(\s+accent\s+)"#[0-9a-f]+"/m, '$1"mix(#fff, nope, 0.5)"') }, /invalid color expression/],
@@ -896,9 +1010,63 @@ for (const f of communityFiles) {
     assert.strictEqual(TB.slug(state.meta.name) + ".kdl", f);
   }));
 }
+// O bloco de dados de uma página: até o primeiro "</script>", sem nenhum "<" dentro. Com um "<"
+// cru, um "<!--<script>" no texto de um tema faria o navegador passar desse "</script>" e engolir
+// o resto da página (o rodapé e os scripts) como texto.
+function blobOf(page, id) {
+  const at = page.indexOf('id="' + id + '">') + id.length + 6;
+  assert.ok(at > id.length + 6, id + " missing");
+  const end = page.indexOf("</script>", at), raw = page.slice(at, end);
+  assert.ok(!/[<>&]/.test(raw), id + " has a raw < > or &");
+  return { data: JSON.parse(raw), after: page.slice(end) };
+}
+// Gera o criador e a galeria numa pasta à parte, com os temas de `files` no lugar de themes/community/.
+function buildPages(files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lc-community-")), out = fs.mkdtempSync(path.join(os.tmpdir(), "lc-site-"));
+  try {
+    for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), text);
+    const py = ["import sys", "from pathlib import Path", "sys.path.insert(0, sys.argv[1])", "import gen_site as g", "g.OUT = Path(sys.argv[2])",
+      "community, problems = g.check_community(Path(sys.argv[3]))", "assert not problems, problems", "themes = g.load_themes()",
+      "for lang in g.LANGS:", "    g.build_builder(lang, themes, community)", "    g.build_community(lang, community)", "g.write_community_files(community)"].join("\n");
+    const r = spawnSync("python3", ["-I", "-B", "-c", py, path.join(ROOT, "tools"), out, dir], { encoding: "utf8" });
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    const read = (p) => fs.readFileSync(path.join(out, p), "utf8");
+    return { read, exists: (p) => fs.existsSync(path.join(out, p)) };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    setTimeout(() => fs.rmSync(out, { recursive: true, force: true }), 0);
+  }
+}
+tasks.push(test("a community theme with <!--<script> in its text doesn't break the pages", () => {
+  const nasty = "Notes: <!--<script> is just text </script><!-- & > here";
+  const kdl = TB.toKdl(submission((s) => { s.meta.descEn = nasty; s.meta.author = "Ana <!--<script>"; })) + "// <!--<script> in a comment </script>\n";
+  checkLoads(kdl, "nasty");
+  const site = buildPages({ "neon-dusk.kdl": kdl });
+  for (const [file, id, script] of [["community-themes.html", "cg-data", "community.js"], ["pt/community-themes.html", "cg-data", "community.js"],
+    ["theme-builder.html", "tb-data", "theme-builder.js"], ["pt/theme-builder.html", "tb-data", "theme-builder.js"]]) {
+    const page = site.read(file), b = blobOf(page, id);
+    // O resto da página continua sendo página: o fim do <main>, o rodapé e os scripts.
+    assert.ok(b.after.includes("</main>") && /<footer/.test(b.after) && b.after.includes("assets/site/" + script), file + " lost its end");
+    // Nenhum "<!--" dentro de um <script> (o estado em que o navegador para de achar o "</script>").
+    for (const m of page.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)) assert.ok(!m[1].includes("<!--"), file + " script has <!--");
+    if (id === "cg-data") {
+      assert.strictEqual(b.data.themes["neon-dusk"].src, kdl, "the source survives the escaping");
+      const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      if (file.startsWith("pt/")) assert.ok(page.includes(esc("Crepúsculo roxo")), file + " card");
+      else assert.ok(page.includes(esc(nasty)), file + " card text is escaped");
+      assert.ok(page.includes(esc("Ana <!--<script>")), file + " author is escaped");
+    } else {
+      assert.deepStrictEqual(b.data.community, ["neon-dusk"], "the builder only lists the names");
+      assert.ok(!JSON.stringify(b.data).includes("Notes:"), "no community source in the builder page");
+      assert.strictEqual(b.data.communityBase, file.startsWith("pt/") ? "../community/" : "community/");
+    }
+  }
+  assert.strictEqual(site.read("community/neon-dusk.kdl"), kdl);
+  // O criador lê o arquivo que buscou do mesmo jeito.
+  assert.strictEqual(TB.communityFromSource(kdl).meta.descEn, nasty);
+}));
 // A página gerada: o convite quando a pasta está vazia, a grade quando não, e a mesma CSP do criador.
 tasks.push(test("community gallery page matches the folder", () => {
-  const blobOf = (page, id) => { const at = page.indexOf('id="' + id + '">') + id.length + 6; return JSON.parse(page.slice(at, page.indexOf("</script>", at))); };
   for (const [file, lang] of [["docs/community-themes.html", "en"], ["docs/pt/community-themes.html", "pt"]]) {
     const page = fs.readFileSync(path.join(ROOT, file), "utf8");
     assert.ok(page.includes("Content-Security-Policy\" content=\"default-src 'self'; script-src 'self';"), file + " CSP");
@@ -908,11 +1076,14 @@ tasks.push(test("community gallery page matches the folder", () => {
     assert.strictEqual(grid, communityFiles.length > 0, file + " grid");
     assert.strictEqual((page.match(/data-cg-card="/g) || []).length, communityFiles.length);
     if (!communityFiles.length) assert.ok(page.includes(lang === "en" ? "Be the first" : "Seja a primeira"), file);
-    assert.deepStrictEqual(blobOf(page, "cg-data").order, communityFiles.map((f) => f.slice(0, -4)));
+    assert.deepStrictEqual(blobOf(page, "cg-data").data.order, communityFiles.map((f) => f.slice(0, -4)));
   }
-  const builder = blobOf(fs.readFileSync(path.join(ROOT, "docs/theme-builder.html"), "utf8"), "tb-data");
-  assert.deepStrictEqual(Object.keys(builder.community).sort(), communityFiles.map((f) => f.slice(0, -4)));
-  for (const t of THEMES) assert.ok(!(t in builder.community), "built-in " + t + " is not in the community list");
+  for (const file of ["docs/theme-builder.html", "docs/pt/theme-builder.html"]) {
+    const builder = blobOf(fs.readFileSync(path.join(ROOT, file), "utf8"), "tb-data").data;
+    assert.deepStrictEqual(builder.community, communityFiles.map((f) => f.slice(0, -4)));
+    for (const t of THEMES) assert.ok(!builder.community.includes(t), "built-in " + t + " is not in the community list");
+    for (const n of builder.community) assert.ok(fs.existsSync(path.join(ROOT, "docs/community", n + ".kdl")), n + ".kdl is published");
+  }
   assert.ok(fs.readFileSync(path.join(ROOT, "docs/index.html"), "utf8").includes('href="community-themes.html"'), "nav link");
 }));
 

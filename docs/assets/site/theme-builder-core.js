@@ -28,6 +28,7 @@
       "link-layout": "it names a layout this page doesn't have", "link-unsupported": "this browser can't open compressed links",
       "css-too-big": "the CSS is bigger than 500 KB", "css-slow": "the CSS took too long to read",
       "css-empty": "no Discord color variables this page knows were found in the CSS",
+      "community-missing": "this community theme couldn't be loaded from the site",
     },
     pt: {
       comment: "comentário /* sem fechar", depth: "blocos aninhados demais", close: "faltou fechar '}'", "extra-close": "'}' sobrando",
@@ -44,6 +45,7 @@
       "link-layout": "ele cita um layout que esta página não tem", "link-unsupported": "este navegador não abre links comprimidos",
       "css-too-big": "o CSS passa de 500 KB", "css-slow": "o CSS demorou demais para ser lido",
       "css-empty": "o CSS não tem nenhuma variável de cor do Discord que esta página conheça",
+      "community-missing": "não deu para carregar este tema da comunidade do site",
     },
   };
   // As propriedades femininas, como o app escreve ("border inválida", "grain inválido").
@@ -1152,9 +1154,20 @@
   // ------------------------------------------------ Galeria da comunidade ----
   // O que um tema precisa para entrar em themes/community/. São as mesmas regras de
   // `check_community` em tools/gen_site.py (o build do site recusa o que falhar).
-  var COMMUNITY = { name: 48, author: 80, desc: 240, license: 64 };
-  // Um identificador SPDX ("CC0-1.0", "MIT", "CC-BY-4.0 OR MIT"): cada pedaço começa depois de um espaço.
-  var SPDX = /^[A-Za-z0-9][A-Za-z0-9.+-]{0,39}(?: (?:AND|OR|WITH) [A-Za-z0-9][A-Za-z0-9.+-]{0,39}){0,4}$/;
+  var COMMUNITY = { name: 48, author: 80, desc: 240, license: 64 }, COMMUNITY_MAX = 64 * 1024;
+  // As licenças abertas que a galeria aceita (identificadores SPDX), a mesma lista de `LICENSES`
+  // em tools/gen_site.py. Sozinhas ou juntas com AND / OR: "CC0-1.0", "GPL-3.0-or-later OR MIT".
+  var LICENSES = ["CC0-1.0", "CC-BY-4.0", "CC-BY-SA-4.0", "CC-BY-3.0", "CC-BY-SA-3.0", "MIT", "MIT-0", "ISC", "0BSD",
+    "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "MPL-2.0", "Zlib", "Unlicense", "WTFPL", "EUPL-1.2",
+    "GPL-2.0-only", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later", "LGPL-2.1-only", "LGPL-2.1-or-later",
+    "LGPL-3.0-only", "LGPL-3.0-or-later", "AGPL-3.0-only", "AGPL-3.0-or-later"];
+  function licenseOk(s) {
+    s = String(s || "");
+    if (s.length > COMMUNITY.license) return false;
+    var parts = s.split(" ");
+    if (parts.length % 2 === 0 || parts.length > 9) return false;
+    return parts.every(function (p, i) { return i % 2 ? p === "AND" || p === "OR" : LICENSES.indexOf(p) >= 0; });
+  }
   function plainText(s, max) { s = String(s || ""); return s.trim().length > 0 && s.length <= max && !/[\u0000-\u001f\u007f]/.test(s); }
   // `descs`: as descrições dos temas embutidos (um tema que parte de um deles começa com a dele).
   function communityCheck(state, builtins, descs) {
@@ -1164,7 +1177,7 @@
       { id: "name", ok: plainText(m.name, COMMUNITY.name) && (builtins || []).indexOf(file) < 0, file: file, builtin: (builtins || []).indexOf(file) >= 0 },
       { id: "author", ok: plainText(m.author, COMMUNITY.author) },
       { id: "description", ok: plainText(desc, COMMUNITY.desc) && (!m.desc || m.desc.length <= COMMUNITY.desc) && (!m.descEn || m.descEn.length <= COMMUNITY.desc) && !copied, copied: copied },
-      { id: "license", ok: String(m.license || "").length <= COMMUNITY.license && SPDX.test(String(m.license || "")) },
+      { id: "license", ok: licenseOk(m.license) },
     ];
   }
 
@@ -1191,12 +1204,15 @@
 
   // Seletor de "raiz": :root, html, body, #app-mount e as classes de tema do Discord.
   // Um pedaço por vez, sem expressão regular que possa voltar atrás muitas vezes.
-  var ROOT_PART = /^(?:html|body|\*|:root|&|#app-mount)?(?:\.theme-[a-z0-9-]+|\.visual-refresh)*$/;
+  // Um `:not(…)` simples não tira a raiz (`.theme-dark:not(.custom-user-profile-theme)`), e o
+  // que está dentro dele não conta para o modo.
+  var ROOT_PART = /^(?:html|body|\*|:root|&|#app-mount)?(?:\.theme-[a-z0-9-]+|\.visual-refresh|:not\([^()\s]*\))*$/;
   function selectorInfo(sel, env) {
     var s = stripComments(sel).toLowerCase().trim();
     if (s.length > 4000) return { mode: env.mode, root: false };
-    var light = s.indexOf("theme-light") >= 0;
-    var dark = s.indexOf("theme-dark") >= 0 || s.indexOf("theme-midnight") >= 0;
+    var plain = s.replace(/:not\([^()]*\)/g, "");
+    var light = plain.indexOf("theme-light") >= 0;
+    var dark = plain.indexOf("theme-dark") >= 0 || plain.indexOf("theme-midnight") >= 0;
     var mode = light && !dark ? "light" : dark && !light ? "dark" : env.mode;
     var root = s.length > 0 && s.split(",").every(function (part) {
       var bits = part.split(/[\s>+~]+/).filter(Boolean);
@@ -1212,9 +1228,20 @@
     return null;
   }
 
+  // O endereço de um @import, só para mostrar na lista. Lido à mão com indexOf (uma expressão
+  // regular com `\s*` dos dois lados de `[^)]*` volta atrás em tempo cúbico num `url(` sem fim)
+  // e só nos primeiros 2 KB: o resto de um prelúdio enorme não muda o que aparece.
   function cleanUrl(prelude) {
-    var p = stripComments(prelude).trim(), m = /^url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/i.exec(p) || /^(?:"([^"]*)"|'([^']*)')/.exec(p);
-    var u = m ? (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3] || "") : p;
+    var p = stripComments(prelude.slice(0, 2048)).trim(), u = p, q, e;
+    if (p.slice(0, 4).toLowerCase() === "url(") {
+      p = p.slice(4).trim();
+      q = p[0];
+      if (q === '"' || q === "'") { e = p.indexOf(q, 1); u = p.slice(1, e < 0 ? p.length : e); }
+      else { e = p.indexOf(")"); u = e < 0 ? p : p.slice(0, e); }
+    } else if (p[0] === '"' || p[0] === "'") {
+      e = p.indexOf(p[0], 1);
+      u = p.slice(1, e < 0 ? p.length : e);
+    }
     u = u.replace(/[\u0000-\u001f\u007f]/g, "").trim();
     return u.length > 200 ? u.slice(0, 199) + "…" : u;
   }
@@ -1334,21 +1361,23 @@
     return out;
   }
 
-  // A declaração que vale para cada variável neste modo: a do modo ganha da geral,
-  // a de raiz ganha da de um componente, depois !important, depois a última.
+  // A declaração que vale para cada variável neste modo: a de raiz (:root, .theme-dark…) ganha
+  // da de um componente (`.theme-dark .popout`), qualquer que seja o modo; entre as de raiz, a do
+  // modo ganha da geral; depois !important, depois a última. `scoped`: de raiz e só deste modo.
   function cssTable(decls, mode) {
     var best = Object.create(null);
     decls.forEach(function (d) {
       if (d.mode !== null && d.mode !== mode) return;
-      var score = (d.mode ? 4 : 0) + (d.root ? 2 : 0) + (d.imp ? 1 : 0), cur = best[d.name];
-      if (!cur || score > cur.score || (score === cur.score && d.at > cur.at)) best[d.name] = { value: d.value, score: score, at: d.at };
+      var score = (d.root ? 4 : 0) + (d.mode ? 2 : 0) + (d.imp ? 1 : 0), cur = best[d.name];
+      if (!cur || score > cur.score || (score === cur.score && d.at > cur.at)) best[d.name] = { value: d.value, score: score, at: d.at, scoped: d.root && d.mode !== null };
     });
     return best;
   }
 
   // Troca cada var(--x, reserva) pelo valor, com limite de profundidade, de tamanho e de passos.
+  // `get.scoped(nome)`: o valor dependeu de alguma declaração de raiz só deste modo?
   function varResolver(table) {
-    var memo = Object.create(null), busy = Object.create(null), steps = 0;
+    var memo = Object.create(null), memoScoped = Object.create(null), busy = Object.create(null), steps = 0, hit = false;
     function expand(value, depth) {
       if (depth > VAR_DEPTH || ++steps > VAR_STEPS) return null;
       var low = value.toLowerCase(), out = "", i = 0;
@@ -1376,13 +1405,23 @@
     }
     function get(name, depth) {
       if (!own(table, name)) return null;
-      if (own(memo, name)) return memo[name];
+      if (own(memo, name)) { hit = hit || memoScoped[name]; return memo[name]; }
       if (busy[name]) return null;
       busy[name] = true;
+      var outer = hit;
+      hit = false;
       var v = expand(table[name].value, depth || 0);
+      var scoped = hit || table[name].scoped;
       busy[name] = false;
+      memoScoped[name] = scoped;
+      hit = outer || scoped;
       return (memo[name] = v === null ? null : v.trim());
     }
+    get.scoped = function (name) {
+      hit = false;
+      get(name);
+      return hit;
+    };
     return get;
   }
 
@@ -1415,28 +1454,112 @@
     var q2 = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q2;
     return s === 0 ? [l, l, l] : [f(h + 1 / 3), f(h), f(h - 1 / 3)];
   }
-  function parseCssColor(v) {
+  function rgbHsl(c) {
+    var r = c[0], g = c[1], b = c[2], mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn, h = 0, s = 0;
+    if (d > 1e-9) {
+      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      h = 60 * (mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4);
+    }
+    return [h, s, l, d <= 1e-9];
+  }
+  // Separa por vírgula (ou por espaço) fora dos parênteses.
+  function splitTop(s, comma) {
+    var out = [], depth = 0, st = 0;
+    for (var i = 0; i < s.length; i++) {
+      var ch = s[i];
+      if (ch === "(") depth++;
+      else if (ch === ")") depth--;
+      else if (depth === 0 && (comma ? ch === "," : ch === " " || ch === "\t" || ch === "\n" || ch === "\r" || ch === "\f")) { out.push(s.slice(st, i)); st = i + 1; }
+    }
+    out.push(s.slice(st));
+    return out;
+  }
+  // color-mix(): os espaços que o CSS dos temas usa. A conta é a do CSS Color 5: porcentagens
+  // normalizadas, alfa pré-multiplicado, o matiz pelo caminho mais curto, e o matiz de uma cor
+  // sem croma (ou de `transparent`) não conta. Outros espaços (lab, display-p3…) ficam de fora.
+  var MIX_SPACES = ["srgb", "srgb-linear", "oklab", "oklch", "hsl"];
+  function inSpace(c, sp) {
+    if (sp === "srgb") return [c[0], c[1], c[2], false];
+    if (sp === "srgb-linear") return [lin(c[0]), lin(c[1]), lin(c[2]), false];
+    if (sp === "oklab") { var lab = toOklab(c); return [lab[0], lab[1], lab[2], false]; }
+    if (sp === "oklch") { var lch = toOklch(c); return [lch[0], lch[1], lch[2], lch[1] < 2e-4]; }
+    return rgbHsl(c);
+  }
+  function fromSpace(v, sp) {
+    if (sp === "srgb") return v;
+    if (sp === "srgb-linear") return v.map(function (x) { return gam(clamp01(x)); });
+    if (sp === "oklab") return oklch(v[0], Math.sqrt(v[1] * v[1] + v[2] * v[2]), Math.atan2(v[2], v[1]) * 180 / Math.PI);
+    if (sp === "oklch") return oklch(v[0], Math.max(0, v[1]), v[2]);
+    return hslRgb(v[0], clamp01(v[1]), clamp01(v[2]));
+  }
+  function mixArg(s, depth) {
+    var t = splitTop(s.trim(), false).filter(function (x) { return x; }), p = null, col = t[0];
+    if (t.length === 2) {
+      var k = t[0].slice(-1) === "%" ? 0 : t[1].slice(-1) === "%" ? 1 : -1;
+      if (k < 0) return null;
+      p = cssNumber(t[k], 100);
+      col = t[1 - k];
+      if (p === null) return null;
+    } else if (t.length !== 1) return null;
+    var c = parseCssColor(col, depth + 1);
+    return c ? { c: c, p: p } : null;
+  }
+  function colorMix(body, depth) {
+    var args = splitTop(body, true);
+    if (args.length !== 3) return null;
+    var how = args[0].trim().split(/\s+/), sp = how[1];
+    if (how[0] !== "in" || MIX_SPACES.indexOf(sp) < 0) return null;
+    if (how.length !== 2 && !(how.length === 4 && how[2] === "shorter" && how[3] === "hue")) return null;
+    var A = mixArg(args[1], depth), B = mixArg(args[2], depth);
+    if (!A || !B) return null;
+    var p1 = A.p, p2 = B.p;
+    if (p1 === null && p2 === null) p1 = p2 = 50;
+    else if (p1 === null) p1 = 100 - p2;
+    else if (p2 === null) p2 = 100 - p1;
+    if (!(p1 >= 0 && p2 >= 0 && p1 <= 100 && p2 <= 100 && p1 + p2 > 0)) return null;
+    var sum = p1 + p2, w1 = p1 / sum, w2 = p2 / sum, x = inSpace(A.c, sp), y = inSpace(B.c, sp);
+    var a1 = A.c[3], a2 = B.c[3], al = a1 * w1 + a2 * w2, hue = sp === "hsl" ? 0 : sp === "oklch" ? 2 : -1, out = [0, 0, 0];
+    for (var k = 0; k < 3; k++) {
+      if (k === hue) {
+        var d = y[k] - x[k];
+        if (d > 180) d -= 360; else if (d < -180) d += 360;
+        out[k] = x[3] && y[3] ? 0 : x[3] ? y[k] : y[3] ? x[k] : x[k] + d * w2;
+      } else out[k] = al > 0 ? (x[k] * a1 * w1 + y[k] * a2 * w2) / al : x[k] * w1 + y[k] * w2;
+    }
+    var rgb = fromSpace(out, sp);
+    if (!rgb.slice(0, 3).every(isFinite)) return null;
+    return [clamp01(rgb[0]), clamp01(rgb[1]), clamp01(rgb[2]), clamp01(al * (sum < 100 ? sum / 100 : 1))];
+  }
+  function parseCssColor(v, depth) {
+    depth = depth || 0;
     var s = String(v).trim().toLowerCase();
-    if (!s || s.length > 200) return null;
+    if (!s || s.length > VAR_OUT || depth > 4) return null;
     if (s[0] === "#") return parseHex(s.slice(1));
     if (s === "transparent") return [0, 0, 0, 0];
     if (own(NAMED, s)) return hexRgba(NAMED[s]);
-    var m = /^(rgba?|hsla?)\(([^()]*)\)$/.exec(s);
+    var m = /^([a-z-]+)\(([\s\S]*)\)$/.exec(s);
     if (!m) return null;
+    if (m[1] === "color-mix") return colorMix(m[2], depth);
+    if (/[()]/.test(m[2])) return null;
     var body = m[2], a = 1, slash = body.split("/");
     if (slash.length > 2) return null;
     if (slash.length === 2) { a = cssNumber(slash[1], 1); body = slash[0]; }
     var parts = (body.indexOf(",") >= 0 ? body.split(",") : body.trim().split(/\s+/)).map(function (x) { return x.trim(); });
     if (slash.length === 1 && parts.length === 4) a = cssNumber(parts.pop(), 1);
     if (parts.length !== 3 || a === null) return null;
-    var c;
-    if (m[1][0] === "r") {
+    var c, fn = m[1];
+    if (fn === "rgb" || fn === "rgba") {
       c = parts.map(function (x) { var k = cssNumber(x, 255); return k === null ? null : clamp01(k / 255); });
-    } else {
+    } else if (fn === "hsl" || fn === "hsla") {
       var h = cssHue(parts[0]), sat = cssNumber(parts[1].replace(/%$/, ""), 1), lig = cssNumber(parts[2].replace(/%$/, ""), 1);
       c = h === null || sat === null || lig === null ? [null] : hslRgb(h, clamp01(sat / 100), clamp01(lig / 100));
-    }
-    if (c.some(function (x) { return x === null || !isFinite(x); })) return null;
+    } else if (fn === "oklch" || fn === "oklab") {
+      // L: 0–1 ou %; croma e a/b: número ou % (100% = 0,4); fora do sRGB, o croma diminui até caber.
+      var L = cssNumber(parts[0], 1), p = cssNumber(parts[1], 0.4), q = fn === "oklch" ? (parts[2] === "none" ? 0 : cssHue(parts[2])) : cssNumber(parts[2], 0.4);
+      if (L === null || p === null || q === null) return null;
+      c = fn === "oklch" ? oklch(L, Math.max(0, p), q) : fromSpace([L, p, q], "oklab");
+    } else return null;
+    if (c.slice(0, 3).some(function (x) { return x === null || !isFinite(x); })) return null;
     return [c[0], c[1], c[2], clamp01(a)];
   }
 
@@ -1456,8 +1579,8 @@
     ["link", ["--text-link"]],
     ["accent", ["--brand-experiment", "--brand-500", "--bg-brand", "--text-brand"]],
     ["mention", ["--mention-foreground", "--text-brand", "--brand-experiment", "--brand-500", "--bg-brand"]],
-    ["selected", ["--background-modifier-selected", "--bg-mod-strong"]],
-    ["hover", ["--background-modifier-hover", "--bg-mod-faint"]],
+    ["selected", ["--background-modifier-selected", "--bg-mod-strong", "--background-mod-strong"]],
+    ["hover", ["--background-modifier-hover", "--bg-mod-faint", "--background-mod-subtle", "--background-mod-normal"]],
     ["border", ["--background-modifier-accent", "--border-subtle", "--border-faint"]],
     ["online", ["--status-online", "--status-positive", "--text-positive", "--text-feedback-positive", "--green-360"]],
     ["idle", ["--status-idle", "--status-warning", "--text-warning", "--text-feedback-warning", "--yellow-300"]],
@@ -1467,13 +1590,17 @@
     ["bubble-other", ["--background-secondary-alt", "--bg-surface-raised", "--background-surface-high", "--background-floating"]],
   ];
   // Estes podem ser translúcidos de verdade; os outros, quase invisíveis, viram "transparente no CSS".
+  // Os outros, meio translúcidos (um tema com imagem de fundo), são postos sobre o fundo: o app
+  // desenha a cor como ela é, e um campo de texto a 20% deixaria ver o que está atrás.
   var SHEER = ["hover", "selected", "border", "shadow"];
   // O texto em cima do destaque: preto ou branco, o que contrastar mais.
   var DERIVED = [["accent-text", "accent"], ["bubble-self-text", "bubble-self"]];
 
+  // `scoped`: algum token veio de uma declaração de raiz deste modo (.theme-light, o bloco
+  // prefers-color-scheme: light…). Sem isso, o modo claro do CSS é só o geral, e não entra.
   function mapCss(decls, mode) {
-    var get = varResolver(cssTable(decls, mode)), got = Object.create(null);
-    var res = { mapped: [], derived: [], skipped: [], kept: [] };
+    var get = varResolver(cssTable(decls, mode)), got = Object.create(null), by = Object.create(null);
+    var res = { mapped: [], derived: [], skipped: [], kept: [], scoped: false };
     CSS_MAP.forEach(function (row) {
       var tok = row[0], why = null;
       for (var k = 0; k < row[1].length; k++) {
@@ -1483,14 +1610,36 @@
         if (!c) { why = why || { tok: tok, from: name, why: "unreadable" }; continue; }
         if (c[3] < 0.05 && SHEER.indexOf(tok) < 0) { why = why || { tok: tok, from: name, why: "transparent" }; continue; }
         got[tok] = c;
-        res.mapped.push({ tok: tok, from: name, value: toHex(c) });
+        if (get.scoped(name)) res.scoped = true;
+        res.mapped.push(by[tok] = { tok: tok, from: name, value: toHex(c) });
         return;
       }
       if (why) res.skipped.push(why);
     });
+    // O fundo translúcido vai sobre preto (escuro) ou branco (claro); o resto, sobre o fundo.
+    var base = mode === "light" ? WHITE : BLACK;
+    var bg = got.bg ? over(got.bg, base) : base;
+    res.mapped.forEach(function (m) {
+      var c = got[m.tok];
+      if (SHEER.indexOf(m.tok) >= 0 || m.value.length === 7) return;
+      m.alpha = c[3];
+      m.over = m.tok === "bg" ? mode : "bg";
+      got[m.tok] = over(c, m.tok === "bg" ? base : bg);
+      m.value = toHex(got[m.tok]);
+    });
+    // faint é o texto mais apagado. Quando o CSS dá o contrário (os nomes novos usam --text-muted
+    // para um cinza mais claro que o dos canais), os dois trocam de lugar.
+    if (by.muted && by.faint && contrast(got.faint, bg) > contrast(got.muted, bg) + 0.05) {
+      var f = by.faint, mu = by.muted, t = [f.from, f.value, f.alpha, f.over];
+      f.from = mu.from; f.value = mu.value; f.alpha = mu.alpha; f.over = mu.over;
+      mu.from = t[0]; mu.value = t[1]; mu.alpha = t[2]; mu.over = t[3];
+      var g = got.faint; got.faint = got.muted; got.muted = g;
+      f.swapped = mu.swapped = true;
+    }
+    res.mapped.forEach(function (m) { if (m.alpha === undefined) { delete m.alpha; delete m.over; } });
     DERIVED.forEach(function (d) {
       if (!got[d[1]]) return;
-      var back = over(got[d[1]], got.bg ? over(got.bg, BLACK) : BLACK);
+      var back = got[d[1]];
       res.derived.push({ tok: d[0], from: d[1], value: contrast(BLACK, back) >= contrast(WHITE, back) ? "#000000" : "#ffffff" });
     });
     var done = res.mapped.concat(res.derived).map(function (x) { return x.tok; });
@@ -1501,8 +1650,8 @@
   function importDiscordCss(text, opt) {
     var p = parseCss(text, opt), names = Object.create(null);
     p.decls.forEach(function (d) { names[d.name] = true; });
-    var hasLight = p.decls.some(function (d) { return d.mode === "light"; });
-    var modes = { dark: mapCss(p.decls, "dark"), light: hasLight ? mapCss(p.decls, "light") : null };
+    var light = mapCss(p.decls, "light");
+    var modes = { dark: mapCss(p.decls, "dark"), light: light.scoped ? light : null };
     var count = modes.dark.mapped.length + (modes.light ? modes.light.mapped.length : 0);
     if (!count) throw cssError("css-empty");
     return { modes: modes, imports: p.imports, vars: Object.keys(names).length, rules: p.rules, notes: p.notes };
@@ -1590,6 +1739,17 @@
     });
     return state;
   }
+  // Um tema de themes/community/, o .kdl que o criador busca no site pelo link da galeria:
+  // vazio ou grande demais é "community-missing"; o resto são os erros do leitor de sempre.
+  function communityFromSource(src) {
+    if (typeof src !== "string" || !src.trim() || src.length > COMMUNITY_MAX) throw linkError("community-missing");
+    var cs = fromSource(src, { name: "" });
+    loadTheme(toKdl(cs), { mode: "dark" });
+    cs.base = null;
+    cs.layoutFrom = null;
+    return cs;
+  }
+
   function encodeSync(state, builtinStructure) { return "j." + b64url(utf8(JSON.stringify(compact(state, builtinStructure)))); }
   function encode(state, builtinStructure) {
     var json = JSON.stringify(compact(state, builtinStructure));
@@ -1643,7 +1803,7 @@
     contrastReport: contrastReport, layoutColorBlocks: layoutColorBlocks, effectiveColors: effectiveColors, oklch: oklch, toOklch: toOklch, rng: rng,
     generate: generate, randomSeed: randomSeed, imageColors: imageColors, seedFromImage: seedFromImage,
     seedFromColors: seedFromColors, fromPalette: fromPalette,
-    COMMUNITY: COMMUNITY, SPDX: SPDX, communityCheck: communityCheck,
+    COMMUNITY: COMMUNITY, COMMUNITY_MAX: COMMUNITY_MAX, LICENSES: LICENSES, licenseOk: licenseOk, communityCheck: communityCheck, communityFromSource: communityFromSource,
     CSS_MAX: CSS_MAX, CSS_MAP: CSS_MAP, parseCss: parseCss, parseCssColor: parseCssColor, importDiscordCss: importDiscordCss, applyCssImport: applyCssImport,
     encode: encode, encodeSync: encodeSync, decode: decode, compact: compact, expand: expand, clone: clone,
   };

@@ -47,7 +47,7 @@
       name: function (c) { return c.builtin ? c.file + " é o nome de um tema embutido: escolha outro nome" : "falta o nome, de até 48 caracteres (aba Arquivo)"; },
       author: "falta o autor (aba Arquivo)",
       description: function (c) { return c.copied ? "ainda é a descrição do tema embutido de onde ele partiu: descreva o seu (aba Arquivo)" : "falta uma descrição, em inglês ou português, de até 240 caracteres"; },
-      license: "falta a licença, um identificador SPDX como CC0-1.0, CC-BY-4.0 ou MIT",
+      license: "falta, ou não está na lista da galeria: uma licença aberta como CC0-1.0, CC-BY-4.0 ou MIT (o campo sugere as outras)",
     },
     readyOk: function (f) { return "Pronto para a galeria: coloque " + f + " em themes/community/ num pull request."; },
     readyMissing: function (n) { return n === 1 ? "Falta 1 item para a galeria." : "Faltam " + n + " itens para a galeria."; },
@@ -57,7 +57,9 @@
       noLight: "O CSS não tem bloco do modo claro: o claro ficou como estava.",
       mode: { dark: "Modo escuro", light: "Modo claro" }, from: " ← ", derived: function (t, from) { return t + ": preto ou branco, o que contrasta mais com " + from; },
       skipped: { transparent: function (t, v) { return t + ": " + v + " é transparente no CSS (o tema deve desenhar uma imagem atrás), então não entrou"; },
-        unreadable: function (t, v) { return t + ": " + v + " não é uma cor que esta página lê (color-mix, gradiente…), então não entrou"; } },
+        unreadable: function (t, v) { return t + ": " + v + " não é uma cor que esta página lê (gradiente, imagem, lab(), cor relativa…), então não entrou"; } },
+      flat: function (a, o) { return " · " + Math.round(a * 100) + "% opaca no CSS, posta sobre " + (o === "bg" ? "bg" : o === "light" ? "branco" : "preto") + " para ficar sólida"; },
+      swapped: " · muted e faint trocaram de lugar: faint é o texto mais apagado, e no CSS era o contrário",
       kept: "Ficaram como estavam: ", noneKept: "Nenhum token ficou como estava.", rest: "As cores de cargo e a paleta base não mudam.",
       imports: function (n) { return n === 1 ? "1 link de @import não foi aberto (as cores dele não entram):" : n + " links de @import não foram abertos (as cores deles não entram):"; },
       notes: function (n) { return "O CSS tinha " + n + (n === 1 ? " trecho quebrado, pulado." : " trechos quebrados, pulados."); },
@@ -99,7 +101,7 @@
       name: function (c) { return c.builtin ? c.file + " is the name of a built-in theme: pick another name" : "missing, up to 48 characters (File info tab)"; },
       author: "missing (File info tab)",
       description: function (c) { return c.copied ? "still the description of the built-in theme it started from: describe yours (File info tab)" : "missing: one in English or Portuguese, up to 240 characters"; },
-      license: "missing: an SPDX identifier such as CC0-1.0, CC-BY-4.0 or MIT",
+      license: "missing, or not on the gallery's list: an open license such as CC0-1.0, CC-BY-4.0 or MIT (the field suggests the others)",
     },
     readyOk: function (f) { return "Ready for the gallery: put " + f + " in themes/community/ in a pull request."; },
     readyMissing: function (n) { return n === 1 ? "1 thing missing for the gallery." : n + " things missing for the gallery."; },
@@ -109,7 +111,9 @@
       noLight: "The CSS has no light mode block: light mode stayed as it was.",
       mode: { dark: "Dark mode", light: "Light mode" }, from: " ← ", derived: function (t, from) { return t + ": black or white, whichever stands out more on " + from; },
       skipped: { transparent: function (t, v) { return t + ": " + v + " is transparent in the CSS (the theme probably draws an image behind it), so it was left out"; },
-        unreadable: function (t, v) { return t + ": " + v + " isn't a color this page reads (color-mix, a gradient…), so it was left out"; } },
+        unreadable: function (t, v) { return t + ": " + v + " isn't a color this page reads (a gradient, an image, lab(), a relative color…), so it was left out"; } },
+      flat: function (a, o) { return " · " + Math.round(a * 100) + "% opaque in the CSS, laid over " + (o === "bg" ? "bg" : o === "light" ? "white" : "black") + " to make it solid"; },
+      swapped: " · muted and faint swapped places: faint is the quieter text, and the CSS had it the other way round",
       kept: "Kept their previous value: ", noneKept: "No token kept its previous value.", rest: "Role colors and the base palette don't change.",
       imports: function (n) { return n === 1 ? "1 @import link was not opened (its colors are not included):" : n + " @import links were not opened (their colors are not included):"; },
       notes: function (n) { return "The CSS had " + n + (n === 1 ? " broken piece, skipped." : " broken pieces, skipped."); },
@@ -884,7 +888,9 @@
       var r = res.modes[mode];
       if (!r) return;
       var list = h("ul", { "class": "tb-css-map" });
-      r.mapped.forEach(function (m) { list.appendChild(cssRow(m.tok, mode, h("span", {}, [cs.from, h("code", { text: m.from })]))); });
+      r.mapped.forEach(function (m) {
+        list.appendChild(cssRow(m.tok, mode, h("span", {}, [cs.from, h("code", { text: m.from }), m.alpha !== undefined ? cs.flat(m.alpha, m.over) : null, m.swapped && m.tok === "faint" ? cs.swapped : null])));
+      });
       r.derived.forEach(function (m) { list.appendChild(cssRow(m.tok, mode, h("span", { text: " · " + cs.derived(m.value, m.from) }))); });
       var sec = h("details", { "class": "tb-css-mode", open: mode === viewMode }, [h("summary", { text: cs.mode[mode] + " · " + (r.mapped.length + r.derived.length) }), list]);
       r.skipped.forEach(function (x) { sec.appendChild(h("p", { "class": "tb-lift", text: cs.skipped[x.why](x.tok, x.from) })); });
@@ -951,27 +957,29 @@
       });
       return;
     }
-    // Da galeria da comunidade: o .kdl vem junto na página (gen_site.py já conferiu cada um).
-    if ((m = /^community=([a-z0-9-]{1,48})$/.exec(hash)) && DATA.community && TB.own(DATA.community, m[1])) {
-      try {
-        var cs = TB.fromSource(DATA.community[m[1]].src, { name: "" });
-        TB.loadTheme(TB.toKdl(cs), { mode: "dark" });
-        cs.base = null;
-        cs.layoutFrom = null;
-        DATA.order.forEach(function (n) { if (structures[n] === cs.structure) cs.layoutFrom = n; });
-        state = cs;
-        $("[data-start]").value = first;
-        changed();
-        say(S.community + m[1]);
-        return;
-      } catch (e) {
-        say(S.linkFail + TB.errorText(e, lang));
-      }
-    }
     if ((m = /^base=([a-z]+)$/.exec(hash)) && DATA.order.indexOf(m[1]) >= 0) first = m[1];
     state = startFrom(first);
     $("[data-start]").value = first;
     changed();
+    // Da galeria da comunidade: o .kdl vem de docs/community/, do próprio site (a CSP só deixa
+    // buscar dele), e só os nomes que gen_site.py conferiu. Enquanto chega, fica o tema de partida.
+    if ((m = /^community=([a-z0-9-]{1,48})$/.exec(hash)) && Array.isArray(DATA.community) && DATA.community.indexOf(m[1]) >= 0) {
+      var name = m[1];
+      fetch(DATA.communityBase + name + ".kdl", { credentials: "same-origin" }).then(function (r) {
+        if (!r.ok) throw { code: "community-missing" };
+        return r.text();
+      }).then(function (src) {
+        var cs = TB.communityFromSource(src);
+        DATA.order.forEach(function (n) { if (structures[n] === cs.structure) cs.layoutFrom = n; });
+        // Se a pessoa já mexeu em algo, o tema entra como um passo que Desfazer volta.
+        if (hashReady) return replace(cs, S.community + name);
+        state = cs;
+        changed();
+        say(S.community + name);
+      }).catch(function (e) {
+        say(S.linkFail + TB.errorText(e && e.code ? e : { code: "community-missing" }, lang));
+      });
+    }
   }
   boot();
 })();

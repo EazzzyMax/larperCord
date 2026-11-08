@@ -425,25 +425,32 @@ theme "Neon Dusk" author="seu nome" description-en="Purple dusk over a dark city
 | nome (o primeiro argumento) | até 48 caracteres. O nome do arquivo é o nome em minúsculas com hífens (`neon-dusk.kdl`) |
 | `author=` | seu nome ou apelido, até 80 caracteres |
 | `description-en=` / `description=` | pelo menos uma (inglês ou português), até 240 caracteres cada. As duas é melhor |
-| `license=` | um [identificador SPDX](https://spdx.org/licenses/): `CC0-1.0`, `CC-BY-4.0`, `MIT`, `GPL-3.0-or-later`… O app ignora |
+| `license=` | uma licença aberta da lista abaixo, escrita como o [identificador SPDX](https://spdx.org/licenses/) dela. O app ignora |
 | `preview=` | opcional, uma das miniaturas de [Nós de topo](#nós-de-topo) |
+
+As licenças que a galeria aceita, sozinhas ou juntas com `AND` / `OR` (`GPL-3.0-or-later OR MIT`): `CC0-1.0`,
+`CC-BY-4.0`, `CC-BY-SA-4.0`, `CC-BY-3.0`, `CC-BY-SA-3.0`, `MIT`, `MIT-0`, `ISC`, `0BSD`, `BSD-2-Clause`,
+`BSD-3-Clause`, `Apache-2.0`, `MPL-2.0`, `Zlib`, `Unlicense`, `WTFPL`, `EUPL-1.2`, `GPL-2.0-only`, `GPL-2.0-or-later`,
+`GPL-3.0-only`, `GPL-3.0-or-later`, `LGPL-2.1-only`, `LGPL-2.1-or-later`, `LGPL-3.0-only`, `LGPL-3.0-or-later`,
+`AGPL-3.0-only` e `AGPL-3.0-or-later`. Todas deixam usar e mudar o tema.
 
 O que é conferido:
 
 - **Ele tem de carregar no app.** O `python3 tools/gen_site.py` lê cada arquivo de `themes/community/` com as regras do
   app (sintaxe, tokens de cor, expressões de cor, nomes de componentes, os metadados acima) e para com
   `arquivo:linha:coluna` no primeiro problema, então um arquivo quebrado derruba o build do site. Depois, o
-  `node tools/theme_builder_test.js` carrega cada tema como o app faz, nos dois modos e com todas as opções. O CI roda os
-  dois em todo pull request. Dá para rodar a mesma checagem antes de mandar: `python3 tools/gen_site.py --check-community`.
-  Para ver no app, coloque o arquivo na sua pasta de temas e rode `larpercord --theme neon-dusk`.
+  `node tools/theme_builder_test.js` carrega cada tema com a cópia que o site tem do leitor de temas do app
+  (`docs/assets/site/theme-builder-core.js`), nos dois modos e com todas as opções. O CI roda os dois em todo pull
+  request. Dá para rodar a mesma checagem antes de mandar: `python3 tools/gen_site.py --check-community`. Para ver no
+  próprio app, coloque o arquivo na sua pasta de temas e rode `larpercord --theme neon-dusk`.
 - **Um nome só dele.** Nem o nome de um tema embutido (um arquivo chamado `orbital.kdl` tomaria o lugar dele no app) nem
   um que já esteja na galeria. Um tema embutido só com o nome trocado volta: mude as cores ou o layout.
 - **Sem logos nem fontes protegidos.** Só arquivos `.kdl` entram na pasta, então nada de imagens ou arquivos de fonte.
   Não redesenhe o logo ou a marca de outra pessoa com `label`, `shape` ou arte em ASCII, e só cite fontes que dá para
   conseguir de graça: as fontes são procuradas pela família no sistema de quem usa e nunca vão junto com o tema.
-- **Uma licença.** Ela diz que as pessoas podem usar e mudar o tema. Se as cores vieram do tema de outra pessoa (pelo
-  "Importar de um CSS de tema do Discord" do criador, por exemplo), a licença daquele tema tem de deixar, e a descrição
-  deve dar o crédito a quem fez.
+- **Uma licença aberta** da lista acima. Ela diz que as pessoas podem usar e mudar o tema. Se as cores vieram do tema
+  de outra pessoa (pelo "Importar de um CSS de tema do Discord" do criador, por exemplo), a licença daquele tema tem de
+  deixar, e a descrição deve dar o crédito a quem fez.
 
 ## Dicas de design
 

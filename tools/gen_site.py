@@ -152,7 +152,8 @@ def mix(a, b, t):
 
 
 def alpha(a, t):
-    return (a[0], a[1], a[2], t)
+    # Como `Rgba.alpha` de color.zig: multiplica a opacidade que a cor já tem.
+    return (a[0], a[1], a[2], a[3] * t)
 
 
 def luma(c):
@@ -164,50 +165,6 @@ def css(c):
     if c[3] >= 0.999:
         return f"#{r:02x}{g:02x}{b:02x}"
     return f"rgba({r},{g},{b},{c[3]:.3f})"
-
-
-def split_args(s):
-    out, depth, cur = [], 0, ""
-    for ch in s:
-        if ch == "," and depth == 0:
-            out.append(cur)
-            cur = ""
-        else:
-            depth += ch == "("
-            depth -= ch == ")"
-            cur += ch
-    out.append(cur)
-    return [x.strip() for x in out]
-
-
-def color_eval(expr, pal, toks):
-    e = str(expr).strip()
-    if e.startswith("#"):
-        return rgb(e)
-    if e.startswith("wal:"):
-        return pal[int(e[4:])]
-    if e.startswith("@"):
-        return toks[e[1:]]
-    if e == "white":
-        return WHITE
-    if e == "black":
-        return BLACK
-    if e == "transparent":
-        return (0, 0, 0, 0.0)
-    m = re.fullmatch(r"(\w+)\((.*)\)", e)
-    if m:
-        args = split_args(m.group(2))
-        if m.group(1) == "mix":
-            return mix(color_eval(args[0], pal, toks), color_eval(args[1], pal, toks), float(args[2]))
-        if m.group(1) == "alpha":
-            return alpha(color_eval(args[0], pal, toks), float(args[1]))
-        if m.group(1) == "lighten":
-            a = color_eval(args[0], pal, toks)
-            return mix(a, alpha(WHITE, a[3]), float(args[1]))
-        if m.group(1) == "darken":
-            a = color_eval(args[0], pal, toks)
-            return mix(a, alpha(BLACK, a[3]), float(args[1]))
-    raise ValueError(f"cor desconhecida: {expr}")
 
 
 def default_tokens(p, mode):
@@ -651,7 +608,13 @@ def layout_nodes(src, top, on, pal, raw):
 COMMUNITY_DIR = ROOT / "themes" / "community"
 COMMUNITY_MAX_BYTES = 64 * 1024
 COMMUNITY_LIMITS = {"name": 48, "author": 80, "desc": 240, "license": 64}
-SPDX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,39}(?: (?:AND|OR|WITH) [A-Za-z0-9][A-Za-z0-9.+-]{0,39}){0,4}$")
+# As licenças abertas que a galeria aceita (identificadores SPDX), sozinhas ou juntas com AND / OR.
+# Todas deixam usar e mudar o tema. A mesma lista está em theme-builder-core.js (`LICENSES`); o teste confere.
+LICENSES = ["CC0-1.0", "CC-BY-4.0", "CC-BY-SA-4.0", "CC-BY-3.0", "CC-BY-SA-3.0", "MIT", "MIT-0", "ISC", "0BSD",
+            "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "MPL-2.0", "Zlib", "Unlicense", "WTFPL", "EUPL-1.2",
+            "GPL-2.0-only", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later", "LGPL-2.1-only", "LGPL-2.1-or-later",
+            "LGPL-3.0-only", "LGPL-3.0-or-later", "AGPL-3.0-only", "AGPL-3.0-or-later"]
+LICENSE_EXAMPLES = "CC0-1.0, CC-BY-4.0, CC-BY-SA-4.0, MIT, Apache-2.0, GPL-3.0-or-later…"
 TOKENS = ["bg", "rail", "sidebar", "surface", "elevated", "overlay", "text", "muted", "faint", "accent",
           "accent-text", "border", "hover", "selected", "online", "idle", "dnd", "danger", "mention", "link",
           "code-bg", "bubble-self", "bubble-self-text", "bubble-other", "shadow"]
@@ -886,15 +849,16 @@ def token_name(name):
     return t if t in TOKENS else None
 
 
-def color_ok(expr, bare=False):
-    """A expressão de cor do app (`eval` de color.zig, `evalColor` no criador): só diz se vale."""
+def color_expr(expr, pal, toks, bare=False):
+    """A expressão de cor do app (`eval` de color.zig, `evalColor` no criador): a cor, ou ValueError.
+    Um leitor só para conferir e para calcular, então o que passa na checagem sempre dá uma cor."""
     s = str(expr)
     if bare and token_name(s.strip(" \t")):
-        return True
+        return toks[token_name(s.strip(" \t"))]
     pos = [0, 0]
 
-    class Bad(Exception):
-        pass
+    def bad():
+        raise ValueError("invalid color expression")
 
     def skip():
         while pos[0] < len(s) and s[pos[0]] in " \t":
@@ -909,61 +873,87 @@ def color_ok(expr, bare=False):
     def expect(ch):
         skip()
         if pos[0] >= len(s) or s[pos[0]] != ch:
-            raise Bad
+            bad()
         pos[0] += 1
 
     def num():
         skip()
-        if not re.fullmatch(r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?", word()):
-            raise Bad
+        w = word()
+        if not re.fullmatch(r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?", w):
+            bad()
+        return float(w)
 
     def atom(w):
         if w.startswith("#"):
             if not re.fullmatch(r"[0-9a-fA-F]+", w[1:]) or len(w) - 1 not in (3, 4, 6, 8):
-                raise Bad
-        elif w.startswith("@"):
+                bad()
+            return rgb(w)
+        if w.startswith("@"):
             if not token_name(w[1:]):
-                raise Bad
-        elif w.startswith("wal:"):
+                bad()
+            return toks[token_name(w[1:])]
+        if w.startswith("wal:"):
             if not re.fullmatch(r"\+?\d+", w[4:]) or int(w[4:]) >= 16:
-                raise Bad
-        elif w not in ("black", "white", "transparent"):
-            raise Bad
+                bad()
+            return pal[int(w[4:])]
+        if w in COLOR_WORDS:
+            return COLOR_WORDS[w]
+        bad()
 
     def expr():
         if pos[1] >= 16:
-            raise Bad
+            bad()
         pos[1] += 1
         skip()
         w = word()
         if not w:
-            raise Bad
+            bad()
         skip()
         if pos[0] < len(s) and s[pos[0]] == "(":
             pos[0] += 1
-            expr()
+            a = expr()
             if w == "mix":
                 expect(",")
-                expr()
+                b = expr()
                 expect(",")
-                num()
+                k = num()
                 expect(")")
+                out = mix(a, b, k)
             elif w in ("alpha", "lighten", "darken"):
                 expect(",")
-                num()
+                k = num()
                 expect(")")
+                out = alpha(a, k) if w == "alpha" else mix(a, alpha(WHITE if w == "lighten" else BLACK, a[3]), k)
             else:
-                raise Bad
+                bad()
         else:
-            atom(w)
+            out = atom(w)
         pos[1] -= 1
+        return out
 
+    v = expr()
+    skip()
+    if pos[0] != len(s):
+        bad()
+    return v
+
+
+COLOR_WORDS = {"black": BLACK, "white": WHITE, "transparent": (0, 0, 0, 0.0)}
+_ANY_PAL = [BLACK] * 16
+_ANY_TOKS = {t: BLACK for t in TOKENS}
+
+
+def color_ok(expr, bare=False):
+    """Só diz se a expressão vale (o mesmo leitor de `color_expr`)."""
     try:
-        expr()
-        skip()
-        return pos[0] == len(s)
-    except Bad:
+        color_expr(expr, _ANY_PAL, _ANY_TOKS, bare)
+        return True
+    except ValueError:
         return False
+
+
+def color_eval(expr, pal, toks):
+    return color_expr(expr, pal, toks)
 
 
 def split_colors(s):
@@ -1141,8 +1131,10 @@ def theme_modes(nodes):
             if "unless" in nd.props and nd.props["unless"] in on:
                 continue
             for c in nd.kids:
-                e = c.args[0]
-                toks[token_name(c.name)] = color_eval(re.sub(r"@([\w-]+)", lambda m: "@" + m.group(1).replace("_", "-"), e), pal, toks)
+                try:
+                    toks[token_name(c.name)] = color_eval(c.args[0], pal, toks)
+                except (ValueError, KeyError, IndexError, TypeError):
+                    raise ThemeProblem(f"{c.name}: couldn't work out the color {c.args[0]!r} in {mode} mode", c.line, c.col)
         out[mode] = toks
     return out
 
@@ -1151,8 +1143,17 @@ def same_colors(a, b):
     return all(all(abs(a[k][i] - b[k][i]) <= 2.01 for i in range(3)) and abs(a[k][3] - b[k][3]) <= 0.01 for k in TOKENS)
 
 
-def layout_text(src, nodes):
-    return " ".join(" ".join(src[n.start:n.end].split()) for n in nodes if n.name == "layout")
+def layout_key(nodes):
+    """O layout como árvore (nomes, argumentos e propriedades), sem comentários nem espaços:
+    um comentário a mais não faz de um tema embutido renomeado um tema novo."""
+    def value(v):
+        if isinstance(v, bool) or v is None or isinstance(v, str):
+            return v
+        return float(v)
+
+    def node(n):
+        return [n.name, [value(a) for a in n.args], sorted((k, value(v)) for k, v in n.props.items()), [node(k) for k in n.kids]]
+    return json.dumps([node(n) for n in nodes if n.name == "layout"], ensure_ascii=False)
 
 
 def check_community_file(path, builtins, src_bytes):
@@ -1168,6 +1169,8 @@ def check_community_file(path, builtins, src_bytes):
         src = src_bytes.decode("utf-8")
     except UnicodeDecodeError:
         raise ThemeProblem("the file is not UTF-8")
+    if src.startswith("\ufeff"):
+        raise ThemeProblem("the file starts with a byte order mark (BOM), which the app reads as part of the first line: save it as UTF-8 without BOM", 1, 1)
     if "\x00" in src:
         raise ThemeProblem("the file has a NUL byte")
     nodes = kdl_strict(src)
@@ -1209,17 +1212,18 @@ def check_community_file(path, builtins, src_bytes):
         if (desc and desc in b["descs"]) or (desc_en and desc_en in b["descs"]):
             raise ThemeProblem(f"the description is still the one from the built-in theme {name}: describe your theme", th.line, th.col)
     lic = text(th.props.get("license"), "license=", L["license"])
-    if not SPDX.fullmatch(lic):
-        raise ThemeProblem(f'license="{lic}" is not an SPDX identifier (CC0-1.0, CC-BY-4.0, MIT, GPL-3.0-or-later…)', th.line, th.col)
+    why = license_problem(lic)
+    if why:
+        raise ThemeProblem(f'license="{lic}": {why}', th.line, th.col)
     preview = th.props.get("preview", "classic")
     if preview not in PREVIEWS:
         raise ThemeProblem(f"preview= must be one of: {', '.join(PREVIEWS)}", th.line, th.col)
 
     try:
         modes = theme_modes(nodes)
-    except (ValueError, KeyError, IndexError, TypeError) as e:
-        raise ThemeProblem(f"couldn't resolve the colors ({e})")
-    lay = layout_text(src, nodes)
+    except (ValueError, KeyError, IndexError, TypeError):
+        raise ThemeProblem("couldn't work out the theme's colors (palette or color blocks)")
+    lay = layout_key(nodes)
     for name, b in builtins.items():
         if lay == b["layout"] and same_colors(modes["dark"], b["modes"]["dark"]) and same_colors(modes["light"], b["modes"]["light"]):
             raise ThemeProblem(f"this is the built-in theme {name} with another name: change its colors or its layout")
@@ -1235,8 +1239,25 @@ def builtin_fingerprints():
         nodes = kdl_strict(src)
         head = next(n for n in nodes if n.name == "theme")
         descs = {head.s("description"), head.s("description-en")} - {None, ""}
-        out[name] = {"layout": layout_text(src, nodes), "modes": theme_modes(nodes), "descs": descs}
+        out[name] = {"layout": layout_key(nodes), "modes": theme_modes(nodes), "descs": descs}
     return out
+
+
+def license_problem(lic):
+    """O que falta em `license=`, ou None. Um identificador da lista, ou vários com AND / OR."""
+    parts = lic.split(" ")
+    ids, ops = parts[0::2], parts[1::2]
+    if len(parts) % 2 == 0 or len(ids) > 5 or any(o not in ("AND", "OR") for o in ops) or not all(ids):
+        return f"use one license identifier, or a few joined with AND / OR, such as {LICENSE_EXAMPLES}"
+    for i in ids:
+        if i in LICENSES:
+            continue
+        same = [x for x in LICENSES if x.lower() == i.lower()]
+        if same:
+            return f"write {i} as {same[0]}"
+        return (f"{i} isn't one of the open licenses the gallery takes ({LICENSE_EXAMPLES}). "
+                "The full list is in the themes guide, \"Sharing your theme\"")
+    return None
 
 
 def check_community(folder=COMMUNITY_DIR):
@@ -1600,8 +1621,19 @@ BUILDER_CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-
                "font-src 'self'; connect-src 'self'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'self'; form-action 'none'")
 
 
+def script_json(data):
+    """JSON para dentro de <script type="application/json">. Nenhum `<`, `>` ou `&` fica cru (vira \\u003c…),
+    então nada do texto de um tema (um `</script>`, um `<!--<script>`) muda onde o navegador acha o fim do
+    bloco. Fora de strings o JSON não tem esses caracteres, e JSON.parse devolve o mesmo texto."""
+    s = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    for ch, esc in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"), ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
+        s = s.replace(ch, esc)
+    return s
+
+
 def build_builder(lang, themes, community):
-    """O criador de temas: os .kdl embutidos vão junto, dentro da página, sem buscar nada depois."""
+    """O criador de temas: os .kdl embutidos vão junto, dentro da página. Um tema da comunidade
+    (#community=nome) vem de docs/community/nome.kdl, do próprio site, só quando o link pede."""
     src = (SITE / "theme-builder.html").read_text(encoding="utf-8")
     src = re.sub(r"\{\{(.*?)\|\|(.*?)\}\}", lambda m: m.group(1 if lang == "en" else 2), src, flags=re.S)
     path = builder_url(lang)
@@ -1609,11 +1641,13 @@ def build_builder(lang, themes, community):
     root = root_of(path)
     data = {"order": THEMES, "url": BASE_URL + path,
             "themes": {n: {"src": (ROOT / "themes" / f"{n}.kdl").read_text(encoding="utf-8"), "desc": themes[n]["desc"], "descEn": themes[n]["descEn"]} for n in THEMES},
-            "community": {c["name"]: {"src": c["src"]} for c in community}}
-    blob = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+            "community": [c["name"] for c in community], "communityBase": rel(path, "community/")}
+    blob = script_json(data)
     options = "".join(f'<option value="{n}">{n}</option>' for n in THEMES)
+    licenses = "".join(f'<option value="{x}">' for x in LICENSES)
     src = (src.replace("%ROOT%", root).replace("%REPO%", REPO).replace("%GUIDE%", rel(path, page_url(lang, "x")).removesuffix("x.html"))
-           .replace("%COMMUNITY%", rel(path, community_url(lang))).replace("%START_OPTIONS%", options).replace("%LAYOUT_OPTIONS%", options).replace("%BUILDER_DATA%", blob))
+           .replace("%COMMUNITY%", rel(path, community_url(lang))).replace("%START_OPTIONS%", options).replace("%LAYOUT_OPTIONS%", options)
+           .replace("%LICENSE_OPTIONS%", licenses).replace("%BUILDER_DATA%", blob))
     title = t(lang, "Theme builder · larperCord", "Criador de temas · larperCord")
     desc = t(lang, "Build a larperCord theme in the browser: colors for dark and light, fonts, layout and options, a live preview, a contrast check and a .kdl file to download.",
              "Monte um tema do larperCord no navegador: cores do claro e do escuro, fontes, layout e opções, prévia ao vivo, checagem de contraste e um .kdl para baixar.")
@@ -1651,7 +1685,7 @@ def build_community(lang, community):
     src = re.sub(rf"<!--{drop}-->.*?<!--/{drop}-->\n?", "", src, flags=re.S)
     src = src.replace(f"<!--{keep}-->\n", "").replace(f"<!--/{keep}-->\n", "")
     data = {"order": [c["name"] for c in community], "themes": {c["name"]: {"src": c["src"]} for c in community}}
-    blob = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    blob = script_json(data)
     count = len(community)
     src = (src.replace("%ROOT%", root).replace("%REPO%", REPO).replace("%GUIDE%", rel(path, page_url(lang, "x")).removesuffix("x.html"))
            .replace("%BUILDER%", rel(path, builder_url(lang))).replace("%CARDS%", "\n".join(community_card(lang, path, c) for c in community))
@@ -1690,6 +1724,9 @@ def report_community(problems):
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--check-community":
         folder = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else COMMUNITY_DIR
+        if len(sys.argv) > 2 and not folder.is_dir():
+            print(f"{sys.argv[2]}: no such folder", file=sys.stderr)
+            raise SystemExit(2)
         community, problems = check_community(folder)
         if problems:
             report_community(problems)
