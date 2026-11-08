@@ -42,6 +42,7 @@ larpercord [options]
 | `--qa` | roda o teste automático da interface, com capturas de tela em `qa-out/` |
 | `--voice-test GUILD CHANNEL` | entra num canal de voz por 25 s, sempre mudo (precisa de `LARPER_TOKEN`) |
 | `--help` | mostra o texto de uso |
+| `--version` | mostra a versão e sai |
 
 No Windows o programa é o `larpercord.exe`, e ele não fica no `PATH`. No PowerShell, chame pelo caminho completo (é onde o `install.ps1` instala; se você descompactou o zip, use essa pasta), ou ponha as opções no fim do **Destino** de um atalho:
 
@@ -49,15 +50,17 @@ No Windows o programa é o `larpercord.exe`, e ele não fica no `PATH`. No Power
 & "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe" --theme vidro
 ```
 
-A versão para Windows não tem console, então as opções que só imprimem texto (`--help`, `--list-themes`, `--stats`) não mostram nada no terminal. Para ler esse texto, mande para um arquivo:
+A versão para Windows não tem console, então as opções que só imprimem texto (`--help`, `--list-themes`, `--stats`, `--version`) não mostram nada no terminal. Para ler esse texto, mande para um arquivo:
 
 ```powershell
 Start-Process "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe" -ArgumentList '--list-themes' -NoNewWindow -Wait -RedirectStandardError saida.txt; Get-Content saida.txt
 ```
 
+O `--version` escreve na saída padrão, então para ele use `-RedirectStandardOutput` no lugar de `-RedirectStandardError`.
+
 Os temas embutidos também aparecem em Configurações → Aparência.
 
-Nos dois sistemas, se o larperCord já estiver aberto, mesmo só na bandeja, abrir de novo só traz aquela janela de volta e ignora as outras opções. Encerre antes (**Sair** no menu do ícone da bandeja). `--demo`, `--shot`, `--list-themes`, `--help` e `--voice-test` funcionam de qualquer jeito.
+Nos dois sistemas, se o larperCord já estiver aberto, mesmo só na bandeja, abrir de novo só traz aquela janela de volta e ignora as outras opções. Encerre antes (**Sair** no menu do ícone da bandeja). `--demo`, `--shot`, `--list-themes`, `--help`, `--version` e `--voice-test` funcionam de qualquer jeito.
 
 ## Variáveis de ambiente
 

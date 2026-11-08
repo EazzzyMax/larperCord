@@ -84,6 +84,7 @@
 - An update replaces the file you actually run, whatever its name, and reopens it. Before, the Linux download kept the old version and Restart could open nothing.
 - The app opens on a system with no fonts at all, such as a Windows or wine install without `C:\Windows\Fonts`, with the font built into Dear ImGui.
 - On Windows, the app's hints name the Windows folders and Credential Manager, and OpenSSL no longer reads an `openssl.cnf` from a folder another user could create.
+- `larpercord --version` prints the version, for scripts and packages.
 
 **Site and docs**
 - The site has a theme builder with a live preview, a contrast check and a `.kdl` to download. It also takes the colors of a BetterDiscord or Vencord theme.

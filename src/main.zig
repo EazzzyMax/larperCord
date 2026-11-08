@@ -40,6 +40,7 @@ const usage =
     \\  --voice-test G C  entra no canal de voz C do servidor G por 25 s
     \\  --tls-check URL   confere se a rede do app funciona neste sistema (certificados e WebSocket)
     \\  --restarted       toma o lugar do larperCord que está fechando (usado ao reiniciar)
+    \\  --version         mostra a versão e sai
     \\
     \\atalhos: Ctrl+K paleta · Ctrl+, configurações · F2 próximo tema
     \\         Ctrl+Tab abas · Alt+1..9 · Ctrl+W fecha aba
@@ -108,6 +109,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             std.debug.print("{s}", .{usage});
             return;
+        } else if (std.mem.eql(u8, arg, "--version")) {
+            return printVersion();
         } else return fail("opção desconhecida (veja --help)");
     }
 
@@ -139,6 +142,17 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // No QA, reiniciar só confere a saída: a cópia nova entraria na conta de quem roda.
     if (restart and !opts.qa) @import("net/updater.zig").spawnSelf();
     if (!ok) std.process.exit(1);
+}
+
+/// Na saída padrão, como em todo programa: quem empacota ou confere uma instalação lê com
+/// $(larpercord --version). No Windows o app não tem console, então a linha só aparece com
+/// a saída redirecionada (o GetStdHandle vem nulo e a escrita não faz nada).
+fn printVersion() void {
+    const line = "larperCord " ++ @import("build_options").version ++ "\n";
+    if (sys.windows) {
+        var n: c.DWORD = 0;
+        _ = c.WriteFile(c.GetStdHandle(c.STD_OUTPUT_HANDLE), line.ptr, line.len, &n, null);
+    } else _ = c.write(1, line.ptr, line.len);
 }
 
 /// O curl do app contra um endereço qualquer, sem conta nenhuma: confere os certificados

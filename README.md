@@ -325,11 +325,12 @@ Segoe UI Emoji from `C:\Windows\Fonts`.
 | `zig build web -Demscripten=DIR` | the browser demo in WebAssembly ([how](tools/web/README.md)) |
 
 ```
-larpercord [--theme NAME] [--demo] [--settings] [--list-themes] [--no-live] [--shot FILE.png] [--stats]
+larpercord [--theme NAME] [--demo] [--settings] [--list-themes] [--no-live] [--shot FILE.png] [--stats] [--version]
 ```
 
-On Windows, `larpercord.exe` has no console window, so `--help`, `--list-themes` and `--stats` print nothing
-in a terminal. To see their output, send it to a file:
+On Windows, `larpercord.exe` has no console window, so `--help`, `--list-themes`, `--stats` and `--version` print
+nothing in a terminal. To see their output, send it to a file (`--version` writes to standard output: use
+`-RedirectStandardOutput` for it):
 
 ```powershell
 Start-Process .\larpercord.exe -ArgumentList '--list-themes' -RedirectStandardError out.txt -Wait; Get-Content out.txt

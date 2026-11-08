@@ -84,6 +84,7 @@
 - Uma atualização troca o arquivo que você roda de fato, com o nome que ele tiver, e reabre esse arquivo. Antes, o download para Linux continuava na versão velha e o Reiniciar podia não abrir nada.
 - O app abre num sistema sem nenhuma fonte, como um Windows ou wine sem `C:\Windows\Fonts`, com a fonte que vem dentro do Dear ImGui.
 - No Windows, as dicas do app citam as pastas do Windows e o Gerenciador de Credenciais, e o OpenSSL não lê mais um `openssl.cnf` de uma pasta que outro usuário poderia criar.
+- `larpercord --version` mostra a versão, para scripts e pacotes.
 
 **Site e documentação**
 - O site tem um criador de temas com prévia ao vivo, conferência de contraste e um `.kdl` para baixar. Ele também aproveita as cores de um tema do BetterDiscord ou do Vencord.

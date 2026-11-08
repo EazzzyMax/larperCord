@@ -326,11 +326,12 @@ Georgia e Segoe UI Emoji de `C:\Windows\Fonts`.
 | `zig build web -Demscripten=PASTA` | a demonstração no navegador em WebAssembly ([como](tools/web/README.pt-BR.md)) |
 
 ```
-larpercord [--theme NOME] [--demo] [--settings] [--list-themes] [--no-live] [--shot ARQ.png] [--stats]
+larpercord [--theme NOME] [--demo] [--settings] [--list-themes] [--no-live] [--shot ARQ.png] [--stats] [--version]
 ```
 
-No Windows, o `larpercord.exe` não tem janela de console, então `--help`, `--list-themes` e `--stats` não
-mostram nada no terminal. Para ver a saída, mande para um arquivo:
+No Windows, o `larpercord.exe` não tem janela de console, então `--help`, `--list-themes`, `--stats` e `--version`
+não mostram nada no terminal. Para ver a saída, mande para um arquivo (o `--version` escreve na saída padrão:
+para ele, use `-RedirectStandardOutput`):
 
 ```powershell
 Start-Process .\larpercord.exe -ArgumentList '--list-themes' -RedirectStandardError saida.txt -Wait; Get-Content saida.txt

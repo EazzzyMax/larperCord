@@ -42,6 +42,7 @@ larpercord [options]
 | `--qa` | runs the automatic UI test, with screenshots in `qa-out/` |
 | `--voice-test GUILD CHANNEL` | joins a voice channel for 25 s, always muted (needs `LARPER_TOKEN`) |
 | `--help` | shows the usage text |
+| `--version` | prints the version and exits |
 
 On Windows the program is `larpercord.exe`, and it isn't on `PATH`. In PowerShell, call it by its full path (this is where `install.ps1` puts it; if you unzipped it yourself, use that folder), or put the options at the end of a shortcut's **Target**:
 
@@ -49,15 +50,17 @@ On Windows the program is `larpercord.exe`, and it isn't on `PATH`. In PowerShel
 & "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe" --theme vidro
 ```
 
-The Windows build has no console, so the options that only print text (`--help`, `--list-themes`, `--stats`) show nothing in the terminal. To read that text, send it to a file:
+The Windows build has no console, so the options that only print text (`--help`, `--list-themes`, `--stats`, `--version`) show nothing in the terminal. To read that text, send it to a file:
 
 ```powershell
 Start-Process "$env:LOCALAPPDATA\Programs\larperCord\larpercord.exe" -ArgumentList '--list-themes' -NoNewWindow -Wait -RedirectStandardError out.txt; Get-Content out.txt
 ```
 
+`--version` writes to standard output, so for it use `-RedirectStandardOutput` instead of `-RedirectStandardError`.
+
 The built-in themes are also listed in Settings → Appearance.
 
-On both systems, if larperCord is already open, even only in the tray, starting it again just brings that window back and ignores the other options. Quit it first (**Quit** in the tray icon's menu). `--demo`, `--shot`, `--list-themes`, `--help` and `--voice-test` work either way.
+On both systems, if larperCord is already open, even only in the tray, starting it again just brings that window back and ignores the other options. Quit it first (**Quit** in the tray icon's menu). `--demo`, `--shot`, `--list-themes`, `--help`, `--version` and `--voice-test` work either way.
 
 ## Environment variables
 
