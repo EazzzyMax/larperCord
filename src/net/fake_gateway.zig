@@ -2578,6 +2578,12 @@ fn buildHistory(channel: Id, now_ms: i64) ![]types.Message {
         try set(&msgs[n - 6], try i18n.allocPrint(alloc, "vejam <#{d}> e falem com <@1001>; o outro canal: https://ptb.discord.com/channels/{d}/{d}", "check <#{d}> and talk to <@1001>; the other channel: https://ptb.discord.com/channels/{d}/{d}", .{ channelId(0, 4), guildId(0), channelId(0, 5) }));
     }
     if (channel == rtl_channel) try demoRtlMessages(msgs);
+    if (channel == scripts_channel) for (scripts_texts, 1..) |text, back| {
+        const m = &msgs[n - back];
+        alloc.free(m.content);
+        m.content = try alloc.dupe(u8, text);
+        m.reply_to = 0;
+    };
     // As enquetes: sem texto, com o cartão parado (o de votar usa a enquete
     // que vem à parte, ver `demoPollExtras`).
     if (channel == poll_channel) for (poll_backs, 0..) |back, pi| {
@@ -2595,6 +2601,16 @@ fn buildHistory(channel: Id, now_ms: i64) ![]types.Message {
     };
     return msgs;
 }
+
+/// #música do "Zig Brasil": tailandês, devanágari, georgiano, armênio, grego, cirílico e
+/// amárico. A fonte do tema não tem várias dessas letras, e elas vêm das fontes do sistema
+/// (ui/fonts.zig, por bloco do Unicode; tailandês e etíope costumam sair do mesmo arquivo). O
+/// QA confere que nenhuma vira "?" (qa_fontes.zig).
+pub const scripts_channel: Id = 502_008;
+pub const scripts_texts = [_][]const u8{
+    "Հայերեն: Բարեւ ձեզ · Ελληνικά: Καλημέρα · Русский: Привет, мир · አማርኛ: ሰላም",
+    "ไทย: สวัสดีครับ · हिन्दी: नमस्ते दुनिया · ქართული: გამარჯობა",
+};
 
 /// #música: árabe e hebraico (texto da direita para a esquerda, ui/bidi.zig), um deles no
 /// meio de uma frase em português e outro num embed. O QA confere que aparecem (qa_rtl.zig).

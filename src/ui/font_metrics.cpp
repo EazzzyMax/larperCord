@@ -38,3 +38,24 @@ extern "C" void larper_font_source_to(ImFont* font, const void* data, int font_n
 extern "C" int larper_font_index_size(ImFont* font, float size) {
     return font->GetFontBaked(size)->IndexLookup.Size;
 }
+
+// Uma fonte reserva de outra escrita (fonts.zig, marcada com `tag` no nome) ganhou mais um
+// bloco do Unicode: passa a valer fora destas faixas. A mesma fonte no atlas, sem abrir outra
+// face do FreeType. As letras já carregadas saem, como numa fonte nova mesclada (AddFont).
+extern "C" void larper_font_source_exclude(ImFont* font, const void* data, int font_no, const char* tag, const ImWchar* ranges) {
+    int size = 0;
+    while (ranges[size] != 0) size++;
+    IM_ASSERT((size & 1) == 0 && size <= 64);
+    for (ImFontConfig* src : font->Sources) {
+        if (src->FontData != data || (int)src->FontNo != font_no || strcmp(src->Name, tag) != 0) continue;
+        ImFontAtlasFontDiscardBakes(font->OwnerAtlas, font, 0);
+        IM_FREE((void*)src->GlyphExcludeRanges);
+        src->GlyphExcludeRanges = (ImWchar*)ImMemdup(ranges, sizeof(ImWchar) * (size_t)(size + 1));
+    }
+}
+
+// Alguma fonte de `font` desenha esta letra (sem cair no "?")? Respeita as faixas excluídas
+// de cada fonte, ao contrário do IsGlyphInFont. Para o QA.
+extern "C" bool larper_font_draws(ImFont* font, float size, unsigned int c) {
+    return font->GetFontBaked(size)->FindGlyphNoFallback((ImWchar)c) != NULL;
+}
