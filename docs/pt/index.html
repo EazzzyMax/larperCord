@@ -46,7 +46,7 @@
   <canvas class="pixels" aria-hidden="true"></canvas>
   <div class="hero-first">
     <div class="hero-text">
-      <span class="tag"><b>layout</b> <i>{ row {</i> &nbsp;// cliente nativo e não oficial de Discord · v0.6.1</span>
+      <span class="tag"><b>layout</b> <i>{ row {</i> &nbsp;// cliente nativo e não oficial de Discord · v0.6.2</span>
       <h1><span data-g="O Discord,">O Discord,</span><em data-g="sem o navegador">sem o navegador</em><span data-g="dentro.">dentro.</span></h1>
       <p class="typed" aria-hidden="true"><span class="typed-cmd"></span><span class="typed-out"></span><i class="typed-cur"></i></p>
       <div class="hero-copy">
@@ -110,7 +110,7 @@
     <tbody>
       <tr><th>RAM (PSS)</th><td>1,279 MB</td><td>~290 MB</td><td class="us">~130 MB com conta real</td></tr>
       <tr><th>CPU parado</th><td>12–47%</td><td>0.1%</td><td class="us">0–0.4%</td></tr>
-      <tr><th>Binário em disco</th><td>287 MB</td><td>não lançado</td><td class="us">~15 MB</td></tr>
+      <tr><th>Binário em disco</th><td>287 MB</td><td>não lançado</td><td class="us">~14 MB</td></tr>
     </tbody>
   </table>
   </div>
@@ -258,7 +258,7 @@
       <li><h3>Perfis completos</h3><p>Banner, bio, atividade, amigos e servidores em comum, conexões, cargos e uma nota só sua.</p><img src="../assets/shots/pt/f-perfil.webp" alt="Um perfil completo de usuário" loading="lazy" decoding="async"></li>
       <li><h3>Mensagens salvas, com anotação</h3><p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>: favoritos que ficam só no seu computador. Nada vai para o Discord.</p><img src="../assets/shots/pt/f-salvas.webp" alt="Uma mensagem salva com anotação" loading="lazy" decoding="async"></li>
       <li><h3>Alertas e filtros</h3><p>Palavras de alerta contam como menção, o filtro recolhe mensagens, “ignorar” esconde alguém sem bloquear e o modo foco silencia tudo menos DMs e menções. Tudo local.</p><img src="../assets/shots/pt/f-alertas.webp" alt="A página de alertas e filtros" loading="lazy" decoding="async"></li>
-      <li><h3>E o resto</h3><p>Respostas, edição, reações, botão direito em tudo, seleção de texto entre mensagens, imagens e GIFs, pastas de servidores, abas de canal, várias contas, rascunho por canal, proxy e Tor, inglês e português, teclas de vim opcionais. <a href="../pt/guide/features.html">Tour completo →</a></p><img src="../assets/shots/pt/f-menu.webp" alt="O menu do botão direito numa mensagem" loading="lazy" decoding="async"></li>
+      <li><h3>E o resto</h3><p>Respostas, edição, reações, botão direito em tudo, seleção de texto entre mensagens, imagens e GIFs, calls em DM e grupo, botões e comandos de barra dos bots, enquetes, moderação, pastas de servidores, abas de canal, várias contas, rascunho por canal, proxy e Tor, inglês, português e japonês, árabe e hebraico, teclas de vim opcionais. <a href="../pt/guide/features.html">Tour completo →</a></p><img src="../assets/shots/pt/f-menu.webp" alt="O menu do botão direito numa mensagem" loading="lazy" decoding="async"></li>
     </ol>
     <div class="tour-stage" aria-hidden="true"></div>
   </div>
@@ -357,21 +357,24 @@
   <table class="state">
     <thead><tr><th>Área</th><th>Estado</th><th>Detalhe</th></tr></thead>
     <tbody>
-      <tr><th>Mensagens, DMs, reações, respostas</th><td><span class="chip ok">funciona</span></td><td>Enviar, editar, excluir, histórico, menções</td></tr>
+      <tr><th>Mensagens, DMs, reações, respostas</th><td><span class="chip ok">funciona</span></td><td>Enviar, editar, excluir, histórico, menções, enquetes, opções de envio</td></tr>
+      <tr><th>Bots e apps</th><td><span class="chip ok">funciona</span></td><td>Botões, menus de seleção, formulários e comandos de barra</td></tr>
       <tr><th>Imagens</th><td><span class="chip ok">funciona</span></td><td>Avatares e anexos, com cache de tamanho fixo</td></tr>
       <tr><th>Vídeo na conversa</th><td><span class="chip ok">funciona</span></td><td>Anexos e links diretos. Precisa do FFmpeg: o da distro no Linux, o botão Baixar FFmpeg em Configurações → Chat no Windows</td></tr>
       <tr><th>Caixa de entrada, salvas, busca offline</th><td><span class="chip ok">funciona</span></td><td>Tudo local, dá para desligar e apagar</td></tr>
-      <tr><th>Contas, proxy, plugins em Lua</th><td><span class="chip ok">funciona</span></td><td></td></tr>
+      <tr><th>Contas, proxy, plugins em Lua</th><td><span class="chip ok">funciona</span></td><td>Bloquear, amigos, silenciar, status e perfil sincronizados com a sua conta</td></tr>
+      <tr><th>Moderação</th><td><span class="chip ok">funciona</span></td><td>Expulsar, banir, castigar, silenciar e ensurdecer no servidor</td></tr>
       <tr><th>Threads e fóruns</th><td><span class="chip ok">funciona</span></td><td>Threads aninhadas, lista de posts dos fóruns, criar threads e posts</td></tr>
       <tr><th>Emoji personalizado, figurinhas, autocompletar</th><td><span class="chip ok">funciona</span></td><td>Animados inclusive. O seletor avisa quando um emoji precisa de Nitro</td></tr>
       <tr><th>Leitura, fixadas, links do Discord</th><td><span class="chip ok">funciona</span></td><td>Sincronizada com os seus outros aparelhos</td></tr>
       <tr><th>Temas</th><td><span class="chip ok">funciona</span></td><td>11 embutidos, claro e escuro, recarregam ao salvar</td></tr>
-      <tr><th>Voz</th><td><span class="chip part">parcial</span></td><td>E2EE, mixer, seletor de dispositivo, aperte para falar e filtros funcionam. O aperte para falar precisa da janela em foco</td></tr>
-      <tr><th>Permissões</th><td><span class="chip part">parcial</span></td><td>Canais trancados, voz, threads e fóruns são respeitados. A caixa de texto nos canais comuns, as reações e a lista de membros ainda não consultam</td></tr>
+      <tr><th>Entrar em servidor por convite</th><td><span class="chip ok">funciona</span></td><td>Pelo cartão do convite, por link ou por código, com um aviso antes</td></tr>
+      <tr><th>Árabe, hebraico, outras escritas</th><td><span class="chip part">parcial</span></td><td>Aparecem. Faltam digitar da direita para a esquerda na caixa de mensagem e a composição de escritas como o devanágari</td></tr>
+      <tr><th>Voz</th><td><span class="chip part">parcial</span></td><td>Canais dos servidores e calls em DM e grupo, E2EE, mixer, seletor de dispositivo, aperte para falar e filtros funcionam. O aperte para falar precisa da janela em foco</td></tr>
+      <tr><th>Permissões</th><td><span class="chip part">parcial</span></td><td>Canais trancados, voz, threads e fóruns são respeitados, e a caixa de mensagem diz por que você não pode enviar. As reações e a lista de membros ainda não consultam</td></tr>
       <tr><th>Notificações</th><td><span class="chip part">parcial</span></td><td>Pelo <code>notify-send</code> no Linux e pela bandeja no Windows. Clicar não abre o canal</td></tr>
       <tr><th>Acessibilidade</th><td><span class="chip part">parcial</span></td><td>Escala de fonte, reduzir movimento, paleta por teclado. Sem foco visível nem alto contraste</td></tr>
       <tr><th>Plataformas</th><td><span class="chip part">parcial</span></td><td>Linux e Windows 10/11. Testado todo dia no Arch com Hyprland; o Windows é novo.</td></tr>
-            <tr><th>Entrar em servidor por convite</th><td><span class="chip no">falta</span></td><td>Convites viram um cartão e abrem no navegador</td></tr>
             <tr><th>Compartilhar tela e câmera</th><td><span class="chip no">falta</span></td><td></td></tr>
     </tbody>
   </table>
@@ -490,7 +493,7 @@
 
 <footer class="colophon">
   <div>
-    <p><strong style="color:var(--text)">larperCord</strong> v0.6.1</p>
+    <p><strong style="color:var(--text)">larperCord</strong> v0.6.2</p>
     <p>Projeto independente. Não tem relação nem aval da Discord Inc. “Discord” é uma marca de seu dono.</p>
     <p>Licença GPL-3.0. O código de terceiros segue as licenças próprias.</p>
   </div>

@@ -12,7 +12,7 @@ Alguns itens aqui são o jeito como o larperCord fica leve, e o app oficial pode
 - **[Nada de navegador dentro](page:architecture#a-renderizacao).** Código nativo que desenha com Dear ImGui sobre o SDL3. O app oficial roda em Electron, um navegador empacotado como app, por enquanto: em 4 de novembro de 2026, o CTO do Discord mostrou uma versão nativa em Rust que ainda não saiu ([os primeiros números](page:performance#os-numeros)).
 - **[Cerca de 130 MB de RAM](page:performance#os-numeros)** com uma conta real. ¹
 - **[0–0,4% de CPU parado](page:performance#os-numeros).** O app dorme e só acorda com a rede, uma tecla ou o relógio. ²
-- **[Cerca de 15 MB](page:performance#os-numeros)** no download para Linux, num arquivo só. ³
+- **[Cerca de 14 MB](page:performance#os-numeros)** no download para Linux, num arquivo só. ³
 - **[As coisas nascem quando você pede](page:performance#dez-decisoes).** A thread de voz quando você entra numa call, e ela para quando você sai, o FFmpeg no primeiro vídeo, e nenhuma thread de plugins enquanto nenhum plugin estiver ligado.
 - **[Escondido, fica mais leve](page:performance#dez-decisoes).** Depois de um minuto na bandeja ou minimizado, as imagens saem da memória, menos as pequenas que estavam na tela.
 - **[Limites de memória que você escolhe](page:settings#as-paginas).** Configurações → Desempenho mostra a RAM ao vivo e para onde ela vai, e define quanto fica para imagens, cada GIF e mensagens.

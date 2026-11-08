@@ -1,10 +1,14 @@
 # Chamadas de voz
 
-O larperCord entra em canais de voz de verdade do Discord, com criptografia de ponta a ponta. Tudo que é de voz roda numa thread própria, criada só quando você entra numa call. Fora de uma call, o módulo não usa CPU e o app não inicializa o áudio, a não ser que você abra Configurações → Voz, que lê o microfone para o medidor enquanto estiver aberta.
+O larperCord entra em canais de voz de verdade do Discord e em calls de DM e grupo, com criptografia de ponta a ponta. Tudo que é de voz roda numa thread própria, criada só quando você entra numa call. Fora de uma call, o módulo não usa CPU e o app não inicializa o áudio, a não ser que você abra Configurações → Voz, que lê o microfone para o medidor enquanto estiver aberta.
 
 ## Usando
 
 Clique num canal de voz para entrar. O painel acima do seu usuário mostra a call, com mudo, ensurdecer e desconectar. Você também pode sair por "Sair da call", clicando com o botão direito no canal de voz. Quem está falando ganha um anel em volta do avatar.
+
+Numa DM ou grupo, o botão de telefone no cabeçalho começa uma call; os temas de terminal mostram `[ligar]`. O cabeçalho mostra quem está na call e quem ainda está sendo chamado. Uma chamada chegando mostra um cartão com **Atender** e **Recusar** e toca até você responder, com uma notificação do sistema e a barra de tarefas piscando, mesmo com o app na bandeja. No Não perturbe, ou numa conversa silenciada, o cartão vem sem o toque. O toque para quando você atende em outro aparelho ou quem ligou desiste.
+
+Botão direito no microfone ou no fone, ou na setinha que aparece ao passar o mouse, troca o dispositivo e o volume, mesmo no meio da call; numa call, o botão direito na faixa de voz mostra os dois. `Ctrl+Shift+M` muta e `Ctrl+Shift+D` ensurdece.
 
 O **mixer** dá a cada pessoa o próprio volume.
 
@@ -22,7 +26,7 @@ Os canais em que você não tem permissão para conectar aparecem com cadeado, e
 - **Aperte para falar**: uma tecla ou um botão do mouse. Só funciona com a janela em foco, e o envio segue por um instante depois de soltar, para não cortar a última palavra.
 - **Filtros**: um passa-altas que tira o ronco abaixo de 90 Hz e uma porta de ruído. Cada um pode ser desligado.
 - **Supressão de ruído**: Desligada ou RNNoise, ligada por padrão e trocável em plena call. Roda no seu computador, atrasa o microfone em 20 ms e custa de 2% a 3,5% de um núcleo num Core i5 de 2011 com o microfone aberto, e menos em processadores mais novos. Desligada, no mudo ou com a tecla do aperte para falar solta, não custa nada.
-- **Sons da call**: bipes curtos ao entrar, sair, mutar e desmutar, que podem ser desligados.
+- **Sons**: uma linha por evento (você entra ou sai, alguém entra ou sai da sua call, mudo, desmudo, ensurdecer, desensurdecer e o toque). Cada um pode ser Desligado, Clássico, Suave, Cristal, Retrô ou um arquivo seu em WAV ou Ogg Opus (até 2 MB e 5 s, 15 s para o toque), com prévia e volume. **Sons da call** continua ligando ou desligando todos os curtos.
 
 ![A página de configurações de voz](shot:f-vozcfg)
 

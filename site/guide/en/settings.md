@@ -6,17 +6,17 @@ Open settings with `Ctrl+,`. Changes apply right away and are saved in `settings
 
 | Page | What's there |
 |---|---|
-| **My Account** | Account details and log out |
-| **Privacy** | Typing indicator, Tenor and Giphy animation, streamer mode, message log, keep messages on disk, clear cache, and the network proxy |
-| **Alerts & Filters** | Alert words, word filter, ignored people and focus mode |
+| **My Account** | Account details, your display name, pronouns and About me, and log out |
+| **Privacy** | Typing indicator, Tenor and Giphy animation, streamer mode, message log, keep messages on disk, clear cache, Rich Presence, the warning before joining a server, and the network proxy |
+| **Alerts & Filters** | Alert words, word filter, ignored people (on your account or this computer) and focus mode |
 | **Appearance** | Mode (dark, light, follow the system), theme with thumbnails and its options, font scale, compact mode, avatars, 24-hour clock, status ring, accent color, corners, custom theme colors, member list, status bar and resetting panel sizes |
 | **Accessibility** | Reduce motion, role colors, underline links |
 | **Chat** | Autoplay GIFs, images from links, data saver, video, always show spoilers, markdown preview, open at the first unread. Without FFmpeg, the video section says which package to install on Linux and has a **Download FFmpeg** button on Windows |
-| **Voice** | Microphone and output, volumes, voice activity or push-to-talk, microphone test, filters and call sounds. See [Voice calls](page:voice) |
+| **Voice** | Microphone and output, volumes, voice activity or push-to-talk, microphone test, filters and a sound for each call event. See [Voice calls](page:voice) |
 | **Notifications** | Desktop notifications and taskbar flashing |
 | **Keybinds** | The shortcut list and vim navigation |
-| **Language** | Follow the system, Português (Brasil) or English (US) |
-| **Advanced** | Developer mode (message IDs, "Copy ID"), reload themes on save, close to tray, text weight, and the debug log |
+| **Language** | Follow the system, Português (Brasil), English (US) or 日本語 (Japanese) |
+| **Advanced** | Developer mode (message IDs, "Copy ID"), reload themes on save, close to tray, text weight, the debug log, and how often Discord asked for a captcha or verification |
 | **Performance** | RAM, CPU per frame, idle CPU and messages per channel |
 | **Plugins** | A card for each plugin (what it is and what it asks for), on/off, errors, host approvals, its panel, Reload and Install bundled plugins |
 | **About** | Version and what it's built with |

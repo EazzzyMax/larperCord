@@ -46,7 +46,7 @@
   <canvas class="pixels" aria-hidden="true"></canvas>
   <div class="hero-first">
     <div class="hero-text">
-      <span class="tag"><b>layout</b> <i>{ row {</i> &nbsp;// unofficial native Discord client · v0.6.1</span>
+      <span class="tag"><b>layout</b> <i>{ row {</i> &nbsp;// unofficial native Discord client · v0.6.2</span>
       <h1><span data-g="Discord,">Discord,</span><em data-g="without the browser">without the browser</em><span data-g="inside.">inside.</span></h1>
       <p class="typed" aria-hidden="true"><span class="typed-cmd"></span><span class="typed-out"></span><i class="typed-cur"></i></p>
       <div class="hero-copy">
@@ -110,7 +110,7 @@
     <tbody>
       <tr><th>RAM (PSS)</th><td>1,279 MB</td><td>~290 MB</td><td class="us">~130 MB with a real account</td></tr>
       <tr><th>CPU when idle</th><td>12–47%</td><td>0.1%</td><td class="us">0–0.4%</td></tr>
-      <tr><th>Binary on disk</th><td>287 MB</td><td>not released</td><td class="us">~15 MB</td></tr>
+      <tr><th>Binary on disk</th><td>287 MB</td><td>not released</td><td class="us">~14 MB</td></tr>
     </tbody>
   </table>
   </div>
@@ -258,7 +258,7 @@
       <li><h3>Full profiles</h3><p>Banner, bio, activity, mutual friends and servers, connections, roles and a private note.</p><img src="assets/shots/en/f-perfil.webp" alt="A full user profile" loading="lazy" decoding="async"></li>
       <li><h3>Saved messages, with notes</h3><p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>: bookmarks that live only on your computer. Nothing goes to Discord.</p><img src="assets/shots/en/f-salvas.webp" alt="A saved message with a note" loading="lazy" decoding="async"></li>
       <li><h3>Alerts and filters</h3><p>Alert words count as mentions, a word filter collapses messages, “ignore” hides someone without blocking them, and focus mode quiets everything but DMs and mentions. All local.</p><img src="assets/shots/en/f-alertas.webp" alt="The alerts and filters settings page" loading="lazy" decoding="async"></li>
-      <li><h3>And the rest</h3><p>Replies, edits, reactions, right-click menus everywhere, multi-message text selection, images and GIFs, server folders, channel tabs, multiple accounts, drafts per channel, proxy and Tor support, English and Portuguese, optional vim keys. <a href="guide/features.html">Full tour →</a></p><img src="assets/shots/en/f-menu.webp" alt="The right-click menu on a message" loading="lazy" decoding="async"></li>
+      <li><h3>And the rest</h3><p>Replies, edits, reactions, right-click menus everywhere, multi-message text selection, images and GIFs, calls in DMs and groups, bot buttons and slash commands, polls, moderation, server folders, channel tabs, multiple accounts, drafts per channel, proxy and Tor support, English, Portuguese and Japanese, Arabic and Hebrew, optional vim keys. <a href="guide/features.html">Full tour →</a></p><img src="assets/shots/en/f-menu.webp" alt="The right-click menu on a message" loading="lazy" decoding="async"></li>
     </ol>
     <div class="tour-stage" aria-hidden="true"></div>
   </div>
@@ -357,21 +357,24 @@
   <table class="state">
     <thead><tr><th>Area</th><th>State</th><th>Detail</th></tr></thead>
     <tbody>
-      <tr><th>Messages, DMs, reactions, replies</th><td><span class="chip ok">works</span></td><td>Send, edit, delete, history, mentions</td></tr>
+      <tr><th>Messages, DMs, reactions, replies</th><td><span class="chip ok">works</span></td><td>Send, edit, delete, history, mentions, polls, send options</td></tr>
+      <tr><th>Bots and apps</th><td><span class="chip ok">works</span></td><td>Buttons, select menus, forms and slash commands</td></tr>
       <tr><th>Images</th><td><span class="chip ok">works</span></td><td>Avatars and attachments, with a fixed-size cache</td></tr>
       <tr><th>Video in chat</th><td><span class="chip ok">works</span></td><td>Attachments and direct links. Needs FFmpeg: your distro's on Linux, the Download FFmpeg button in Settings → Chat on Windows</td></tr>
       <tr><th>Inbox, saved, offline search</th><td><span class="chip ok">works</span></td><td>All local, can be turned off and erased</td></tr>
-      <tr><th>Accounts, proxy, Lua plugins</th><td><span class="chip ok">works</span></td><td></td></tr>
+      <tr><th>Accounts, proxy, Lua plugins</th><td><span class="chip ok">works</span></td><td>Block, friends, mute, status and profile synced with your account</td></tr>
+      <tr><th>Moderation</th><td><span class="chip ok">works</span></td><td>Kick, ban, timeout, server mute and deafen</td></tr>
       <tr><th>Threads and forums</th><td><span class="chip ok">works</span></td><td>Nested threads, forum post lists, creating threads and posts</td></tr>
       <tr><th>Custom emoji, stickers, autocomplete</th><td><span class="chip ok">works</span></td><td>Animated too. The picker warns when an emoji needs Nitro</td></tr>
       <tr><th>Read state, pins, Discord links</th><td><span class="chip ok">works</span></td><td>Synced with your other devices</td></tr>
       <tr><th>Themes</th><td><span class="chip ok">works</span></td><td>11 built-in, light and dark, reload on save</td></tr>
-      <tr><th>Voice</th><td><span class="chip part">partial</span></td><td>E2EE, mixer, device picker, push-to-talk and filters work. Push-to-talk needs the window focused</td></tr>
-      <tr><th>Permissions</th><td><span class="chip part">partial</span></td><td>Locked channels, voice, threads and forums are enforced. The composer in regular channels, reactions and the member list don't check yet</td></tr>
+      <tr><th>Joining servers by invite</th><td><span class="chip ok">works</span></td><td>From an invite card, a link or a code, with a warning first</td></tr>
+      <tr><th>Arabic, Hebrew, other scripts</th><td><span class="chip part">partial</span></td><td>They display. Right-to-left typing in the message box and shaping for scripts like Devanagari are missing</td></tr>
+      <tr><th>Voice</th><td><span class="chip part">partial</span></td><td>Server channels and DM and group calls, E2EE, mixer, device picker, push-to-talk and filters work. Push-to-talk needs the window focused</td></tr>
+      <tr><th>Permissions</th><td><span class="chip part">partial</span></td><td>Locked channels, voice, threads and forums are enforced, and the message box says why you can't send. Reactions and the member list don't check yet</td></tr>
       <tr><th>Notifications</th><td><span class="chip part">partial</span></td><td>Through <code>notify-send</code> on Linux and the tray on Windows. Clicking doesn't open the channel</td></tr>
       <tr><th>Accessibility</th><td><span class="chip part">partial</span></td><td>Font scale, reduced motion, keyboard palette. No visible focus or high contrast</td></tr>
       <tr><th>Platforms</th><td><span class="chip part">partial</span></td><td>Linux and Windows 10/11. Tested daily on Arch with Hyprland; Windows is new.</td></tr>
-            <tr><th>Joining servers by invite</th><td><span class="chip no">missing</span></td><td>Invites show as a card and open in the browser</td></tr>
             <tr><th>Screen sharing and camera</th><td><span class="chip no">missing</span></td><td></td></tr>
     </tbody>
   </table>
@@ -490,7 +493,7 @@
 
 <footer class="colophon">
   <div>
-    <p><strong style="color:var(--text)">larperCord</strong> v0.6.1</p>
+    <p><strong style="color:var(--text)">larperCord</strong> v0.6.2</p>
     <p>An independent project. Not affiliated with, endorsed by or connected to Discord Inc. “Discord” is a trademark of its owner.</p>
     <p>Licensed under GPL-3.0. Third-party code keeps its own licenses.</p>
   </div>

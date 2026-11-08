@@ -12,7 +12,7 @@ Some items here are how larperCord stays light, and the official app may do simi
 - **[No browser inside](page:architecture#the-rendering).** Native code that draws with Dear ImGui on SDL3. The official app runs on Electron, a browser packaged as an app, for now: on November 4, 2026, Discord's CTO showed a native rebuild in Rust that isn't out yet ([its early numbers](page:performance#the-numbers)).
 - **[About 130 MB of RAM](page:performance#the-numbers)** with a real account. ¹
 - **[0–0.4% CPU when idle](page:performance#the-numbers).** The app sleeps until a network event, a key or the clock wakes it. ²
-- **[About 15 MB](page:performance#the-numbers)** for the Linux download, in a single file. ³
+- **[About 14 MB](page:performance#the-numbers)** for the Linux download, in a single file. ³
 - **[Things start when you ask](page:performance#ten-decisions).** The voice thread when you join a call, stopped when you leave, FFmpeg on your first video, and no plugin thread while no plugin is on.
 - **[Hidden means lighter](page:performance#ten-decisions).** After a minute in the tray or minimized, images leave memory, except small ones that were on screen.
 - **[Memory limits you set](page:settings#the-pages).** Settings → Performance shows live RAM and where it goes, and sets how much goes to images, each GIF and messages.

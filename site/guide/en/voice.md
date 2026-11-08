@@ -1,10 +1,14 @@
 # Voice calls
 
-larperCord joins real Discord voice channels, with end-to-end encryption. Everything voice-related runs on its own thread, created only when you join a call. Outside a call, the module uses no CPU and the app doesn't initialize audio, unless you open Settings → Voice, which reads the microphone for its level meter while it's open.
+larperCord joins real Discord voice channels and calls in DMs and groups, with end-to-end encryption. Everything voice-related runs on its own thread, created only when you join a call. Outside a call, the module uses no CPU and the app doesn't initialize audio, unless you open Settings → Voice, which reads the microphone for its level meter while it's open.
 
 ## Using it
 
 Click a voice channel to join. The panel above your user shows the call, with mute, deafen and disconnect. You can also leave through "Leave call" when you right-click the voice channel. Whoever is talking gets a ring around their avatar.
+
+In a DM or group DM, the phone button in the header starts a call; terminal themes show `[call]`. The header shows who's in the call and who's still being rung. An incoming call shows a card with **Accept** and **Decline** and rings until you answer, with a system notification and a taskbar flash, even with the app in the tray. In Do Not Disturb, or in a muted conversation, the card comes without the ringtone. Ringing stops when you answer on another device or the caller hangs up.
+
+Right-click the microphone or headphone button, or the small arrow that shows on hover, to switch the device and its volume, mid-call too; during a call, right-clicking the voice panel shows both. `Ctrl+Shift+M` mutes and `Ctrl+Shift+D` deafens.
 
 The **mixer** gives each person their own volume.
 
@@ -22,7 +26,7 @@ Channels where you lack the permission to connect are shown with a padlock, and 
 - **Push to talk**: a key or mouse button. It only works while the window is focused, and sending continues for a moment after you release, so the last word isn't cut.
 - **Filters**: a high-pass that removes rumble below 90 Hz and a noise gate. Each one can be turned off.
 - **Noise suppression**: Off or RNNoise, on by default and switchable mid-call. It runs on your computer, delays your mic by 20 ms and costs about 2% to 3.5% of a core on a 2011 Core i5 while the mic is open, and less on newer processors. Off, muted or with the push-to-talk key released, it costs nothing.
-- **Call sounds**: short beeps when you join, leave, mute and unmute, which can be turned off.
+- **Sounds**: one row per event (you join or leave, someone joins or leaves your call, mute, unmute, deafen, undeafen and the ringtone). Each can be Off, Classic, Soft, Crystal, Retro or your own WAV or Ogg Opus file (up to 2 MB and 5 s, 15 s for the ringtone), with a preview and a volume. **Call sounds** still turns all the short ones on or off.
 
 ![The voice settings page](shot:f-vozcfg)
 

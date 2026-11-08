@@ -6,17 +6,17 @@ Abra as configurações com `Ctrl+,`. As mudanças valem na hora e são salvas n
 
 | Página | O que tem |
 |---|---|
-| **Minha conta** | Dados da conta e sair |
-| **Privacidade** | Indicador de digitação, animação do Tenor e do Giphy, modo streamer, registro de mensagens, guardar mensagens no disco, limpar o cache e o proxy de rede |
-| **Alertas e filtros** | Palavras de alerta, filtro de palavras, pessoas ignoradas e modo foco |
+| **Minha conta** | Dados da conta, o nome que aparece, os pronomes e o Sobre mim, e sair |
+| **Privacidade** | Indicador de digitação, animação do Tenor e do Giphy, modo streamer, registro de mensagens, guardar mensagens no disco, limpar o cache, Rich Presence, o aviso antes de entrar num servidor e o proxy de rede |
+| **Alertas e filtros** | Palavras de alerta, filtro de palavras, pessoas ignoradas (na conta ou neste computador) e modo foco |
 | **Aparência** | Modo (escuro, claro, seguir o sistema), tema com miniaturas e as opções dele, escala da fonte, modo compacto, avatares, relógio de 24 horas, status em anel, cor de destaque, cantos, cores personalizadas do tema, restaurar a largura dos painéis, lista de membros e barra de status |
 | **Acessibilidade** | Reduzir movimento, cores dos cargos, sublinhar links |
 | **Chat** | Reproduzir GIFs automaticamente, imagens de links, modo economia, vídeo, sempre mostrar spoilers, prévia do markdown, abrir na primeira não lida. Sem o FFmpeg, a parte de vídeo diz qual pacote instalar no Linux e tem um botão **Baixar FFmpeg** no Windows |
-| **Voz** | Microfone e saída, volumes, detecção de voz ou aperte para falar, teste do microfone, filtros e sons da call. Veja [Chamadas de voz](page:voice) |
+| **Voz** | Microfone e saída, volumes, detecção de voz ou aperte para falar, teste do microfone, filtros e um som para cada evento da call. Veja [Chamadas de voz](page:voice) |
 | **Notificações** | Notificações na área de trabalho e piscar na barra de tarefas |
 | **Atalhos de teclado** | A lista de atalhos e a navegação estilo vim |
-| **Idioma** | Seguir o sistema, Português (Brasil) ou English (US) |
-| **Avançado** | Modo desenvolvedor (IDs das mensagens, "Copiar ID"), recarregar temas ao salvar, fechar para a bandeja, peso do texto e o registro de depuração |
+| **Idioma** | Seguir o sistema, Português (Brasil), English (US) ou 日本語 (japonês) |
+| **Avançado** | Modo desenvolvedor (IDs das mensagens, "Copiar ID"), recarregar temas ao salvar, fechar para a bandeja, peso do texto, o registro de depuração e quantas vezes o Discord pediu captcha ou verificação |
 | **Desempenho** | RAM, CPU por quadro, CPU parado e mensagens por canal |
 | **Plugins** | Um cartão para cada plugin (o que ele é e o que pede), ligar e desligar, erros, aprovação de hosts, o painel dele, Recarregar e Instalar os incluídos |
 | **Sobre** | Versão e com o que foi feito |

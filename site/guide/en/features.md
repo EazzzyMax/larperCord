@@ -5,8 +5,10 @@ Everything here works in demo mode, except where it needs the real network. For 
 ## Conversations
 
 - **Messages**: send, edit (`↑` in an empty box edits your last one), delete, and pending messages confirmed by the server. Messages are grouped, with day separators.
-- **Replies**, with the little curve and a click that jumps to the original.
-- **Reactions**, an emoji picker and a hover action bar on every message.
+- **Replies**, with the little curve and a click that jumps to the original. "@ ON / @ OFF" in the reply bar chooses whether the author gets pinged, and a reply to a message with no text shows what it had (a file, a sticker, a voice message, a poll).
+- **Send options** next to the GIF button: a silent message (or `@silent ` at the start), no link previews, or no pings. Each file in the upload tray can be a spoiler and have alt text.
+- **Reactions**, an emoji picker and a hover action bar on every message. Right-click a reaction, or use View Reactions, to see who reacted.
+- **Polls**: vote, remove your vote or see the results first, and click an answer to see who voted for it.
 - **Text selection** across several messages with the mouse, then `Ctrl+C`.
 - **Multi-line composer**: wraps long text and grows up to 10 lines. `Enter` sends and `Shift+Enter` adds a line.
 - **Drafts** per channel: unsent text comes back when you return to the channel, even after closing the app.
@@ -18,6 +20,7 @@ Everything here works in demo mode, except where it needs the real network. For 
 
 - **Threads** sit under their parent channel, collapsible and with unread counts. They open like any conversation, with tabs, split view, drafts, cache and search.
 - The message that started a thread shows a card with the message count and the last activity. Creating, joining and leaving threads, and the archived ones, are in the menu.
+- **Edit Thread…**, in its menu or by clicking its title, changes the name, a forum post's tags and auto-archive; archiving and locking are one click. Only what you're allowed to do appears. The threads panel has a **Private** tab with archived private threads.
 - **Forums and media channels** show their list of posts instead of a conversation, with local search, sorting by activity, more pages on demand and **New Post** with title, tags and text.
 - Permissions come from the parent channel, and the member list shows who's in the thread.
 
@@ -27,9 +30,9 @@ Everything here works in demo mode, except where it needs the real network. For 
 
 ## Emoji and autocomplete
 
-- **Custom emoji** show as images, animated ones too, large when a message is only emoji, and in reactions. PNG, APNG and GIF **stickers** show as images.
+- **Custom emoji** show as images, animated ones too, large when a message is only emoji, and in reactions. PNG, APNG and GIF **stickers** show as images, and the GIF picker's **Stickers** tab sends them.
 - **The picker** has the full Unicode list, search in Portuguese and English, recents and your servers' emoji, and it warns when an emoji needs Nitro.
-- **Autocomplete**: in the text box, `@`, `#`, `:ab` and `/` open a list. Use the arrows, then `Tab` or `Enter`, `Esc` or a click. Names with spaces become real mentions when you send.
+- **Autocomplete**: in the text box, `@`, `#`, `:ab` and `/` open a list (`/` lists the slash commands of the server's bots and of your apps). Use the arrows, then `Tab` or `Enter`, `Esc` or a click. Names with spaces become real mentions when you send.
 - **Data saver** shows custom emoji as `:name:` and downloads nothing.
 
 ![The emoji picker](shot:f-emoji)
@@ -41,8 +44,8 @@ Everything here works in demo mode, except where it needs the real network. For 
 - **Read state synced with Discord**: unreads and mentions are right when you open the app, and reading on another device clears them here. Read confirmations work like the official client's, at most one per channel every 3 seconds, and none on its own while the window is unfocused.
 - **Mark as read** per channel and per server, and **mark as unread** from any message.
 - **The new messages line** comes with a button that jumps to the first one. Channels open at the first unread, which you can turn off in Settings → Chat.
-- **Pinned messages**: the pin icon in the header, and pin or unpin from the menu. Jumping to any old message loads the history around it, with **Jump to present** to come back.
-- **Discord links open in the app**, including `ptb.` and `canary.` ones. Invites become a card with the server and its members, and open in the browser, since the app doesn't join servers.
+- **Pinned messages**: the pin icon in the header, and pin or unpin from the menu. Jumping to any old message loads the history around it, with **Jump to present** to come back. The pins panel loads more than 50 with **Load more**.
+- **Discord links open in the app**, including `ptb.` and `canary.` ones. Invites become a card with the server and its members and a **Join** button. Joining warns first that joining or leaving many servers quickly is the most common reason third-party client accounts get locked.
 - Clicking `@someone` opens their profile, clicking `#channel` opens the channel, and hovering a timestamp shows the full date.
 
 ![The pinned messages panel](shot:f-fixadas)
@@ -57,11 +60,15 @@ Also: `#`, `##` and `###` headings, `-#` small text, `>` and `>>>` quotes, lists
 
 Bots and webhooks carry a BOT tag next to the name, with a check mark for verified bots. Each webhook message keeps the name and picture it was sent with, and its card has no "Message" box, since a webhook isn't an account.
 
-Embeds and Discord's newer component messages show text, thumbnails, separators, galleries, files and link buttons. Text in them can be selected and copied with Ctrl+C. Forwarded messages and polls appear as cards; to vote, use Discord. Buttons that talk to a bot aren't supported yet, so they aren't shown.
+Embeds and Discord's newer component messages show text, thumbnails, separators, galleries, files and link buttons. Text in them can be selected and copied with Ctrl+C. Forwarded messages appear as cards.
+
+Buttons and select menus talk to the bot, with a loading indicator and "This interaction failed" when it doesn't answer. Bot forms (modals) open in the app, and typing `/` opens a panel for a slash command's subcommands, options and files. Replies only you can see say so and can be dismissed. App commands in the right-click menu and files inside bot forms aren't supported yet.
 
 ## Media
 
-- **Images** and **GIFs**, with a fixed-size cache, full-screen view, and upload by picker, drag and drop or `Ctrl+V`. WebP and animated PNG are decoded too.
+- **Images** and **GIFs**, with a fixed-size cache, full-screen view, and upload by picker, drag and drop or `Ctrl+V`. WebP and animated PNG are decoded too. Long GIFs play every frame, and the star on a GIF adds it to your favorites.
+- **Spoilers and sensitive media** stay behind a cover until you click, with nothing downloaded before. Images whose Discord link expired are refreshed on their own.
+- **Voice messages** have a player with a waveform to seek. Recording them isn't supported yet.
 - **Embeds** as cards: color, author, title, description in markdown, fields, image, thumbnail and footer.
 - **Video in the chat** for attachments and direct `.mp4`/`.webm` links, through FFmpeg 7, 8 or 9, which is only loaded on the first play. On Linux it's your system's FFmpeg (older distros ship an older one, which is ignored). On Windows, Settings → Chat → **Download FFmpeg** downloads and installs it (about 80 MB, checked against a SHA-256), or the app uses FFmpeg DLLs it finds next to `larpercord.exe` or on `PATH`. Play and pause, a progress bar and sound, up to 854×480 at about 30 fps. Off-screen video pauses, and 30 seconds later everything is released. Without FFmpeg, it opens in the browser.
 - **Data saver**: images, avatars and attachments only download when you click.
@@ -92,40 +99,47 @@ Search ignores case and accents, so `nao` finds `não`.
 - **Resizable panels**: drag the edge of the channel list, the member list or the panes of a split view. A double-click goes back to the theme's width. Your choice is saved, follows you between themes, and gives way when the window gets too small for the conversation; Settings → Appearance can reset it.
 - **Hide the member list or status bar** in Settings → Appearance, and the conversation takes the space.
 - **Server folders** from your Discord settings, updated live.
-- **Friends screen**: requests, accepting them and starting DMs.
+- **Friends screen**: requests, accepting and cancelling them, starting DMs, and an **Add Friend** tab that takes a username. DMs from people who aren't your friends go to **Message Requests**, with a Spam tab, and don't notify.
 
 ## People
 
 - **Profile card** with banner, accent color, bio in markdown, pronouns, mutual friends and servers, current game with elapsed time, and the call they're in, with a Join button.
 - **Full profile** with tabs: activity, mutual friends and servers, connections, badges and your private note.
 - **See it bigger**: click a profile banner or picture to open it in full. A server's banner opens the same way from the channel list, and the server and user menus have View Icon and View Picture.
-- **Status picker**: online, idle, do not disturb, invisible.
+- **Status picker**: online, idle, do not disturb, invisible, for 15 minutes up to 3 days or until you change it, saved to your account. Click your name for a **custom status** with an emoji and when it clears.
+- **Block, unblock and Add Friend** from a person's menu or profile. Settings → My Account edits your display name, pronouns and About me.
+- **Rich Presence** (off by default, in Settings → Privacy): games that support it show what you're playing.
 - **Roles**: member list by role with real colors, and giving or removing roles when you have permission.
 
 ## Attention
 
 - **Alert words** count as mentions. Up to 64 words, matched as whole words, ignoring case.
 - **Word filter** collapses matching messages behind a click, and they never notify.
-- **Ignore** hides someone's messages locally, without blocking them.
+- **Ignore** hides someone's messages without blocking them, saved to your Discord account. People ignored before 0.6.2 stay ignored on this computer only.
 - **Focus mode**: for 15 minutes, 30 minutes, 1 hour or until you turn it off, only DMs and mentions notify and mark unread.
-- **Desktop notifications**, only while the window is unfocused or hidden in the tray, plus taskbar flashing. On Linux they go through `notify-send` (from libnotify), and on Windows they're Windows notifications from the tray area. Muted channels never notify.
+- **Desktop notifications**, only while the window is unfocused or hidden in the tray, plus taskbar flashing. On Linux they go through `notify-send` (from libnotify), and on Windows they're Windows notifications from the tray area. Muted channels never notify. Mute and notification levels (all, mentions, nothing, suppress @everyone or role mentions) sync with your account.
 
 ## Channels you can't open
 
-The app computes permission overwrites per channel the way Discord does (`@everyone`, your roles, you). A channel without access appears dimmed with a padlock and a hint, and clicking only tells you so, instead of asking the server. Voice channels you can't join get the same treatment.
+The app computes permission overwrites per channel the way Discord does (`@everyone`, your roles, you). A channel without access appears dimmed with a padlock and a hint, and clicking only tells you so, instead of asking the server. Voice channels you can't join get the same treatment. When you can't send, the message box says why: no permission, a locked thread, a timeout or an AutoMod quarantine. It also shows slowmode, with a countdown after you send.
 
 ## Servers and groups
 
 With the Manage Server permission, right-click the server to edit its name, description, icon and banner. Any member can rename a group DM and change its icon. Deleting a thread asks for confirmation and needs Manage Threads. A server's banner appears at the top of the channel list and on invite cards.
 
+**Moderation**: kick, ban, time out, and server mute or deafen from a person's menu, or the ⋯ on their profile card, only when your role allows it. Kick, ban and timeout ask first and take a reason for the audit log, and timed-out members show a small clock. **Bans** in the server menu lists and unbans people.
+
+If a server asks you to accept its rules, the message box says so and opens them; servers with onboarding have **Server Onboarding…** in their menu. Right-click a group DM → **Group Members…** to add friends or, as its owner, remove someone.
+
 ## Calls
 
-Real voice with end-to-end encryption, a per-person mixer, device picker, push-to-talk and filters. See [Voice calls](page:voice).
+Real voice with end-to-end encryption, a per-person mixer, device picker, push-to-talk and filters, in server voice channels and in DM and group calls. See [Voice calls](page:voice).
 
 ## Network and languages
 
-- **Proxy** for `http`, `https`, `socks5` and `socks5h` (Tor at `socks5h://127.0.0.1:9050`), for external media only or for everything except voice calls, which always connect directly.
-- **English and Portuguese** across the UI, network notices, demo data and theme options. It follows your system by default.
+- **Proxy** for HTTP, HTTPS, SOCKS5 and SOCKS5h (Tor at `127.0.0.1:9050`), with separate fields for the address, port, login and password, for external media only or for everything except voice calls, which always connect directly.
+- **English and Portuguese** across the UI, network notices, demo data and theme options, and the interface in **Japanese**, with English where a translation is still missing. It follows your system by default.
+- **Text in any language**: Arabic letters are joined and right-to-left text comes in the right order. A letter the theme's font lacks, in any script, comes from a system font that has it. Typed right-to-left text still goes left to right in the message box, and scripts that need shaping, like Devanagari or Thai, show their letters one by one.
 
 ## Make it yours
 

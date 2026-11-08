@@ -6,7 +6,7 @@
 |---|---|---|---|
 | Vesktop (Electron) | 1.279 MB | 12–47% ¹ | 287 MB |
 | Discord Phoenix (Rust) ² | ~290 MB | 0,1% | não lançado |
-| **larperCord**, conta real ³ | **~130 MB** | **0–0,4%** ⁴ | **~15 MB** |
+| **larperCord**, conta real ³ | **~130 MB** | **0–0,4%** ⁴ | **~14 MB** |
 
 ¹ Média desde a abertura, medida com `ps`. Arch Linux, Hyprland, GTX 1050 Ti, janela de 1280×800, build `ReleaseFast`.
 
@@ -21,7 +21,7 @@ Leia esses números com as ressalvas certas:
 - **Uma conta real usa mais** do que os dados de demonstração. Mais servidores, mais membros, mais imagens.
 - **Parado quer dizer que nada está se mexendo.** Um GIF animado na tela custa cerca de 2,5% de CPU. O primeiro canal da demonstração tem um, então a medição desliga a reprodução automática.
 - **Boa parte do PSS não é do app.** É o driver da NVIDIA e bibliotecas do sistema como libcurl e OpenSSL. Numa medição entre os temas, a memória anônima ficou em cerca de 25 MB.
-- **O arquivo publicado para Linux traz SDL3, libcurl e OpenSSL dentro**, para rodar em mais distros. Compilado com as cópias do sistema, ele tem cerca de 7 MB. Estes números de RAM vêm desse tipo de build; lado a lado na demonstração, o arquivo publicado usou cerca de 2 MB a mais.
+- **O arquivo publicado para Linux traz SDL3, libcurl e OpenSSL dentro**, para rodar em mais distros, compilados só com as partes que o app usa. Compilado com as cópias do sistema, ele tem cerca de 8 MB. Estes números de RAM vêm desse tipo de build; lado a lado na demonstração, o arquivo publicado usou cerca de 2 MB a mais.
 - Os números do Vesktop vêm de uma única execução anterior na mesma máquina.
 
 ## Meça você mesmo

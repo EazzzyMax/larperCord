@@ -63,7 +63,7 @@
 <p>Media downloads only go to allowed hosts, redirects are checked, images are limited to 8192 pixels per side, and downloads stop at 32 MB for images and 64 MB for video.</p>
 <p>There's no telemetry or analytics in the app.</p>
 <h2 id="proxy"><a class="anchor" href="#proxy" aria-hidden="true">#</a>Proxy</h2>
-<p>Settings → Privacy → Network accepts <code>http</code>, <code>https</code>, <code>socks5</code> and <code>socks5h</code>. For Tor, use <code>socks5h://127.0.0.1:9050</code>.</p>
+<p>Settings → Privacy → Network has a type (HTTP, HTTPS, SOCKS5 or SOCKS5h), address, port, login and password. The login and password can hold any character, and pasting a full URL like <code>socks5://user:pass@host:1080</code> into the address fills every field. For Tor, use SOCKS5h at <code>127.0.0.1</code> port <code>9050</code>.</p>
 <p>By default, the proxy applies to media from outside Discord. <strong>Use the proxy for everything</strong> also routes the API, images, videos and the gateway through it (the gateway from the next connection on).</p>
 <p>Voice calls never go through the proxy, not even with <strong>Use the proxy for everything</strong> on. They connect straight to Discord's voice servers, which see your IP. If your IP must stay hidden, don't join calls.</p>
 <h2 id="plugins"><a class="anchor" href="#plugins" aria-hidden="true">#</a>Plugins</h2>
