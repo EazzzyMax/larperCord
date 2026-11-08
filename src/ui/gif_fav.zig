@@ -27,9 +27,11 @@ pub fn rect(r: d.Rect) ?d.Rect {
 }
 
 /// O mouse está no GIF e nada cobre a janela dele: a estrela aparece. A área clicável
-/// dela vem antes da do GIF (a de cima ganha o clique).
+/// dela vem antes da do GIF (a de cima ganha o clique). Com o botão apertado na própria
+/// estrela ela é o item ativo, e o ImGui diria que a janela não está sob o mouse: sem
+/// AllowWhenBlockedByActiveItem ela sumiria antes de soltar, e o clique nunca chegaria.
 pub fn shows(ctx: *d.Ctx, r: d.Rect) bool {
-    return ctx.hovering(r) and c.ImGui_IsWindowHovered(c.ImGuiHoveredFlags_ChildWindows);
+    return ctx.hovering(r) and c.ImGui_IsWindowHovered(c.ImGuiHoveredFlags_ChildWindows | c.ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 }
 
 pub fn draw(ctx: *d.Ctx, dl: *c.ImDrawList, br: d.Rect, hb: d.Hit, on: bool) void {
