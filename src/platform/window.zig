@@ -2,6 +2,7 @@
 //! É a única parte que conhece o SDL e o backend gráfico; um backend por
 //! software (wl_shm, sem GPU) entraria aqui sem mexer no resto.
 const std = @import("std");
+const builtin = @import("builtin");
 const sys = @import("sys.zig");
 const c = @import("c");
 
@@ -186,6 +187,8 @@ pub const SelfMem = struct { pss: u32 = 0, file: u32 = 0 };
 
 pub fn selfMemKb() SelfMem {
     if (sys.windows) return .{ .pss = sys.privateKb() };
+    // Navegador: não há /proc; o que a aba guarda para o app é a memória do wasm.
+    if (builtin.os.tag == .emscripten) return .{ .pss = @intCast(c.emscripten_get_heap_size() / 1024) };
     // Arquivos do /proc não informam o tamanho, então lê direto.
     const fd = c.open("/proc/self/smaps_rollup", c.O_RDONLY);
     if (fd < 0) return .{};

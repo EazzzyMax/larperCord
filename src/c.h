@@ -6,6 +6,7 @@
 #ifdef __EMSCRIPTEN__
 /* Navegador (src/web_main.zig): o laço é o da página. */
 #include <emscripten.h>
+#include <emscripten/heap.h>
 #endif
 #ifdef _WIN32
 #include <winsock2.h>

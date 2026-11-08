@@ -139,3 +139,51 @@ DAVEDecryptorResultCode daveDecryptorDecrypt(DAVEDecryptorHandle decryptor, DAVE
     if (bytesWritten) *bytesWritten = 0;
     return DAVE_DECRYPTOR_RESULT_CODE_DECRYPTION_FAILURE;
 }
+
+/* --- SDL3 no Emscripten: a porta não compila os subsistemas de processo e de
+ * diálogo de arquivo. Responde como os backends "dummy" do próprio SDL: nenhum
+ * processo abre e o diálogo devolve a lista nula com erro. Só no wasm: o web-sim
+ * liga o SDL3 do sistema, que tem os dois. --------------------------------------- */
+
+#ifdef __EMSCRIPTEN__
+#include <SDL3/SDL.h>
+
+SDL_Process *SDL_CreateProcess(const char * const *args, bool pipe_stdio) { (void)args; (void)pipe_stdio; SDL_Unsupported(); return NULL; }
+SDL_Process *SDL_CreateProcessWithProperties(SDL_PropertiesID props) { (void)props; SDL_Unsupported(); return NULL; }
+SDL_PropertiesID SDL_GetProcessProperties(SDL_Process *process) { (void)process; return 0; }
+SDL_IOStream *SDL_GetProcessInput(SDL_Process *process) { (void)process; return NULL; }
+SDL_IOStream *SDL_GetProcessOutput(SDL_Process *process) { (void)process; return NULL; }
+bool SDL_KillProcess(SDL_Process *process, bool force) { (void)process; (void)force; return SDL_Unsupported(); }
+bool SDL_WaitProcess(SDL_Process *process, bool block, int *exitcode) {
+    (void)process; (void)block;
+    if (exitcode) *exitcode = -1;
+    /* Sem processo não há o que esperar: quem chama já pode soltar o ponteiro. */
+    return true;
+}
+void SDL_DestroyProcess(SDL_Process *process) { (void)process; }
+
+void SDL_ShowOpenFileDialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location, bool allow_many) {
+    (void)window; (void)filters; (void)nfilters; (void)default_location; (void)allow_many;
+    SDL_Unsupported();
+    if (callback) callback(userdata, NULL, -1);
+}
+
+/* --- Sockets: no Emscripten o connect() e o sendto() viram um WebSocket para o
+ * endereço pedido. A demonstração não usa rede (o gateway é de mentira), mas o código
+ * da voz, do Rich Presence e do TCP local está no executável: aqui nenhum socket abre,
+ * e nada sai da aba nem por engano. Estes ficam no lugar dos da libc. */
+
+#include <errno.h>
+#include <sys/socket.h>
+
+int socket(int domain, int type, int protocol) {
+    (void)domain; (void)type; (void)protocol;
+    errno = EAFNOSUPPORT;
+    return -1;
+}
+int socketpair(int domain, int type, int protocol, int fd[2]) {
+    (void)domain; (void)type; (void)protocol; (void)fd;
+    errno = EAFNOSUPPORT;
+    return -1;
+}
+#endif

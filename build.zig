@@ -401,19 +401,23 @@ const web_cxx_sources = [_][]const u8{
 
 /// A demonstração no navegador (ver tools/web/README.md). Três passos:
 ///   web-lib  compila tudo para wasm32-emscripten num .a (só precisa dos cabeçalhos
-///            do Emscripten: -Dweb-sysroot ou -Demsdk);
-///   web      liga o .a com o emcc em zig-out/web (precisa de -Demsdk);
+///            do Emscripten: -Dweb-sysroot, -Demscripten ou -Demsdk);
+///   web      liga o .a com o emcc em zig-out/web (precisa de -Demscripten ou -Demsdk);
 ///   web-sim  o mesmo caminho da página (sem threads, sem rede, fontes embutidas)
 ///            num executável comum, para conferir sem navegador.
 fn addWeb(b: *std.Build, native_c: *std.Build.Module, themes_mod: *std.Build.Module, examples_mod: *std.Build.Module) void {
+    // O emcc fica em upstream/emscripten no emsdk; num pacote do sistema (o emscripten
+    // do Arch, por exemplo) a pasta do emcc é outra, então ela pode vir direto.
+    const emscripten_opt = b.option([]const u8, "emscripten", "Navegador: pasta do emcc e do embuilder (padrão: <emsdk>/upstream/emscripten)");
     const emsdk = b.option([]const u8, "emsdk", "Navegador: pasta do emsdk (a que tem upstream/emscripten)");
-    const sysroot_opt = b.option([]const u8, "web-sysroot", "Navegador: sysroot do Emscripten (padrão: o do -Demsdk)");
+    const em_dir: ?[]const u8 = emscripten_opt orelse if (emsdk) |e| b.pathJoin(&.{ e, "upstream", "emscripten" }) else null;
+    const sysroot_opt = b.option([]const u8, "web-sysroot", "Navegador: sysroot do Emscripten (padrão: cache/sysroot na pasta do emcc)");
     const host_inc = b.option([]const u8, "web-host-include", "Navegador: de onde vêm os cabeçalhos de curl, opus, webp e fontconfig (padrão: /usr/include)") orelse "/usr/include";
     const web_optimize = b.option(std.builtin.OptimizeMode, "web-optimize", "Navegador: otimização do wasm (padrão: small)") orelse .small;
     const fonts_dir = b.option([]const u8, "web-fonts", "Navegador: pasta com as fontes da página (padrão: zig-out/web-fonts, ver tools/web/fonts.py)") orelse b.root.joinString(b.allocator, "zig-out/web-fonts") catch @panic("OOM");
 
     const lib_step = b.step("web-lib", "Navegador: compila a demonstração para wasm32-emscripten (sem ligar)");
-    const web_step = b.step("web", "Navegador: a demonstração em WebAssembly em zig-out/web (precisa de -Demsdk)");
+    const web_step = b.step("web", "Navegador: a demonstração em WebAssembly em zig-out/web (precisa de -Demscripten ou -Demsdk)");
     const sim_step = b.step("web-sim", "Navegador: o caminho da página numa janela comum");
 
     // --- web-sim: nativo, mesmas bibliotecas do sistema menos as que a página não tem.
@@ -439,8 +443,8 @@ fn addWeb(b: *std.Build, native_c: *std.Build.Module, themes_mod: *std.Build.Mod
     }
 
     // --- web-lib e web: wasm32-emscripten.
-    const sysroot: []const u8 = sysroot_opt orelse if (emsdk) |e| b.pathJoin(&.{ e, "upstream", "emscripten", "cache", "sysroot" }) else {
-        const fail = b.addFail("navegador: passe -Demsdk=<pasta do emsdk> (ou -Dweb-sysroot=<sysroot> para só compilar); ver tools/web/README.md");
+    const sysroot: []const u8 = sysroot_opt orelse if (em_dir) |e| b.pathJoin(&.{ e, "cache", "sysroot" }) else {
+        const fail = b.addFail("navegador: passe -Demscripten=<pasta do emcc> ou -Demsdk=<pasta do emsdk> (ou -Dweb-sysroot=<sysroot> para só compilar); ver tools/web/README.md");
         lib_step.dependOn(&fail.step);
         web_step.dependOn(&fail.step);
         return;
@@ -499,23 +503,29 @@ fn addWeb(b: *std.Build, native_c: *std.Build.Module, themes_mod: *std.Build.Mod
 
     for ([_]*std.Build.Step.Compile{ lib, clib }) |l| lib_step.dependOn(&b.addInstallArtifact(l, .{ .dest_dir = .{ .override = .{ .custom = "web" } } }).step);
 
-    const root = emsdk orelse {
-        web_step.dependOn(&b.addFail("navegador: ligar precisa do emcc (-Demsdk=<pasta do emsdk>); para só compilar use zig build web-lib").step);
+    const em = em_dir orelse {
+        web_step.dependOn(&b.addFail("navegador: ligar precisa do emcc (-Demscripten=<pasta do emcc> ou -Demsdk=<pasta do emsdk>); para só compilar use zig build web-lib").step);
         return;
     };
-    const em = b.pathJoin(&.{ root, "upstream", "emscripten" });
     // As portas (SDL3, FreeType, zlib) primeiro: os cabeçalhos delas entram no sysroot.
-    const ports = b.addSystemCommand(&.{ b.pathJoin(&.{ em, "embuilder" }), "build", "sdl3", "freetype", "zlib" });
+    // O sysroot vem antes: com o cache vazio a porta do SDL3 cai ao gravar o .pc dela
+    // numa pasta que só o sysroot cria (o emcc instala sozinho, o embuilder não).
+    // O FreeType é o de tools/web/freetype_png.py: a porta do Emscripten vem sem PNG,
+    // e sem PNG o emoji colorido (CBDT) não abre.
+    const freetype_port = b.path("tools/web/freetype_png.py");
+    const ports = b.addSystemCommand(&.{ b.pathJoin(&.{ em, "embuilder" }), "build", "sysroot", "sdl3", "zlib" });
+    ports.addFileArg(freetype_port);
     translate.step.dependOn(&ports.step);
     clib.step.dependOn(&ports.step);
 
     const link = b.addSystemCommand(&.{b.pathJoin(&.{ em, "emcc" })});
     link.addArtifactArg(lib);
     link.addArtifactArg(clib);
+    // As portas do Emscripten: SDL3 (canvas, WebGL 2, eventos), zlib e o FreeType com
+    // PNG (que puxa a libpng).
+    link.addPrefixedFileArg("--use-port=", freetype_port);
     link.addArgs(&.{
-        // As portas do Emscripten: SDL3 (canvas, WebGL 2, eventos), FreeType e zlib.
         "-sUSE_SDL=3",
-        "-sUSE_FREETYPE=1",
         "-sUSE_ZLIB=1",
         "-sMIN_WEBGL_VERSION=2",
         "-sMAX_WEBGL_VERSION=2",
@@ -536,6 +546,10 @@ fn addWeb(b: *std.Build, native_c: *std.Build.Module, themes_mod: *std.Build.Mod
         "--preload-file",
     });
     link.addArg(b.fmt("{s}@/fonts", .{fonts_dir}));
+    // A pasta entra como texto: sem isto, fontes novas do tools/web/fonts.py não
+    // refazem a ligação e o .data sai com as antigas.
+    for ([_][]const u8{ "ui-regular.ttf", "ui-medium.ttf", "ui-semibold.ttf", "ui-bold.ttf", "ui-italic.ttf", "mono.ttf", "mono-bold.ttf", "symbols.ttf", "emoji.ttf" }) |f|
+        link.addFileInput(.{ .cwd_relative = b.pathJoin(&.{ fonts_dir, f }) });
     link.addArg("-o");
     const js = link.addOutputFileArg("larpercord.js");
     const out = b.addInstallDirectory(.{ .source_dir = js.dirname(), .install_dir = .prefix, .install_subdir = "web" });
