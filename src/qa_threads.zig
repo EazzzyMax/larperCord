@@ -475,7 +475,10 @@ fn postsDrawn(_: *App) bool {
     return qa.find(mk(&b, "post:{d}", .{ids[0]})) != null;
 }
 fn hasPreviewAndTags(app: *App) bool {
-    const cs = app.store.channel(forum.visible(false)[0]) orelse return false;
+    // Lista ainda vazia (o fórum carregando): espera, como o postsDrawn, em vez de cair.
+    const ids = forum.visible(false);
+    if (ids.len == 0) return false;
+    const cs = app.store.channel(ids[0]) orelse return false;
     return cs.preview.len > 0 and cs.preview_author != 0 and cs.info.thread.?.tags.len > 0;
 }
 fn orderedByActivity(app: *App) bool {
