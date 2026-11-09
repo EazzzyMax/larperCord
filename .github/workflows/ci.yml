@@ -106,8 +106,9 @@ jobs:
           path: qa-out/
 
   # macOS (experimental, Apple Silicon): as bibliotecas do Homebrew (docs/macos.md), os
-  # testes, a bateria geral do QA fora da tela e o .app para quem tem um Mac baixar e
-  # testar. Enquanto o port for experimental, uma falha aqui não segura o resto.
+  # testes, um teste de fumaça (abre a demonstração, tira um print, confere o TLS) e o
+  # .app para quem tem um Mac baixar e testar. Enquanto o port for experimental, uma
+  # falha aqui não segura o resto.
   macos:
     runs-on: macos-latest
     continue-on-error: true
@@ -119,19 +120,21 @@ jobs:
       - run: brew install sdl3 curl opus webp freetype fontconfig openssl@3 pkgconf
       - run: sh tools/macos_build.sh
       - run: zig build test
-      # Debug, com as checagens de segurança, como o tools/qa.sh. Sem janela: o driver
-      # offscreen do SDL desenha no renderizador de software (o Metal precisa de janela).
-      - name: QA geral (janela nativa, renderizador por software)
+      # A tela da máquina do CI (1024×768) é pequena para a bateria do QA, que espera uma
+      # janela de 1280×800: aqui só se prova que o app abre, desenha a demonstração e fala
+      # TLS com os certificados do macOS. O QA completo roda no Linux e no Windows. Janela
+      # nativa (o driver offscreen do SDL não abre janela no macOS) com o renderizador por
+      # software (a máquina virtual não tem Metal).
+      - name: Abre na demonstração
         env:
           LARPER_RENDERER: software
-          QA_SLOW: "3"
         run: |
-          sh tools/macos_build.sh -Doptimize=debug -p .zig-cache/qa
           mkdir -p qa-out
-          status=0
-          ./.zig-cache/qa/bin/larpercord --qa --theme classico > qa-out/geral.log 2>&1 || status=$?
-          grep -E 'passaram|falharam|^\s+- \[|panic' qa-out/geral.log || tail -n 30 qa-out/geral.log
-          exit $status
+          ./zig-out/bin/larpercord --version
+          ./zig-out/bin/larpercord --help > /dev/null
+          ./zig-out/bin/larpercord --demo --shot qa-out/demo.png > qa-out/demo.log 2>&1 || { cat qa-out/demo.log; exit 1; }
+          test "$(stat -f %z qa-out/demo.png)" -gt 10000
+          ./zig-out/bin/larpercord --tls-check https://github.com/
       # O .app com as dylibs dentro, assinado ad hoc. Em .tar.gz: o artefato do GitHub
       # perde a permissão de execução dos arquivos.
       - name: Pacote .app

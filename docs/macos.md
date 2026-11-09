@@ -84,9 +84,10 @@ do not exercise real voice calls or macOS permission prompts.
 
 An experimental job on GitHub's Apple Silicon runners (`macos` in
 `.github/workflows/ci.yml`) installs the Homebrew dependencies above, builds the
-app, runs the unit tests and the general QA suite in a native window (the
-runner has a display; `LARPER_RENDERER=software`, since the VM has no Metal;
-SDL's offscreen driver doesn't open a window on macOS), and uploads the
+app, runs the unit tests and a smoke test (opens the demo in a native window
+with `LARPER_RENDERER=software`, saves a screenshot and checks TLS; the VM's
+1024×768 screen is too small for the full QA, which runs on Linux and Windows),
+and uploads the
 `larpercord-macos-arm64` artifact: the `.app` inside a `.tar.gz`. It doesn't
 block the other jobs while the port is experimental. The bundle is only signed
 ad hoc, so macOS may refuse to open a downloaded copy; in that case run

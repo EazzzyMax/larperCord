@@ -85,9 +85,10 @@ exercitam chamadas reais nem os pedidos de permissão do macOS.
 
 Um job experimental nas máquinas Apple Silicon do GitHub (`macos` em
 `.github/workflows/ci.yml`) instala as dependências do Homebrew acima, compila o
-app, roda os testes unitários e a bateria geral do QA numa janela nativa (a
-máquina tem tela; `LARPER_RENDERER=software`, porque a máquina virtual não tem
-Metal; o driver offscreen do SDL não abre janela no macOS) e publica o artefato
+app, roda os testes unitários e um teste de fumaça (abre a demonstração numa janela
+nativa com `LARPER_RENDERER=software`, salva um print e confere o TLS; a tela de
+1024×768 da máquina virtual é pequena para o QA completo, que roda no Linux e no
+Windows) e publica o artefato
 `larpercord-macos-arm64`: o `.app` dentro de um `.tar.gz`. Enquanto o port for
 experimental, ele não segura os outros jobs. O bundle só tem assinatura ad-hoc,
 então o macOS pode recusar abrir uma cópia baixada; nesse caso, rode
