@@ -45,7 +45,10 @@ pub const Window = struct {
         var flags = c.SDL_WINDOW_RESIZABLE | c.SDL_WINDOW_HIGH_PIXEL_DENSITY | (if (sys.web) 0 else c.SDL_WINDOW_TRANSPARENT);
         // LARPER_HIDDEN=1: janela escondida (medir desempenho com a GPU de verdade).
         if (c.SDL_getenv("LARPER_HIDDEN") != null) flags |= c.SDL_WINDOW_HIDDEN;
-        const window = c.SDL_CreateWindow(title, w, h, flags) orelse return error.SdlWindow;
+        const window = c.SDL_CreateWindow(title, w, h, flags) orelse {
+            std.log.err("SDL janela: {s}", .{c.SDL_GetError()});
+            return error.SdlWindow;
+        };
         errdefer c.SDL_DestroyWindow(window);
         // On Windows the requested size is in pixels: at 150% the window would open at 2/3 size.
         const s = contentScale(window);

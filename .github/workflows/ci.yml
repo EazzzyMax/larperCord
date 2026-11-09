@@ -121,9 +121,8 @@ jobs:
       - run: zig build test
       # Debug, com as checagens de segurança, como o tools/qa.sh. Sem janela: o driver
       # offscreen do SDL desenha no renderizador de software (o Metal precisa de janela).
-      - name: QA geral (fora da tela)
+      - name: QA geral (janela nativa, renderizador por software)
         env:
-          SDL_VIDEO_DRIVER: offscreen
           LARPER_RENDERER: software
           QA_SLOW: "3"
         run: |

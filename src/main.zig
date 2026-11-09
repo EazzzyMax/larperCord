@@ -69,9 +69,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
             opts.qa = true;
             opts.live = false;
             // No Linux e no Windows o QA roda no driver offscreen. No macOS fica a janela
-            // nativa: o driver existe no SDL (o do Homebrew também), mas não tem Metal, o
-            // renderizador padrão lá, e a janela do QA nem abriria. Fora da tela no macOS:
-            // SDL_VIDEO_DRIVER=offscreen com LARPER_RENDERER=software, como no job do CI.
+            // nativa: o driver offscreen do SDL não abre a janela lá (nem com o renderizador
+            // por software). O job do CI roda o QA na janela nativa do runner, que tem tela,
+            // com LARPER_RENDERER=software, porque a máquina virtual não tem Metal.
             if (!sys.macos and @import("c").SDL_getenv("SDL_VIDEO_DRIVER") == null) _ = @import("c").SDL_setenv_unsafe("SDL_VIDEO_DRIVER", "offscreen", 1);
         } else if (std.mem.eql(u8, arg, "--lang")) {
             const l = it.next() orelse return fail("--lang precisa de pt, en ou ja");
