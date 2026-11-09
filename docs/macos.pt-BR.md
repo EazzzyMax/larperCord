@@ -83,6 +83,12 @@ exercitam chamadas reais nem os pedidos de permissão do macOS.
 
 ## CI
 
+O job usa `macos-15` (Apple Silicon) para o Homebrew fornecer dependências do
+Sequoia, não de um sistema mais novo da máquina do CI. Antes de arquivar, o CI
+confere o mínimo do bundle, incluindo todas as bibliotecas, e rejeita exigências
+acima de 15.0. Mudar só o `Info.plist` não torna bibliotecas novas compatíveis
+com versões antigas do macOS.
+
 Um job experimental nas máquinas Apple Silicon do GitHub (`macos` em
 `.github/workflows/ci.yml`) instala as dependências do Homebrew acima, compila o
 app, roda os testes unitários e um teste de fumaça (abre a demonstração numa janela

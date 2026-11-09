@@ -82,6 +82,11 @@ do not exercise real voice calls or macOS permission prompts.
 
 ## CI
 
+The job is pinned to `macos-15` (Apple Silicon) so Homebrew supplies dependencies
+for Sequoia rather than a newer runner OS. Before archiving, CI checks the bundle's
+minimum OS, including every bundled library, and rejects requirements above 15.0.
+Changing only `Info.plist` cannot make newer libraries compatible with older macOS.
+
 An experimental job on GitHub's Apple Silicon runners (`macos` in
 `.github/workflows/ci.yml`) installs the Homebrew dependencies above, builds the
 app, runs the unit tests and a smoke test (opens the demo in a native window

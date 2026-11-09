@@ -110,7 +110,8 @@ jobs:
   # .app para quem tem um Mac baixar e testar. Enquanto o port for experimental, uma
   # falha aqui não segura o resto.
   macos:
-    runs-on: macos-latest
+    # Usa as bibliotecas do Sequoia; macos-latest pode trazer dylibs que exigem Tahoe.
+    runs-on: macos-15
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -142,6 +143,17 @@ jobs:
         run: |
           rm -rf dist && mkdir dist
           python3 tools/macos_bundle.py dist/LarperCord.app
+          # O empacotador calcula o mínimo do executável e de todas as dylibs.
+          # Não publica um artefato que deixou de funcionar no macOS 15.0.
+          python3 - <<'PY'
+          import plistlib
+          with open("dist/LarperCord.app/Contents/Info.plist", "rb") as f:
+              minimum = plistlib.load(f)["LSMinimumSystemVersion"]
+          version = tuple(map(int, minimum.split(".")))
+          if (version + (0, 0, 0))[:3] > (15, 0, 0):
+              raise SystemExit(f"Bundle requires macOS {minimum}; expected 15.0 or earlier")
+          print(f"Bundle minimum macOS: {minimum}")
+          PY
           tar -czf dist/larpercord-macos-arm64.tar.gz -C dist LarperCord.app
       - uses: actions/upload-artifact@v4
         if: always()
